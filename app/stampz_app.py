@@ -205,6 +205,10 @@ class StampZApp:
     def open_3d_analysis(self):
         """Delegate to analysis manager."""
         return self.analysis_manager.open_3d_analysis()
+
+    def open_ternary_plot(self):
+        """Open the ternary plot window."""
+        return self.analysis_manager.open_ternary_plot()
         
     def show_about(self):
         """Delegate to settings manager."""

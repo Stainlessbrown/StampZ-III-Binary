@@ -483,6 +483,19 @@ class AnalysisManager:
                 "Export Error",
                 f"Failed to export both measurements:\\n\\n{str(e)}"
             )
+
+    # === Ternary Plot ===
+    def open_ternary_plot(self):
+        """Open the Ternary Plot window from Color Analysis menu."""
+        try:
+            from plot3d.ternary_plot_app import open_ternary_plot_window
+            ternary_window = open_ternary_plot_window(self.root)
+            return ternary_window
+        except Exception as e:
+            import traceback
+            logger.error(f"Failed to open Ternary Plot: {e}\n{traceback.format_exc()}")
+            messagebox.showerror("Error", f"Failed to open Ternary Plot:\n\n{e}")
+            return None
     
     def export_color_data(self):
         """Export color analysis data - delegate to DataExportManager."""
