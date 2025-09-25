@@ -7,6 +7,7 @@ import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.patches import Rectangle
 
 from utils.data_file_manager import get_data_file_manager, DataFormat
 
@@ -29,6 +30,8 @@ class TernaryPlotWindow:
         self.df = pd.DataFrame(columns=['L*', 'a*', 'b*', 'DataID', 'Marker', 'Color'])
         self.show_hull = tk.BooleanVar(value=False)
         self.manager = get_data_file_manager()
+        self.current_database = tk.StringVar(value="No database loaded")
+        self.current_database_name = None  # Track actual database name for viewer
 
         # Layout
         container = ttk.Frame(self.root)
@@ -57,9 +60,20 @@ class TernaryPlotWindow:
         # Load from realtime database
         ttk.Button(self.side, text="Load from Realtime DB", command=self._load_from_realtime_db).pack(fill=tk.X, pady=4)
         
+        # View current database
+        ttk.Button(self.side, text="View Database Contents", command=self._view_database).pack(fill=tk.X, pady=4)
+        
         # Refresh
         ttk.Button(self.side, text="Refresh Plot", command=self._render).pack(fill=tk.X, pady=4)
 
+        # Current database indicator
+        db_frame = ttk.LabelFrame(self.side, text="Current Database")
+        db_frame.pack(fill=tk.X, pady=6)
+        self.db_label = ttk.Label(db_frame, textvariable=self.current_database, 
+                                 foreground='darkblue', font=('Arial', 9, 'bold'),
+                                 wraplength=240)
+        self.db_label.pack(anchor='w', padx=5, pady=3)
+        
         # Convex hull
         hull_frame = ttk.Frame(self.side)
         hull_frame.pack(fill=tk.X, pady=6)
@@ -126,6 +140,13 @@ class TernaryPlotWindow:
                 df['DataID'] = ''
 
             self.df = df[['L*', 'a*', 'b*', 'DataID', 'Marker', 'Color']].copy()
+            
+            # Update database indicator for external files
+            import os
+            filename = os.path.basename(path)
+            self.current_database.set(f"{filename} ({len(self.df)} points)")
+            self.current_database_name = path  # Store full path for external files
+            
             self._render()
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open file:\n\n{e}")
@@ -133,26 +154,14 @@ class TernaryPlotWindow:
     def _load_from_realtime_db(self):
         """Load data from the realtime datasheet database."""
         try:
-            # COMPREHENSIVE DEBUGGING FOR BUNDLED APPS
             import sys
             import os
             from tkinter import messagebox, simpledialog
             
-            # Show debug info in dialog for bundled apps
-            debug_info = []
-            debug_info.append(f"Python executable: {sys.executable}")
-            debug_info.append(f"Frozen (bundled): {getattr(sys, 'frozen', False)}")
-            debug_info.append(f"Current working directory: {os.getcwd()}")
-            
-            if hasattr(sys, '_MEIPASS'):
-                debug_info.append(f"PyInstaller temp dir: {sys._MEIPASS}")
-            
-            # Try importing the modules
+            # Import required modules with fallback
             try:
                 from utils.path_utils import get_color_analysis_dir
-                debug_info.append("✅ utils.path_utils imported")
             except Exception as e:
-                debug_info.append(f"❌ utils.path_utils import failed: {e}")
                 # Fallback to hardcoded paths
                 if sys.platform == 'darwin':
                     def get_color_analysis_dir():
@@ -160,64 +169,38 @@ class TernaryPlotWindow:
                 else:
                     def get_color_analysis_dir():
                         return os.path.join(os.getcwd(), 'data', 'color_analysis')
-                debug_info.append("Using fallback path function")
             
             try:
                 from utils.color_analysis_db import ColorAnalysisDB
-                debug_info.append("✅ ColorAnalysisDB imported")
             except Exception as e:
-                debug_info.append(f"❌ ColorAnalysisDB import failed: {e}")
-                messagebox.showerror("Import Error", f"Failed to import ColorAnalysisDB:\n\n{e}\n\nDebug:\n" + "\n".join(debug_info))
+                messagebox.showerror("Import Error", f"Failed to import ColorAnalysisDB:\n\n{e}")
                 return
             
             # Use proper path resolution for bundled apps
             db_dir = get_color_analysis_dir()
-            debug_info.append(f"Database directory: {db_dir}")
-            debug_info.append(f"Directory exists: {os.path.exists(db_dir)}")
-            
-            if os.path.exists(db_dir):
-                try:
-                    files = os.listdir(db_dir)
-                    debug_info.append(f"Files in directory: {files}")
-                except Exception as e:
-                    debug_info.append(f"Error listing directory: {e}")
-            
-            # Show debug info to user
-            debug_text = "\n".join(debug_info)
-            messagebox.showinfo("Ternary Plot Debug Info", debug_text)
             
             if not os.path.exists(db_dir):
-                error_msg = (
+                messagebox.showerror("Error", 
                     "No color analysis databases found.\n\n"
-                    f"DEBUG INFO:\n" + "\n".join(debug_info) + "\n\n"
-                    f"Please run color analysis first using the Sample tool."
-                )
-                messagebox.showerror("Error", error_msg)
+                    "Please run color analysis first using the Sample tool.")
                 return
             
-            # Use ColorAnalysisDB's built-in database discovery instead of manual glob
+            # Use ColorAnalysisDB's built-in database discovery
             try:
                 available_databases = ColorAnalysisDB.get_all_sample_set_databases(db_dir)
-                debug_info.append(f"Found {len(available_databases)} databases: {available_databases}")
             except Exception as e:
-                debug_info.append(f"Error discovering databases: {e}")
-                error_msg = "Database discovery failed:\n\n" + "\n".join(debug_info)
-                messagebox.showerror("Error", error_msg)
+                messagebox.showerror("Error", f"Database discovery failed:\n\n{e}")
                 return
             
             if not available_databases:
-                error_msg = (
+                messagebox.showerror("Error", 
                     "No database files found in Application Support.\n\n"
-                    f"FULL DEBUG INFO:\n" + "\n".join(debug_info) + "\n\n"
-                    f"Please run color analysis first using the Sample tool."
-                )
-                messagebox.showerror("Error", error_msg)
+                    "Please run color analysis first using the Sample tool.")
                 return
             
             # Show available databases
             if len(available_databases) == 1:
                 selected_db = available_databases[0]
-                print(f"DEBUG: Auto-selecting single database: {selected_db}")
             else:
                 # Simple selection dialog
                 selection_text = "Available databases:\n" + "\n".join([f"{i+1}. {name}" for i, name in enumerate(available_databases)])
@@ -230,7 +213,6 @@ class TernaryPlotWindow:
                     idx = int(choice) - 1
                     if 0 <= idx < len(available_databases):
                         selected_db = available_databases[idx]
-                        print(f"DEBUG: User selected database: {selected_db}")
                     else:
                         raise ValueError("Invalid selection")
                 except (ValueError, IndexError):
@@ -243,7 +225,12 @@ class TernaryPlotWindow:
             
             if not measurements:
                 messagebox.showwarning("No Data", f"No measurements found in database '{selected_db}'.")
+                self.current_database.set(f"{selected_db} (No data)")
                 return
+            
+            # Update database indicator
+            self.current_database.set(f"{selected_db} ({len(measurements)} points)")
+            self.current_database_name = selected_db  # Store database name for viewer
             
             # Convert to DataFrame with ternary-compatible columns
             import pandas as pd
@@ -274,11 +261,79 @@ class TernaryPlotWindow:
             self.df = pd.DataFrame(df_data)
             self._render()
             
-            messagebox.showinfo("Success", f"Loaded {len(measurements)} measurements from '{selected_db}' database.")
+            messagebox.showinfo("Success", f"Loaded {len(measurements)} measurements from database.")
             
         except Exception as e:
             import traceback
             messagebox.showerror("Error", f"Failed to load from realtime database:\n\n{e}\n\nDetails:\n{traceback.format_exc()}")
+
+    def _view_database(self):
+        """Open a window to view the current database contents."""
+        if not self.current_database_name:
+            messagebox.showwarning("No Database", "No database is currently loaded.")
+            return
+        
+        if self.df is None or self.df.empty:
+            messagebox.showwarning("No Data", "No data is available to view.")
+            return
+        
+        # Create a new window for the database viewer
+        viewer_window = tk.Toplevel(self.root)
+        viewer_window.title(f"Database Contents - {self.current_database_name}")
+        viewer_window.geometry("800x600")
+        
+        # Create a frame for the treeview and scrollbars
+        tree_frame = ttk.Frame(viewer_window)
+        tree_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Create treeview with scrollbars
+        columns = list(self.df.columns)
+        tree = ttk.Treeview(tree_frame, columns=columns, show='tree headings')
+        
+        # Configure column headings
+        tree.heading('#0', text='Row')
+        tree.column('#0', width=50)
+        for col in columns:
+            tree.heading(col, text=col)
+            tree.column(col, width=100)
+        
+        # Add scrollbars
+        v_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=tree.yview)
+        h_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL, command=tree.xview)
+        tree.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
+        
+        # Pack treeview and scrollbars
+        tree.grid(row=0, column=0, sticky='nsew')
+        v_scrollbar.grid(row=0, column=1, sticky='ns')
+        h_scrollbar.grid(row=1, column=0, sticky='ew')
+        
+        # Configure grid weights
+        tree_frame.grid_rowconfigure(0, weight=1)
+        tree_frame.grid_columnconfigure(0, weight=1)
+        
+        # Populate treeview with data
+        for idx, row in self.df.iterrows():
+            values = []
+            for col in columns:
+                val = row[col]
+                if pd.isna(val):
+                    values.append('')
+                elif isinstance(val, float):
+                    values.append(f'{val:.3f}')
+                else:
+                    values.append(str(val))
+            tree.insert('', 'end', text=str(idx), values=values)
+        
+        # Add a status bar
+        status_frame = ttk.Frame(viewer_window)
+        status_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+        
+        ttk.Label(status_frame, 
+                 text=f"Total records: {len(self.df)} | Database: {self.current_database_name}",
+                 font=('Arial', 9)).pack(anchor='w')
+        
+        # Add close button
+        ttk.Button(status_frame, text="Close", command=viewer_window.destroy).pack(side=tk.RIGHT)
 
     def _save_png(self):
         path = filedialog.asksaveasfilename(
@@ -320,14 +375,77 @@ class TernaryPlotWindow:
         # Project to 2D Cartesian in an equilateral triangle
         pts = self._barycentric_to_cartesian(Lp.values, Ap.values, Bp.values)
         x, y = pts[:, 0], pts[:, 1]
+        
+        # Constrain points to stay within triangle boundaries (add small inward margin)
+        h = math.sqrt(3) / 2.0
+        margin = 0.002  # Small inward margin to prevent edge overlap
+        
+        # Triangle vertices with margin
+        A = (margin, margin)  # Bottom left  
+        B = (1.0 - margin, margin)  # Bottom right
+        C = (0.5, h - margin)  # Top
+        
+        # Clamp points to stay within the triangle with margin
+        for i in range(len(x)):
+            # Ensure point is within the triangle by checking barycentric coordinates
+            # and adjusting if necessary
+            px, py = x[i], y[i]
+            
+            # Convert back to barycentric to check bounds
+            # Solve: px = B_coord * 1.0 + C_coord * 0.5, py = C_coord * h
+            if py < margin:
+                y[i] = margin
+            elif py > h - margin:
+                y[i] = h - margin
+                
+            if px < margin:
+                x[i] = margin
+            elif px > 1.0 - margin:
+                x[i] = 1.0 - margin
+                
+            # Additional constraint for the slanted edges of the triangle
+            # Left edge: points to the left of the line from A to C
+            # Right edge: points to the right of the line from B to C
+            
+            # Left edge constraint: x >= (2*y - margin) (approximately)
+            left_bound = 2 * (y[i] - margin) + margin
+            if x[i] < left_bound:
+                x[i] = left_bound
+                
+            # Right edge constraint: x <= 1 - 2*(y - margin) (approximately)
+            right_bound = 1.0 - 2 * (y[i] - margin) - margin
+            if x[i] > right_bound:
+                x[i] = right_bound
 
-        # Plot points with marker and color
+        # Plot points with appropriate marker size based on position
         markers = df.get('Marker', pd.Series(['.'] * len(df))).fillna('.')
         colors = df.get('Color', pd.Series(['blue'] * len(df))).fillna('blue')
+        
+        # Use smaller marker size to reduce boundary issues
+        marker_size = 25  # Reduced from 40
+        
         for i in range(len(df)):
             m = markers.iloc[i]
             c = colors.iloc[i]
-            self.ax.scatter([x[i]], [y[i]], s=40, marker=m if str(m) else '.', c=c if str(c) else 'blue', edgecolors='black', linewidths=0.3, alpha=0.9)
+            
+            # Further reduce marker size for points very close to triangle edges
+            dist_to_edges = min(
+                y[i],  # Distance to bottom edge
+                abs(x[i] - 2*y[i]),  # Distance to left edge (approximate)
+                abs(x[i] - (1.0 - 2*y[i]))  # Distance to right edge (approximate)
+            )
+            
+            # Scale marker size based on distance to edges
+            edge_threshold = 0.05
+            if dist_to_edges < edge_threshold:
+                adjusted_size = marker_size * (0.5 + 0.5 * (dist_to_edges / edge_threshold))
+            else:
+                adjusted_size = marker_size
+                
+            self.ax.scatter([x[i]], [y[i]], s=adjusted_size, 
+                          marker=m if str(m) else '.', 
+                          c=c if str(c) else 'blue', 
+                          edgecolors='black', linewidths=0.2, alpha=0.9)
 
         # Convex hull
         if self.show_hull.get() and len(x) >= 3:
@@ -394,10 +512,16 @@ class TernaryPlotWindow:
         # Add tick marks and percentage labels
         self._add_ternary_tick_marks(A, B, C)
         
-        # Configure plot
+        # Configure plot - provide extra space around triangle for markers
         self.ax.set_aspect('equal', adjustable='box')
-        self.ax.set_xlim(-0.20, 1.20)  # More space for labels
-        self.ax.set_ylim(-0.20, h + 0.20)  # More space for labels
+        marker_padding = 0.03  # Extra space around triangle for markers at edges
+        self.ax.set_xlim(-0.20, 1.20)  # Space for labels
+        self.ax.set_ylim(-0.20, h + 0.20)  # Space for labels
+        
+        # Ensure the triangle drawing area has enough padding for edge markers
+        self.ax.add_patch(Rectangle((-marker_padding, -marker_padding), 
+                                  1.0 + 2*marker_padding, h + 2*marker_padding, 
+                                  fill=False, edgecolor='none'))  # Invisible boundary for markers
         self.ax.set_xticks([])
         self.ax.set_yticks([])
         self.ax.set_xlabel('')  # Clear default labels
