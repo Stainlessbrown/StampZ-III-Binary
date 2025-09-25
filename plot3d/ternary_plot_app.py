@@ -268,7 +268,7 @@ class TernaryPlotWindow:
             messagebox.showerror("Error", f"Failed to load from realtime database:\n\n{e}\n\nDetails:\n{traceback.format_exc()}")
 
     def _view_database(self):
-        """Open a window to view the current database contents."""
+        """Open the RealtimePlot3DSheet interface to view and edit current database contents."""
         if not self.current_database_name:
             messagebox.showwarning("No Database", "No database is currently loaded.")
             return
@@ -277,7 +277,95 @@ class TernaryPlotWindow:
             messagebox.showwarning("No Data", "No data is available to view.")
             return
         
-        # Create a new window for the database viewer
+        try:
+            # Import the RealtimePlot3DSheet interface
+            from gui.realtime_plot3d_sheet import RealtimePlot3DSheet
+            
+            # Convert our L*a*b* data to the Plot_3D normalized format (0-1 range)
+            plot3d_df = self._convert_to_plot3d_format(self.df.copy())
+            
+            # Open the RealtimePlot3DSheet with the converted data
+            datasheet = RealtimePlot3DSheet(
+                parent=self.root, 
+                sample_set_name=f"Ternary Plot - {self.current_database_name}",
+                load_initial_data=False  # We'll load our own data
+            )
+            
+            # Load our converted data into the datasheet
+            if hasattr(datasheet, 'sheet') and len(plot3d_df) > 0:
+                # Convert DataFrame to list format for tksheet
+                data_values = plot3d_df.values.tolist()
+                datasheet.sheet.set_sheet_data(data_values)
+                
+                # Set proper column headers
+                datasheet.sheet.headers(list(plot3d_df.columns))
+                
+                # Force refresh
+                datasheet.sheet.refresh()
+            
+        except ImportError as e:
+            messagebox.showerror("Import Error", 
+                f"Could not import RealtimePlot3DSheet interface:\n\n{e}\n\n"
+                "Falling back to simple table view.")
+            # Fallback to simple view if import fails
+            self._view_database_simple()
+        except Exception as e:
+            messagebox.showerror("Error", 
+                f"Failed to open database viewer:\n\n{e}\n\n"
+                "Please check the console for more details.")
+            print(f"DEBUG: Error opening RealtimePlot3DSheet: {e}")
+            import traceback
+            print(f"DEBUG: Full traceback: {traceback.format_exc()}")
+    
+    def _convert_to_plot3d_format(self, df):
+        """Convert L*a*b* data to Plot_3D normalized format."""
+        plot3d_df = pd.DataFrame()
+        
+        # Convert L*a*b* to normalized Xnorm, Ynorm, Znorm (0-1 range)
+        if all(col in df.columns for col in ['L*', 'a*', 'b*']):
+            # Normalize L* (0-100) to Xnorm (0-1)
+            l_values = pd.to_numeric(df['L*'], errors='coerce').fillna(50)  # Default mid-range
+            plot3d_df['Xnorm'] = np.clip(l_values / 100.0, 0, 1)
+            
+            # Normalize a* (-128 to +127) to Ynorm (0-1)
+            a_values = pd.to_numeric(df['a*'], errors='coerce').fillna(0)  # Default neutral
+            plot3d_df['Ynorm'] = np.clip((a_values + 128) / 255.0, 0, 1)
+            
+            # Normalize b* (-128 to +127) to Znorm (0-1)
+            b_values = pd.to_numeric(df['b*'], errors='coerce').fillna(0)  # Default neutral
+            plot3d_df['Znorm'] = np.clip((b_values + 128) / 255.0, 0, 1)
+        else:
+            # If no L*a*b* data, create default values
+            plot3d_df['Xnorm'] = 0.5
+            plot3d_df['Ynorm'] = 0.5 
+            plot3d_df['Znorm'] = 0.5
+        
+        # Set DataID from existing data or generate
+        if 'DataID' in df.columns:
+            plot3d_df['DataID'] = df['DataID']
+        else:
+            plot3d_df['DataID'] = [f"Point_{i+1}" for i in range(len(df))]
+        
+        # Add other Plot_3D columns with defaults
+        plot3d_df['Cluster'] = 1
+        plot3d_df['∆E'] = 0.0
+        
+        # Use marker and color from original data if available
+        plot3d_df['Marker'] = df.get('Marker', '.').fillna('.')
+        plot3d_df['Color'] = df.get('Color', 'blue').fillna('blue')
+        
+        # Add empty columns for Plot_3D features
+        plot3d_df['Centroid_X'] = np.nan
+        plot3d_df['Centroid_Y'] = np.nan
+        plot3d_df['Centroid_Z'] = np.nan
+        plot3d_df['Sphere'] = ''
+        plot3d_df['Radius'] = np.nan
+        
+        return plot3d_df
+    
+    def _view_database_simple(self):
+        """Fallback simple table view if RealtimePlot3DSheet is unavailable."""
+        # Create a simple table view window (original implementation)
         viewer_window = tk.Toplevel(self.root)
         viewer_window.title(f"Database Contents - {self.current_database_name}")
         viewer_window.geometry("800x600")
@@ -297,43 +385,12 @@ class TernaryPlotWindow:
             tree.heading(col, text=col)
             tree.column(col, width=100)
         
-        # Add scrollbars
-        v_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=tree.yview)
-        h_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL, command=tree.xview)
-        tree.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
-        
-        # Pack treeview and scrollbars
-        tree.grid(row=0, column=0, sticky='nsew')
-        v_scrollbar.grid(row=0, column=1, sticky='ns')
-        h_scrollbar.grid(row=1, column=0, sticky='ew')
-        
-        # Configure grid weights
-        tree_frame.grid_rowconfigure(0, weight=1)
-        tree_frame.grid_columnconfigure(0, weight=1)
-        
-        # Populate treeview with data
+        # Populate with data
         for idx, row in self.df.iterrows():
-            values = []
-            for col in columns:
-                val = row[col]
-                if pd.isna(val):
-                    values.append('')
-                elif isinstance(val, float):
-                    values.append(f'{val:.3f}')
-                else:
-                    values.append(str(val))
+            values = [str(row[col]) if not pd.isna(row[col]) else '' for col in columns]
             tree.insert('', 'end', text=str(idx), values=values)
         
-        # Add a status bar
-        status_frame = ttk.Frame(viewer_window)
-        status_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
-        
-        ttk.Label(status_frame, 
-                 text=f"Total records: {len(self.df)} | Database: {self.current_database_name}",
-                 font=('Arial', 9)).pack(anchor='w')
-        
-        # Add close button
-        ttk.Button(status_frame, text="Close", command=viewer_window.destroy).pack(side=tk.RIGHT)
+        tree.pack(fill=tk.BOTH, expand=True)
 
     def _save_png(self):
         path = filedialog.asksaveasfilename(
