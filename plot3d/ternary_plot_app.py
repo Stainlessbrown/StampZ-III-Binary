@@ -32,6 +32,11 @@ class TernaryPlotWindow:
         self.manager = get_data_file_manager()
         self.current_database = tk.StringVar(value="No database loaded")
         self.current_database_name = None  # Track actual database name for viewer
+        
+        # Point highlighting state
+        self.plot_points = []  # Store plot coordinates for click detection
+        self.highlighted_point = None  # Currently highlighted point index
+        self.highlight_annotation = None  # Text annotation for highlighted point
 
         # Layout
         container = ttk.Frame(self.root)
@@ -63,7 +68,10 @@ class TernaryPlotWindow:
         # View current database
         ttk.Button(self.side, text="View Database Contents", command=self._view_database).pack(fill=tk.X, pady=4)
         
-        # Refresh
+        # Refresh data from database
+        ttk.Button(self.side, text="Refresh from Database", command=self._refresh_data).pack(fill=tk.X, pady=4)
+        
+        # Refresh plot rendering
         ttk.Button(self.side, text="Refresh Plot", command=self._render).pack(fill=tk.X, pady=4)
 
         # Current database indicator
@@ -103,6 +111,9 @@ class TernaryPlotWindow:
         self.ax = self.fig.add_subplot(111)
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.main)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        # Bind click events for point highlighting
+        self.canvas.mpl_connect('button_press_event', self._on_plot_click)
 
     # === File handling ===
     def _open_file(self):
@@ -353,6 +364,58 @@ class TernaryPlotWindow:
             import traceback
             print(f"DEBUG: Full traceback: {traceback.format_exc()}")
     
+    def _refresh_data(self):
+        """Refresh data from the current database and update the plot."""
+        if not self.current_database_name:
+            messagebox.showwarning("No Database", "No database is currently loaded.")
+            return
+        
+        try:
+            # Reload data from the current database
+            self._load_from_realtime_db()
+            messagebox.showinfo("Refresh Complete", 
+                f"Refreshed data from '{self.current_database_name}' and updated plot.")
+        except Exception as e:
+            messagebox.showerror("Refresh Error", 
+                f"Failed to refresh data from database:\n\n{e}")
+    
+    def _on_plot_click(self, event):
+        """Handle click events on the plot for point highlighting."""
+        if event.inaxes != self.ax or not self.plot_points:
+            return
+        
+        click_x, click_y = event.xdata, event.ydata
+        if click_x is None or click_y is None:
+            return
+        
+        # Find closest point to click location
+        min_distance = float('inf')
+        closest_point_idx = None
+        
+        for i, point in enumerate(self.plot_points):
+            distance = math.sqrt((point['x'] - click_x)**2 + (point['y'] - click_y)**2)
+            if distance < min_distance:
+                min_distance = distance
+                closest_point_idx = i
+        
+        # Only highlight if click is reasonably close to a point
+        click_threshold = 0.05  # Adjust based on plot scale
+        if min_distance < click_threshold:
+            if self.highlighted_point == closest_point_idx:
+                # Click on already highlighted point - deselect
+                self.highlighted_point = None
+            else:
+                # Highlight new point
+                self.highlighted_point = closest_point_idx
+            
+            # Refresh plot to show highlighting
+            self._render()
+        else:
+            # Click not near any point - clear selection
+            if self.highlighted_point is not None:
+                self.highlighted_point = None
+                self._render()
+    
     def _convert_to_plot3d_format(self, df):
         """Convert L*a*b* data to Plot_3D normalized format."""
         plot3d_df = pd.DataFrame()
@@ -527,12 +590,25 @@ class TernaryPlotWindow:
         markers = df.get('Marker', pd.Series(['.'] * len(df))).fillna('.')
         colors = df.get('Color', pd.Series(['blue'] * len(df))).fillna('blue')
         
+        # Clear previous point data for click detection
+        self.plot_points = []
+        
         # Use smaller marker size to reduce boundary issues
         marker_size = 25  # Reduced from 40
         
         for i in range(len(df)):
             m = markers.iloc[i]
             c = colors.iloc[i]
+            
+            # Store point coordinates and DataID for click detection
+            data_id = df.iloc[i].get('DataID', f'Point_{i+1}')
+            self.plot_points.append({
+                'x': x[i], 'y': y[i], 
+                'index': i, 
+                'data_id': data_id,
+                'marker': m,
+                'color': c
+            })
             
             # Further reduce marker size for points very close to triangle edges
             dist_to_edges = min(
@@ -547,11 +623,21 @@ class TernaryPlotWindow:
                 adjusted_size = marker_size * (0.5 + 0.5 * (dist_to_edges / edge_threshold))
             else:
                 adjusted_size = marker_size
+            
+            # Highlight selected point with larger size and different edge
+            if self.highlighted_point == i:
+                edge_color = 'red'
+                edge_width = 2.0
+                size_multiplier = 1.5
+            else:
+                edge_color = 'black'
+                edge_width = 0.2
+                size_multiplier = 1.0
                 
-            self.ax.scatter([x[i]], [y[i]], s=adjusted_size, 
+            self.ax.scatter([x[i]], [y[i]], s=adjusted_size * size_multiplier, 
                           marker=m if str(m) else '.', 
                           c=c if str(c) else 'blue', 
-                          edgecolors='black', linewidths=0.2, alpha=0.9)
+                          edgecolors=edge_color, linewidths=edge_width, alpha=0.9)
 
         # Convex hull
         if self.show_hull.get() and len(x) >= 3:
@@ -561,7 +647,14 @@ class TernaryPlotWindow:
             self.ax.plot(hx, hy, '-', color='darkred', lw=1.2, alpha=0.9, label='Convex Hull')
             self.ax.legend(loc='upper right')
 
-        self.ax.set_title("Ternary Plot", fontsize=12)
+        # Update title to show highlighted point info
+        if self.highlighted_point is not None and self.plot_points:
+            highlighted_data = self.plot_points[self.highlighted_point]
+            title = f"Ternary Plot - Selected: {highlighted_data['data_id']}"
+        else:
+            title = "Ternary Plot"
+        
+        self.ax.set_title(title, fontsize=12)
         self.canvas.draw_idle()
 
     def _draw_ternary_axes(self):
