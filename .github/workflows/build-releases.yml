@@ -33,108 +33,31 @@ jobs:
     
     - name: Create self-contained Windows bundle
       run: |
-        # Create enhanced PyInstaller spec
-        $spec = @"
-# -*- mode: python ; coding: utf-8 -*-
-import os
-from PyInstaller.utils.hooks import collect_all
-
-# Collect ALL dependencies for complete bundle
-matplotlib_datas, matplotlib_binaries, matplotlib_hiddenimports = collect_all('matplotlib')
-pandas_datas, pandas_binaries, pandas_hiddenimports = collect_all('pandas')
-numpy_datas, numpy_binaries, numpy_hiddenimports = collect_all('numpy')
-PIL_datas, PIL_binaries, PIL_hiddenimports = collect_all('PIL')
-
-try:
-    sklearn_datas, sklearn_binaries, sklearn_hiddenimports = collect_all('sklearn')
-except:
-    sklearn_datas, sklearn_binaries, sklearn_hiddenimports = [], [], []
-
-a = Analysis(
-    ['stampz.py'],
-    pathex=['.'],
-    binaries=[
-        *matplotlib_binaries,
-        *pandas_binaries,
-        *numpy_binaries,
-        *sklearn_binaries,
-        *PIL_binaries,
-    ],
-    datas=[
-        *matplotlib_datas,
-        *pandas_datas,
-        *numpy_datas,
-        *sklearn_datas,
-        *PIL_datas,
-        ('data', 'data') if os.path.exists('data') else [],
-        ('templates', 'templates') if os.path.exists('templates') else [],
-    ],
-    hiddenimports=[
-        'tkinter', 'tkinter.ttk', 'tkinter.filedialog', 'tkinter.messagebox', 'tkinter.simpledialog',
-        *matplotlib_hiddenimports,
-        *pandas_hiddenimports,
-        *numpy_hiddenimports,
-        *sklearn_hiddenimports,
-        *PIL_hiddenimports,
-        # Critical imports for Windows
-        'matplotlib.backends.backend_tkagg',
-        'matplotlib.backends.backend_agg',
-        'matplotlib.backends._backend_agg',
-        'pandas._libs.tslibs.base',
-        'pandas._libs.tslibs.nattype', 
-        'pandas._libs.parsers',
-        'numpy.random.common',
-        'numpy.random.bounded_integers',
-        'openpyxl', 'odfpy', 'ezodf', 'lxml', 'colorspacious', 'tksheet',
-        # Our app modules
-        'utils.spectral_analyzer', 'utils.color_analyzer', 'utils.color_analysis_db',
-        'plot3d.ternary_plot_app', 'plot3d.Plot_3D', 'app.analysis_manager',
-    ],
-    hookspath=[],
-    runtime_hooks=[],
-    excludes=['IPython', 'jupyter', 'notebook', 'sphinx', 'pytest', 'setuptools'],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=None,
-    noarchive=False,
-)
-
-pyz = PYZ(a.pure, a.zipped_data, cipher=None)
-
-exe = EXE(
-    pyz,
-    a.scripts,
-    [],
-    exclude_binaries=True,
-    name='StampZ',
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=False,  # Don't compress - causes issues with matplotlib
-    console=False,  # Windows GUI app
-    disable_windowed_traceback=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-)
-
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=False,
-    upx_exclude=[],
-    name='StampZ',
-)
-"@
-        
-        # Write the spec file
-        $spec | Out-File -FilePath "StampZ-Complete.spec" -Encoding UTF8
-        
-        # Build the executable
-        pyinstaller --clean --noconfirm StampZ-Complete.spec
+        # Use the existing spec file we already created
+        if (Test-Path "build_windows_complete.spec") {
+          pyinstaller --clean --noconfirm build_windows_complete.spec
+        } else {
+          # Fallback: enhanced PyInstaller command
+          pyinstaller --onedir --windowed `
+            --add-data "data;data" `
+            --add-data "templates;templates" `
+            --collect-all="matplotlib" `
+            --collect-all="pandas" `
+            --collect-all="numpy" `
+            --collect-all="PIL" `
+            --collect-all="sklearn" `
+            --hidden-import="matplotlib.backends.backend_tkagg" `
+            --hidden-import="pandas._libs.tslibs.base" `
+            --hidden-import="numpy.random.common" `
+            --hidden-import="PIL._tkinter_finder" `
+            --exclude-module="IPython" `
+            --exclude-module="jupyter" `
+            --exclude-module="notebook" `
+            --exclude-module="pytest" `
+            --noupx `
+            --name="StampZ" `
+            stampz.py
+        }
     
     - name: Download VC++ Redistributable
       run: |
@@ -154,157 +77,36 @@ coll = COLLECT(
     
     - name: Create user-friendly launcher and documentation
       run: |
-        # Create smart launcher
-        $launcher = @"
-@echo off
-title StampZ - Stamp Analysis Tool
-color 0A
-
-echo.
-echo  ===================================
-echo   StampZ - Stamp Analysis Tool
-echo  ===================================
-echo.
-echo  Starting application...
-
-REM Try to run StampZ directly
-StampZ.exe
-set "exit_code=%ERRORLEVEL%"
-
-if %exit_code% NEQ 0 (
-    echo.
-    echo  ❌ StampZ failed to start properly.
-    echo.
-    echo  This is usually due to missing system components.
-    echo  Would you like to install the required components now?
-    echo.
-    set /p "choice=  Install missing components? [Y/N]: "
-    
-    if /i "%choice%"=="Y" (
-        if exist "vcredist\vc_redist.x64.exe" (
-            echo.
-            echo  📦 Installing Visual C++ Redistributable...
-            echo  Please wait while the installer runs...
-            vcredist\vc_redist.x64.exe /quiet /norestart
-            
-            if %ERRORLEVEL% EQU 0 (
-                echo  ✅ Installation completed successfully!
-                echo.
-                echo  Please try running StampZ again.
-                echo  You can double-click "StampZ.exe" or run this launcher again.
-            ) else (
-                echo  ⚠️ Installation may have encountered issues.
-                echo  You can try running vcredist\vc_redist.x64.exe manually.
-            )
-        ) else (
-            echo  ❌ Installer not found in vcredist folder.
-            echo  Please download Visual C++ Redistributable manually:
-            echo  https://aka.ms/vs/17/release/vc_redist.x64.exe
-        )
-    ) else (
-        echo.
-        echo  💡 If you change your mind, you can:
-        echo  1. Run this launcher again and choose Y
-        echo  2. Or manually install from: vcredist\vc_redist.x64.exe
-    )
-    
-    echo.
-    pause
-) else (
-    echo  ✅ StampZ started successfully!
-)
-"@
+        # Create simple launcher batch file
+        echo '@echo off' > "dist\StampZ\Launch StampZ.bat"
+        echo 'title StampZ - Stamp Analysis Tool' >> "dist\StampZ\Launch StampZ.bat"
+        echo 'echo Starting StampZ...' >> "dist\StampZ\Launch StampZ.bat"
+        echo 'StampZ.exe' >> "dist\StampZ\Launch StampZ.bat"
+        echo 'if %ERRORLEVEL% NEQ 0 (' >> "dist\StampZ\Launch StampZ.bat"
+        echo '  echo.' >> "dist\StampZ\Launch StampZ.bat"
+        echo '  echo StampZ failed to start. Try installing vcredist/vc_redist.x64.exe' >> "dist\StampZ\Launch StampZ.bat"
+        echo '  pause' >> "dist\StampZ\Launch StampZ.bat"
+        echo ')' >> "dist\StampZ\Launch StampZ.bat"
         
-        $launcher | Out-File -FilePath "dist\StampZ\Launch StampZ.bat" -Encoding ASCII
+        # Create simple README file
+        echo '# StampZ v3.0.4 - Complete Windows Bundle' > "dist\StampZ\README.txt"
+        echo '' >> "dist\StampZ\README.txt"
+        echo 'Quick Start:' >> "dist\StampZ\README.txt"
+        echo '1. Extract this ZIP file' >> "dist\StampZ\README.txt"
+        echo '2. Run "Launch StampZ.bat"' >> "dist\StampZ\README.txt"
+        echo '3. Done!' >> "dist\StampZ\README.txt"
+        echo '' >> "dist\StampZ\README.txt"
+        echo 'If StampZ won''t start:' >> "dist\StampZ\README.txt"
+        echo '- Install vcredist/vc_redist.x64.exe' >> "dist\StampZ\README.txt"
+        echo '- Run as Administrator' >> "dist\StampZ\README.txt"
+        echo '- Check Windows Defender isn''t blocking files' >> "dist\StampZ\README.txt"
         
-        # Create README
-        $readme = @"
-# StampZ v${{ github.event.inputs.version || '3.0.4' }} - Complete Windows Bundle
-
-## 🚀 Quick Start (3 Steps)
-
-1. **Extract** this ZIP file to a folder (like your Desktop)
-2. **Run** "Launch StampZ.bat" (double-click it)
-3. **Done!** StampZ should start
-
-## 📁 What's in this bundle?
-
-- **StampZ.exe** - The main application
-- **Launch StampZ.bat** - Smart launcher that handles setup
-- **vcredist/** - Windows system components (if needed)
-- **All dependencies included** - No separate downloads needed
-
-## 🔧 If StampZ won't start
-
-1. **Use the launcher**: Always try "Launch StampZ.bat" first
-   - It will automatically install missing system components
-   
-2. **Security warnings**: Windows might show "Windows protected your PC"
-   - Click "More info" → "Run anyway"
-   - This is normal for unsigned applications
-
-3. **Still having issues?**
-   - Try running "Launch StampZ.bat" as Administrator (right-click → "Run as administrator")
-   - Check that Windows Defender isn't blocking the files
-
-## ✨ New Features in this Version
-
-- **Ternary Plot Analysis** - Advanced 3D color visualization
-- **Enhanced Spectral Analysis** - Detailed color spectrum analysis  
-- **Improved Color Tools** - Better accuracy and performance
-- **Self-contained bundle** - No manual dependency installation
-
-## 📊 File Size Note
-
-This bundle is larger than previous versions (~200MB) because it includes:
-- Pandas (data analysis engine)
-- Matplotlib (advanced plotting)
-- All Windows runtime libraries
-- Complete dependency stack
-
-This ensures it works on ANY Windows system without additional downloads!
-
-## 🆘 Need Help?
-
-If you encounter issues:
-1. Make sure you extracted the entire ZIP file
-2. Try the "Launch StampZ.bat" launcher
-3. Run as Administrator if needed
-4. Contact support with details about your Windows version
-
----
-Built with ❤️ for stamp collectors and analysts everywhere!
-"@
-        
-        $readme | Out-File -FilePath "dist\StampZ\README.txt" -Encoding UTF8
-        
-        # Create installer script for vcredist
-        $vcinstaller = @"
-@echo off
-echo Installing Visual C++ Redistributable for StampZ...
-echo This ensures StampZ has all required system components.
-echo.
-
-if exist "vc_redist.x64.exe" (
-    echo Installing Microsoft Visual C++ 2015-2022 Redistributable (x64)...
-    vc_redist.x64.exe /quiet /norestart
-    if %ERRORLEVEL% EQU 0 (
-        echo ✅ Installation completed successfully!
-        echo You can now run StampZ.
-    ) else (
-        echo ⚠️ Installation finished with warnings or errors.
-        echo StampZ might still work. Try running it to see.
-    )
-) else (
-    echo ❌ VC++ Redistributable installer not found.
-    echo Please download it from: https://aka.ms/vs/17/release/vc_redist.x64.exe
-)
-
-echo.
-pause
-"@
-        
-        $vcinstaller | Out-File -FilePath "dist\StampZ\vcredist\install_vcredist.bat" -Encoding ASCII
+        # Create simple vcredist installer
+        echo '@echo off' > "dist\StampZ\vcredist\install_vcredist.bat"
+        echo 'echo Installing Visual C++ Redistributable for StampZ...' >> "dist\StampZ\vcredist\install_vcredist.bat"
+        echo 'vc_redist.x64.exe /quiet /norestart' >> "dist\StampZ\vcredist\install_vcredist.bat"
+        echo 'echo Installation complete. Try running StampZ again.' >> "dist\StampZ\vcredist\install_vcredist.bat"
+        echo 'pause' >> "dist\StampZ\vcredist\install_vcredist.bat"
     
     - name: Test the bundle
       run: |
