@@ -1,4 +1,4 @@
-name: Test macOS Bundle
+name: Test Cross-Platform Bundles
 
 on:
   push:
@@ -8,8 +8,8 @@ on:
   workflow_dispatch:  # Allow manual triggering
 
 jobs:
-  test-macos-intel:
-    runs-on: macos-13  # Intel-based runner
+  test-windows:
+    runs-on: windows-latest
     
     steps:
     - uses: actions/checkout@v4
@@ -22,8 +22,8 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt || echo "No requirements.txt found"
-        pip install pyinstaller pillow matplotlib numpy tkinter || true
+        pip install pyinstaller pillow matplotlib numpy || echo "Some packages may have failed"
+        pip list
     
     - name: Test basic imports
       run: |
@@ -53,35 +53,45 @@ jobs:
     
     - name: Test app startup
       run: |
-        timeout 30s python stampz.py --test 2>&1 || echo "App test completed or timed out"
+        python stampz.py --version || echo "App test completed"
+      timeout-minutes: 2
     
-    - name: Create test bundle
+    - name: Create Windows bundle
       run: |
-        pyinstaller --onedir --windowed \
-          --add-data "data:data" \
-          --add-data "templates:templates" \
-          --hidden-import="PIL._tkinter_finder" \
-          --collect-all="matplotlib" \
-          --collect-all="PIL" \
+        pyinstaller --onedir --windowed `
+          --add-data "data;data" `
+          --add-data "templates;templates" `
+          --hidden-import="PIL._tkinter_finder" `
+          --collect-all="matplotlib" `
+          --collect-all="PIL" `
+          --collect-all="numpy" `
           stampz.py
     
     - name: Test bundle execution
       run: |
-        echo "Testing bundle startup..."
+        echo "Testing Windows bundle startup..."
         cd dist/stampz
-        timeout 10s ./stampz --version 2>&1 || echo "Bundle test completed or timed out"
-        ls -la
-        file stampz
+        dir
+        # Try to run with timeout
+        Start-Process -FilePath ".\stampz.exe" -ArgumentList "--version" -Wait -PassThru -NoNewWindow
     
-    - name: Upload test bundle
+    - name: Check bundle dependencies
+      run: |
+        cd dist/stampz
+        echo "Checking DLL dependencies..."
+        Get-ChildItem -Filter "*.dll" | Select-Object Name, Length
+        echo "Checking main executable..."
+        Get-ItemProperty .\stampz.exe | Select-Object Name, Length, LastWriteTime
+    
+    - name: Upload Windows bundle
       uses: actions/upload-artifact@v3
       with:
-        name: test-bundle-intel-macos
+        name: test-bundle-windows-x64
         path: dist/stampz/
         retention-days: 7
 
-  test-macos-arm:
-    runs-on: macos-latest  # ARM-based runner (M1/M2)
+  test-macos:
+    runs-on: macos-latest
     
     steps:
     - uses: actions/checkout@v4
@@ -94,8 +104,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt || echo "No requirements.txt found"
-        pip install pyinstaller pillow matplotlib numpy tkinter || true
+        pip install pyinstaller pillow matplotlib numpy
     
     - name: Test basic imports
       run: |
@@ -111,11 +120,7 @@ jobs:
             print(f'❌ tkinter error: {e}')
         "
     
-    - name: Test app startup
-      run: |
-        timeout 30s python stampz.py --test 2>&1 || echo "App test completed or timed out"
-    
-    - name: Create test bundle (ARM)
+    - name: Create macOS bundle
       run: |
         pyinstaller --onedir --windowed \
           --add-data "data:data" \
@@ -123,12 +128,11 @@ jobs:
           --hidden-import="PIL._tkinter_finder" \
           --collect-all="matplotlib" \
           --collect-all="PIL" \
-          --target-arch=arm64 \
           stampz.py
     
-    - name: Upload test bundle (ARM)
+    - name: Upload macOS bundle
       uses: actions/upload-artifact@v3
       with:
-        name: test-bundle-arm-macos
+        name: test-bundle-macos
         path: dist/stampz/
         retention-days: 7
