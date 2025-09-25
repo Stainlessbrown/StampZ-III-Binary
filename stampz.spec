@@ -109,6 +109,10 @@ hiddenimports += [
     'cv2',  # OpenCV for image processing
     'gui.gauge_perforation_ui',  # Perforation gauge measurement dialog
     'gui.perforation_ui',  # Legacy perforation measurement dialog
+    'app.analysis_manager',  # CRITICAL: Contains spectral analysis database fixes
+    'plot3d.ternary_plot_app',  # CRITICAL: Contains ternary plot database fixes
+    'utils.path_utils',  # CRITICAL: Application Support path resolution
+    'utils.color_analysis_db',  # CRITICAL: Database discovery logic
     'PIL.Image',
     'PIL.ImageTk',
     'PIL._tkinter_finder',
