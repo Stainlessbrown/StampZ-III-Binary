@@ -295,10 +295,10 @@ class TernaryPlotWindow:
             # Convert our L*a*b* data to the Plot_3D normalized format (0-1 range)
             plot3d_df = self._convert_to_plot3d_format(self.df.copy())
             
-            # Open the RealtimePlot3DSheet with the converted data
+            # Open the RealtimePlot3DSheet with the actual database name so it can refresh properly
             datasheet = RealtimePlot3DSheet(
                 parent=self.root, 
-                sample_set_name=f"Ternary Plot - {self.current_database_name}",
+                sample_set_name=self.current_database_name,  # Use actual database name for proper refresh
                 load_initial_data=False  # We'll load our own data
             )
             
@@ -307,12 +307,30 @@ class TernaryPlotWindow:
             def ternary_refresh(*args, **kwargs):
                 print("DEBUG: Ternary Plot refresh triggered")
                 try:
-                    # Reload data from current database
+                    # 1. Reload data from current database into Ternary Plot
                     self._load_from_realtime_db()
-                    messagebox.showinfo("Refresh Complete", "Ternary Plot data refreshed from database.")
+                    
+                    # 2. Use the RealtimePlot3DSheet's built-in refresh mechanism
+                    datasheet._refresh_from_stampz()
+                    
+                    messagebox.showinfo("Refresh Complete", "Both Ternary Plot and database viewer refreshed successfully.")
                 except Exception as e:
-                    messagebox.showerror("Refresh Error", f"Failed to refresh Ternary Plot data:\n\n{e}")
+                    print(f"DEBUG: Refresh error: {e}")
+                    import traceback
+                    print(f"DEBUG: Traceback: {traceback.format_exc()}")
+                    messagebox.showerror("Refresh Error", f"Failed to refresh data:\n\n{e}")
             datasheet._refresh_from_stampz = ternary_refresh
+            
+            # Update the window title to show Ternary Plot context while keeping database functionality
+            datasheet.window.title(f"Plot_3D: Ternary Plot - {self.current_database_name} - Normalized Data (0-1 Range)")
+            
+            # Update the refresh button's command and text for Ternary Plot context
+            if hasattr(datasheet, 'refresh_btn') and datasheet.refresh_btn:
+                datasheet.refresh_btn.configure(
+                    command=ternary_refresh,
+                    text="Refresh Ternary Plot"
+                )
+                print("DEBUG: Updated refresh button for Ternary Plot context")
             
             # Load our converted data into the datasheet
             if hasattr(datasheet, 'sheet') and len(plot3d_df) > 0:

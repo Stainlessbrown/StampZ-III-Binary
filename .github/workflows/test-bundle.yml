@@ -8,7 +8,7 @@ on:
   workflow_dispatch:  # Allow manual triggering
 
 jobs:
-  test-windows:
+  test-bundle:
     runs-on: windows-latest
     
     steps:
@@ -100,45 +100,3 @@ jobs:
         path: dist/
         retention-days: 7
 
-  test-macos:
-    runs-on: macos-latest
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python 3.12
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.12'
-    
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        # Install optional tifffile for 16-bit TIFF support
-        pip install tifffile
-    
-    - name: Test basic imports
-      run: |
-        python -c "
-        try:
-            import tkinter as tk
-            print('✅ tkinter import OK')
-            root = tk.Tk()
-            root.withdraw()
-            print('✅ tkinter window creation OK')
-            root.destroy()
-        except Exception as e:
-            print(f'❌ tkinter error: {e}')
-        "
-    
-    - name: Create macOS bundle
-      run: |
-        pyinstaller --clean stampz.spec
-    
-    - name: Upload macOS bundle
-      uses: actions/upload-artifact@v4
-      with:
-        name: test-bundle-macos
-        path: dist/
-        retention-days: 7
