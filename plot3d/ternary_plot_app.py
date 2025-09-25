@@ -51,8 +51,12 @@ class TernaryPlotWindow:
         title = ttk.Label(self.side, text="Ternary Plot Controls", font=('Arial', 12, 'bold'))
         title.pack(anchor='w', pady=(0, 8))
 
-        # Open
+        # Open external file
         ttk.Button(self.side, text="Open Data (ODS/XLSX/CSV)", command=self._open_file).pack(fill=tk.X, pady=4)
+        
+        # Load from realtime database
+        ttk.Button(self.side, text="Load from Realtime DB", command=self._load_from_realtime_db).pack(fill=tk.X, pady=4)
+        
         # Refresh
         ttk.Button(self.side, text="Refresh Plot", command=self._render).pack(fill=tk.X, pady=4)
 
@@ -69,6 +73,9 @@ class TernaryPlotWindow:
 
         # Info
         info = (
+            "Data Sources:\n"
+            " - External files: ODS/XLSX/CSV\n"
+            " - Realtime DB: Current session data\n\n"
             "Columns used:\n"
             " - L*, a*, b*, DataID, Marker, Color\n\n"
             "Notes:\n"
@@ -122,6 +129,91 @@ class TernaryPlotWindow:
             self._render()
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open file:\n\n{e}")
+
+    def _load_from_realtime_db(self):
+        """Load data from the realtime datasheet database."""
+        try:
+            # Import the database module
+            from utils.color_analysis_db import ColorAnalysisDB
+            import os
+            import glob
+            from tkinter import simpledialog
+            
+            # Find available databases
+            db_dir = os.path.join(os.getcwd(), 'data', 'color_analysis')
+            if not os.path.exists(db_dir):
+                messagebox.showerror("Error", "No color analysis databases found.")
+                return
+            
+            db_files = glob.glob(os.path.join(db_dir, '*.db'))
+            if not db_files:
+                messagebox.showerror("Error", "No database files found in data/color_analysis.")
+                return
+            
+            # Show available databases
+            db_names = [os.path.splitext(os.path.basename(f))[0] for f in db_files]
+            if len(db_names) == 1:
+                selected_db = db_names[0]
+            else:
+                # Simple selection dialog
+                selection_text = "Available databases:\n" + "\n".join([f"{i+1}. {name}" for i, name in enumerate(db_names)])
+                selection_text += "\n\nEnter number (1-{}):".format(len(db_names))
+                
+                choice = simpledialog.askstring("Select Database", selection_text)
+                if not choice:
+                    return
+                try:
+                    idx = int(choice) - 1
+                    if 0 <= idx < len(db_names):
+                        selected_db = db_names[idx]
+                    else:
+                        raise ValueError("Invalid selection")
+                except (ValueError, IndexError):
+                    messagebox.showerror("Error", "Invalid selection. Please try again.")
+                    return
+            
+            # Load from selected database
+            db = ColorAnalysisDB(selected_db)
+            measurements = db.get_all_measurements()
+            
+            if not measurements:
+                messagebox.showwarning("No Data", f"No measurements found in database '{selected_db}'.")
+                return
+            
+            # Convert to DataFrame with ternary-compatible columns
+            import pandas as pd
+            df_data = []
+            for m in measurements:
+                # Convert L*a*b* values - check if they're already in reasonable ranges
+                l_val = m.get('l_value', 50)  # Default to mid-range if missing
+                a_val = m.get('a_value', 0)
+                b_val = m.get('b_value', 0)
+                
+                # If values seem to be normalized (0-1), convert to L*a*b* ranges
+                if 0 <= l_val <= 1:
+                    l_val = l_val * 100
+                if -1 <= a_val <= 1:
+                    a_val = a_val * 128
+                if -1 <= b_val <= 1:
+                    b_val = b_val * 128
+                
+                df_data.append({
+                    'L*': l_val,
+                    'a*': a_val,
+                    'b*': b_val,
+                    'DataID': m.get('image_name', '') + f"_pt{m.get('coordinate_point', '')}",
+                    'Marker': m.get('marker_preference', '.'),
+                    'Color': m.get('color_preference', 'blue')
+                })
+            
+            self.df = pd.DataFrame(df_data)
+            self._render()
+            
+            messagebox.showinfo("Success", f"Loaded {len(measurements)} measurements from '{selected_db}' database.")
+            
+        except Exception as e:
+            import traceback
+            messagebox.showerror("Error", f"Failed to load from realtime database:\n\n{e}\n\nDetails:\n{traceback.format_exc()}")
 
     def _save_png(self):
         path = filedialog.asksaveasfilename(
@@ -186,21 +278,152 @@ class TernaryPlotWindow:
     def _draw_ternary_axes(self):
         # Equilateral triangle vertices
         h = math.sqrt(3) / 2.0
-        A = (0.0, 0.0)
-        B = (1.0, 0.0)
-        C = (0.5, h)
+        A = (0.0, 0.0)      # Bottom left (L* vertex)
+        B = (1.0, 0.0)      # Bottom right (a* vertex)
+        C = (0.5, h)        # Top (b* vertex)
+        
         # Draw triangle
-        self.ax.plot([A[0], B[0]], [A[1], B[1]], color='black', lw=1.0)
-        self.ax.plot([B[0], C[0]], [B[1], C[1]], color='black', lw=1.0)
-        self.ax.plot([C[0], A[0]], [C[1], A[1]], color='black', lw=1.0)
-        # Ticks or grid (simple)
+        self.ax.plot([A[0], B[0]], [A[1], B[1]], color='black', lw=1.5)
+        self.ax.plot([B[0], C[0]], [B[1], C[1]], color='black', lw=1.5)
+        self.ax.plot([C[0], A[0]], [C[1], A[1]], color='black', lw=1.5)
+        
+        # Add axis labels around the perimeter
+        label_offset = 0.08
+        
+        # L* label (bottom left vertex)
+        self.ax.text(A[0] - label_offset, A[1] - label_offset, 'L*', 
+                    fontsize=14, fontweight='bold', ha='center', va='center',
+                    bbox=dict(boxstyle='round,pad=0.3', facecolor='lightblue', alpha=0.8))
+        
+        # a* label (bottom right vertex)
+        self.ax.text(B[0] + label_offset, B[1] - label_offset, 'a*', 
+                    fontsize=14, fontweight='bold', ha='center', va='center',
+                    bbox=dict(boxstyle='round,pad=0.3', facecolor='lightgreen', alpha=0.8))
+        
+        # b* label (top vertex)
+        self.ax.text(C[0], C[1] + label_offset, 'b*', 
+                    fontsize=14, fontweight='bold', ha='center', va='center',
+                    bbox=dict(boxstyle='round,pad=0.3', facecolor='lightcoral', alpha=0.8))
+        
+        # Add edge labels (midpoints of sides)
+        mid_offset = 0.04
+        
+        # Bottom edge label (L* - a*)
+        mid_AB = ((A[0] + B[0])/2, (A[1] + B[1])/2 - mid_offset)
+        self.ax.text(mid_AB[0], mid_AB[1], 'L* ← → a*', 
+                    fontsize=10, ha='center', va='center', style='italic',
+                    color='darkblue')
+        
+        # Right edge label (a* - b*)
+        mid_BC = ((B[0] + C[0])/2 + mid_offset/2, (B[1] + C[1])/2)
+        self.ax.text(mid_BC[0], mid_BC[1], 'a* ↔ b*', 
+                    fontsize=10, ha='center', va='center', style='italic',
+                    rotation=60, color='darkgreen')
+        
+        # Left edge label (b* - L*)
+        mid_CA = ((C[0] + A[0])/2 - mid_offset/2, (C[1] + A[1])/2)
+        self.ax.text(mid_CA[0], mid_CA[1], 'b* ↔ L*', 
+                    fontsize=10, ha='center', va='center', style='italic',
+                    rotation=-60, color='darkred')
+        
+        # Add tick marks and percentage labels
+        self._add_ternary_tick_marks(A, B, C)
+        
+        # Configure plot
         self.ax.set_aspect('equal', adjustable='box')
-        self.ax.set_xlim(-0.05, 1.05)
-        self.ax.set_ylim(-0.05, h + 0.05)
+        self.ax.set_xlim(-0.15, 1.15)
+        self.ax.set_ylim(-0.15, h + 0.15)
         self.ax.set_xticks([])
         self.ax.set_yticks([])
-        self.ax.set_xlabel('a* proportion')
-        self.ax.set_ylabel('b* proportion')
+        self.ax.set_xlabel('')  # Clear default labels
+        self.ax.set_ylabel('')  # Clear default labels
+
+    def _add_ternary_tick_marks(self, A, B, C):
+        """Add tick marks and percentage labels along triangle edges."""
+        # Tick positions (0%, 20%, 40%, 60%, 80%, 100%)
+        ticks = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+        tick_labels = ['0%', '20%', '40%', '60%', '80%', '100%']
+        
+        tick_length = 0.02  # Length of tick marks
+        label_offset = 0.03  # Distance from edge for labels
+        
+        # Bottom edge (A to B): L* at A (0,0), a* at B (1,0)
+        for i, t in enumerate(ticks):
+            # Position along bottom edge
+            tick_x = A[0] + t * (B[0] - A[0])  # 0 to 1
+            tick_y = A[1] + t * (B[1] - A[1])  # 0 to 0
+            
+            # Tick mark pointing downward
+            self.ax.plot([tick_x, tick_x], [tick_y, tick_y - tick_length], 
+                        color='black', lw=1)
+            
+            # Labels (alternating L* and a* percentages)
+            # L* decreases from 100% to 0% as we go from A to B
+            l_percent = tick_labels[len(ticks)-1-i]
+            # a* increases from 0% to 100% as we go from A to B  
+            a_percent = tick_labels[i]
+            
+            if i % 2 == 0:  # Even positions: show both labels
+                self.ax.text(tick_x, tick_y - label_offset - 0.015, l_percent, 
+                           fontsize=8, ha='center', va='center', color='blue')
+                self.ax.text(tick_x, tick_y - label_offset, a_percent, 
+                           fontsize=8, ha='center', va='center', color='green')
+        
+        # Right edge (B to C): a* at B, b* at C
+        for i, t in enumerate(ticks):
+            # Position along right edge
+            tick_x = B[0] + t * (C[0] - B[0])
+            tick_y = B[1] + t * (C[1] - B[1])
+            
+            # Tick mark pointing perpendicular to edge (outward)
+            edge_dx = C[0] - B[0]
+            edge_dy = C[1] - B[1]
+            # Perpendicular vector (rotate 90 degrees)
+            perp_dx = edge_dy * tick_length
+            perp_dy = -edge_dx * tick_length
+            
+            self.ax.plot([tick_x, tick_x + perp_dx], [tick_y, tick_y + perp_dy], 
+                        color='black', lw=1)
+            
+            # Labels for a* and b*
+            a_percent = tick_labels[len(ticks)-1-i]  # a* decreases B to C
+            b_percent = tick_labels[i]              # b* increases B to C
+            
+            if i % 2 == 0:  # Even positions
+                label_x = tick_x + perp_dx * 2
+                label_y = tick_y + perp_dy * 2
+                self.ax.text(label_x, label_y + 0.01, a_percent, 
+                           fontsize=8, ha='center', va='center', color='green', rotation=60)
+                self.ax.text(label_x, label_y - 0.01, b_percent, 
+                           fontsize=8, ha='center', va='center', color='red', rotation=60)
+        
+        # Left edge (C to A): b* at C, L* at A
+        for i, t in enumerate(ticks):
+            # Position along left edge
+            tick_x = C[0] + t * (A[0] - C[0])
+            tick_y = C[1] + t * (A[1] - C[1])
+            
+            # Tick mark pointing perpendicular to edge (outward)
+            edge_dx = A[0] - C[0]
+            edge_dy = A[1] - C[1]
+            # Perpendicular vector (rotate 90 degrees)
+            perp_dx = -edge_dy * tick_length
+            perp_dy = edge_dx * tick_length
+            
+            self.ax.plot([tick_x, tick_x + perp_dx], [tick_y, tick_y + perp_dy], 
+                        color='black', lw=1)
+            
+            # Labels for b* and L*
+            b_percent = tick_labels[len(ticks)-1-i]  # b* decreases C to A
+            l_percent = tick_labels[i]              # L* increases C to A
+            
+            if i % 2 == 0:  # Even positions
+                label_x = tick_x + perp_dx * 2
+                label_y = tick_y + perp_dy * 2
+                self.ax.text(label_x - 0.01, label_y, b_percent, 
+                           fontsize=8, ha='center', va='center', color='red', rotation=-60)
+                self.ax.text(label_x + 0.01, label_y, l_percent, 
+                           fontsize=8, ha='center', va='center', color='blue', rotation=-60)
 
     @staticmethod
     def _barycentric_to_cartesian(A, B, C):
