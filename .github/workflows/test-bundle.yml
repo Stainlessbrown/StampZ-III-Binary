@@ -32,30 +32,30 @@ jobs:
         python -c "
         try:
             import tkinter as tk
-            print('✅ tkinter import OK')
+            print('[OK] tkinter import OK')
             root = tk.Tk()
             root.withdraw()
-            print('✅ tkinter window creation OK')
+            print('[OK] tkinter window creation OK')
             root.destroy()
         except Exception as e:
-            print(f'❌ tkinter error: {e}')
+            print(f'[ERROR] tkinter error: {e}')
             
         try:
             from PIL import Image
-            print('✅ PIL import OK')
+            print('[OK] PIL import OK')
         except Exception as e:
-            print(f'❌ PIL error: {e}')
+            print(f'[ERROR] PIL error: {e}')
             
         try:
             import matplotlib.pyplot as plt
-            print('✅ matplotlib import OK')
+            print('[OK] matplotlib import OK')
         except Exception as e:
-            print(f'❌ matplotlib error: {e}')
+            print(f'[ERROR] matplotlib error: {e}')
         "
     
     - name: Test app import
       run: |
-        python -c "import main; print('✅ main.py import OK')" || echo "Import test completed"
+        python -c "import main; print('[OK] main.py import OK')" || echo "Import test completed"
       timeout-minutes: 2
     
     - name: Create self-contained Windows bundle
@@ -70,14 +70,14 @@ jobs:
         dir
         # Check for our actual executable name
         if (Test-Path "StampZ-III.exe") {
-          echo "✅ StampZ-III.exe exists"
+          echo "[OK] StampZ-III.exe exists"
           $size = (Get-Item "StampZ-III.exe").length
           echo "Executable size: $size bytes"
           if ($size -gt 10MB) {
-            echo "✅ Executable size looks reasonable"
+            echo "[OK] Executable size looks reasonable"
           }
         } else {
-          echo "❌ StampZ-III.exe not found"
+          echo "[ERROR] StampZ-III.exe not found"
           echo "Available files:"
           dir
         }
