@@ -2029,8 +2029,91 @@ class AnalysisManager:
                 )
                 return
             
-            # Create and show spectral analysis window
-            spectral_analyzer = SpectralAnalyzer(parent=self.root, image_path=self.app.current_file)
+            # Check if we have color analysis data to analyze
+            measurements = None
+            
+            # First, try to get measurements from database if we have a sample set
+            current_sample_set = None
+            if (hasattr(self.app, 'control_panel') and 
+                hasattr(self.app.control_panel, 'sample_set_name') and 
+                self.app.control_panel.sample_set_name.get().strip()):
+                current_sample_set = self.app.control_panel.sample_set_name.get().strip()
+                
+                try:
+                    from utils.color_analysis_db import ColorAnalysisDB
+                    db = ColorAnalysisDB(current_sample_set)
+                    db_measurements = db.get_all_measurements()
+                    if db_measurements:
+                        # Convert database measurements to ColorMeasurement objects
+                        from utils.color_analyzer import ColorMeasurement
+                        measurements = []
+                        for i, m in enumerate(db_measurements):
+                            measurement = ColorMeasurement(
+                                coordinate_id=m.get('id', i),
+                                coordinate_point=m.get('coordinate_point', 1),
+                                position=(m.get('x_pos', 0.0), m.get('y_pos', 0.0)),
+                                rgb=(int(m.get('rgb_r', 0)), int(m.get('rgb_g', 0)), int(m.get('rgb_b', 0))),
+                                lab=(m.get('l_value', 0.0), m.get('a_value', 0.0), m.get('b_value', 0.0)),
+                                sample_area={'type': 'circle', 'size': (10, 10), 'anchor': 'center'},
+                                measurement_date=m.get('timestamp', ''),
+                                notes=f"From sample set: {current_sample_set}"
+                            )
+                            measurements.append(measurement)
+                        print(f"DEBUG: Found {len(measurements)} color measurements in database")
+                except Exception as db_error:
+                    print(f"DEBUG: Could not load from database: {db_error}")
+                    measurements = None
+            
+            # If no database measurements, check for coordinate markers (sample points)
+            if not measurements and hasattr(self.app.canvas, '_coord_markers') and self.app.canvas._coord_markers:
+                # We have sample markers but no analysis data yet
+                messagebox.showwarning(
+                    "No Analysis Data",
+                    "Sample points found, but no color analysis data.\\n\\n"
+                    "Please run color analysis using the 'Sample' button first, \\n"
+                    "then try the spectral analysis again."
+                )
+                return
+                
+            # If still no measurements, show the generic message
+            if not measurements:
+                messagebox.showwarning(
+                    "No Color Data",
+                    "Please perform color analysis on the image first.\\n\\n"
+                    "Use the color picker tool to collect color samples, then try again."
+                )
+                return
+                
+            # Create spectral analyzer and analyze current measurements
+            spectral_analyzer = SpectralAnalyzer()
+            
+            # Analyze spectral response of current color measurements
+            spectral_data = spectral_analyzer.analyze_spectral_response(
+                measurements, illuminant='D65'
+            )
+            
+            if spectral_data:
+                # Show spectral analysis plots
+                messagebox.showinfo(
+                    "Spectral Analysis",
+                    f"Analyzing {len(measurements)} color samples...\\n\\n"
+                    "Spectral response plots will appear in separate windows."
+                )
+                
+                # Plot overview of spectral responses
+                spectral_analyzer.plot_spectral_response(
+                    spectral_data, plot_type='overview', max_samples=20
+                )
+                
+                # Show wavelength deviation analysis
+                from utils.spectral_analyzer import analyze_spectral_deviation_from_measurements
+                analyze_spectral_deviation_from_measurements(measurements)
+                
+            else:
+                messagebox.showwarning(
+                    "Analysis Failed",
+                    "Could not generate spectral analysis data from current measurements."
+                )
             
         except ImportError as e:
             messagebox.showerror(
