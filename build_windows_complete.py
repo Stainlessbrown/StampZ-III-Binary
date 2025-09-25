@@ -73,7 +73,7 @@ except:
     sklearn_datas, sklearn_binaries, sklearn_hiddenimports = [], [], []
 
 a = Analysis(
-    ['stampz.py'],
+    ['main.py'],
     pathex=['.'],
     binaries=[
         *matplotlib_binaries,

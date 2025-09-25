@@ -26,7 +26,7 @@ if os.path.exists('templates'):
 mpl_backends = collect_dynamic_libs('matplotlib')
 
 a = Analysis(
-    ['stampz.py'],
+    ['main.py'],
     pathex=['.'],
     binaries=[
         *matplotlib_binaries,

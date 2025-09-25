@@ -56,7 +56,7 @@ jobs:
             --exclude-module="pytest" `
             --noupx `
             --name="StampZ" `
-            stampz.py
+            main.py
         }
     
     - name: Download VC++ Redistributable
@@ -177,7 +177,7 @@ jobs:
           --exclude-module="IPython" \
           --exclude-module="jupyter" \
           --name="StampZ" \
-          stampz.py
+          main.py
     
     - name: Create macOS documentation
       run: |
