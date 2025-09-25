@@ -56,16 +56,32 @@ jobs:
         python stampz.py --version || echo "App test completed"
       timeout-minutes: 2
     
-    - name: Create Windows bundle
+    - name: Create self-contained Windows bundle
       run: |
-        pyinstaller --onedir --windowed `
-          --add-data "data;data" `
-          --add-data "templates;templates" `
-          --hidden-import="PIL._tkinter_finder" `
-          --collect-all="matplotlib" `
-          --collect-all="PIL" `
-          --collect-all="numpy" `
-          stampz.py
+        # Use the complete build script if it exists, otherwise use enhanced PyInstaller
+        if (Test-Path "build_windows_complete.py") {
+          python build_windows_complete.py
+        } else {
+          pyinstaller --onedir --windowed `
+            --add-data "data;data" `
+            --add-data "templates;templates" `
+            --collect-all="matplotlib" `
+            --collect-all="pandas" `
+            --collect-all="numpy" `
+            --collect-all="PIL" `
+            --collect-all="sklearn" `
+            --hidden-import="matplotlib.backends.backend_tkagg" `
+            --hidden-import="pandas._libs.tslibs.base" `
+            --hidden-import="numpy.random.common" `
+            --hidden-import="PIL._tkinter_finder" `
+            --exclude-module="IPython" `
+            --exclude-module="jupyter" `
+            --exclude-module="notebook" `
+            --exclude-module="pytest" `
+            --upx-exclude="*.dll" `
+            --noupx `
+            stampz.py
+        }
     
     - name: Test bundle execution
       run: |
