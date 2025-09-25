@@ -135,37 +135,60 @@ class TernaryPlotWindow:
         try:
             # Import the database module
             from utils.color_analysis_db import ColorAnalysisDB
+            from utils.path_utils import get_color_analysis_dir
             import os
             import glob
             from tkinter import simpledialog
             
-            # Find available databases
-            db_dir = os.path.join(os.getcwd(), 'data', 'color_analysis')
+            # Use proper path resolution for bundled apps
+            db_dir = get_color_analysis_dir()
+            print(f"DEBUG: Ternary Plot looking for databases in: {db_dir}")
+            print(f"DEBUG: Database directory exists: {os.path.exists(db_dir)}")
+            
             if not os.path.exists(db_dir):
-                messagebox.showerror("Error", "No color analysis databases found.")
+                error_msg = (
+                    "No color analysis databases found.\n\n"
+                    f"DEBUG INFO:\n"
+                    f"• Searched in: {db_dir}\n"
+                    f"• Directory exists: {os.path.exists(db_dir)}\n\n"
+                    f"Please run color analysis first using the Sample tool."
+                )
+                messagebox.showerror("Error", error_msg)
                 return
             
-            db_files = glob.glob(os.path.join(db_dir, '*.db'))
-            if not db_files:
-                messagebox.showerror("Error", "No database files found in data/color_analysis.")
+            # Use ColorAnalysisDB's built-in database discovery instead of manual glob
+            available_databases = ColorAnalysisDB.get_all_sample_set_databases(db_dir)
+            print(f"DEBUG: Found {len(available_databases)} databases: {available_databases}")
+            
+            if not available_databases:
+                error_msg = (
+                    "No database files found in Application Support.\n\n"
+                    f"DEBUG INFO:\n"
+                    f"• Searched in: {db_dir}\n"
+                    f"• Directory exists: {os.path.exists(db_dir)}\n"
+                    f"• Files in directory: {os.listdir(db_dir) if os.path.exists(db_dir) else 'N/A'}\n\n"
+                    f"Please run color analysis first using the Sample tool."
+                )
+                messagebox.showerror("Error", error_msg)
                 return
             
             # Show available databases
-            db_names = [os.path.splitext(os.path.basename(f))[0] for f in db_files]
-            if len(db_names) == 1:
-                selected_db = db_names[0]
+            if len(available_databases) == 1:
+                selected_db = available_databases[0]
+                print(f"DEBUG: Auto-selecting single database: {selected_db}")
             else:
                 # Simple selection dialog
-                selection_text = "Available databases:\n" + "\n".join([f"{i+1}. {name}" for i, name in enumerate(db_names)])
-                selection_text += "\n\nEnter number (1-{}):".format(len(db_names))
+                selection_text = "Available databases:\n" + "\n".join([f"{i+1}. {name}" for i, name in enumerate(available_databases)])
+                selection_text += "\n\nEnter number (1-{}):".format(len(available_databases))
                 
                 choice = simpledialog.askstring("Select Database", selection_text)
                 if not choice:
                     return
                 try:
                     idx = int(choice) - 1
-                    if 0 <= idx < len(db_names):
-                        selected_db = db_names[idx]
+                    if 0 <= idx < len(available_databases):
+                        selected_db = available_databases[idx]
+                        print(f"DEBUG: User selected database: {selected_db}")
                     else:
                         raise ValueError("Invalid selection")
                 except (ValueError, IndexError):
