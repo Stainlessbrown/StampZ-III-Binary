@@ -465,7 +465,7 @@ class TernaryPlotWindow:
         
         # Add other Plot_3D columns with defaults
         plot3d_df['Cluster'] = 1
-        plot3d_df['∆E'] = 0.0
+        plot3d_df['DeltaE'] = 0.0
         
         # Use marker and color from original data if available, with proper defaults
         if 'Marker' in df.columns:

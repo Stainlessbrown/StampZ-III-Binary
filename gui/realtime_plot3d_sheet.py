@@ -41,7 +41,7 @@ class RealtimePlot3DSheet:
     # Plot_3D column structure
     PLOT3D_COLUMNS = [
         'Xnorm', 'Ynorm', 'Znorm', 'DataID', 'Cluster', 
-        '∆E', 'Marker', 'Color', 'Centroid_X', 'Centroid_Y', 
+        'DeltaE', 'Marker', 'Color', 'Centroid_X', 'Centroid_Y', 
         'Centroid_Z', 'Sphere', 'Radius'
     ]
     
