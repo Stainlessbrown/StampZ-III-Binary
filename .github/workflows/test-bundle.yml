@@ -100,7 +100,7 @@ jobs:
         Get-ItemProperty .\stampz.exe | Select-Object Name, Length, LastWriteTime
     
     - name: Upload Windows bundle
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: test-bundle-windows-x64
         path: dist/stampz/
@@ -147,7 +147,7 @@ jobs:
           stampz.py
     
     - name: Upload macOS bundle
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: test-bundle-macos
         path: dist/stampz/

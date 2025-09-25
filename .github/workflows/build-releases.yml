@@ -337,7 +337,7 @@ pause
         echo "   Size: $([math]::Round($archive.Length / 1MB, 2)) MB"
     
     - name: Upload Windows bundle
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: StampZ-Windows-x64-Complete
         path: dist/StampZ-Windows-x64-Complete.zip
@@ -407,7 +407,7 @@ EOF
         zip -r "StampZ-macOS-Universal.zip" "StampZ" -x "*.DS_Store"
     
     - name: Upload macOS bundle
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: StampZ-macOS-Universal
         path: dist/StampZ-macOS-Universal.zip
@@ -420,12 +420,12 @@ EOF
     
     steps:
     - name: Download Windows bundle
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: StampZ-Windows-x64-Complete
     
     - name: Download macOS bundle  
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: StampZ-macOS-Universal
     
