@@ -305,8 +305,8 @@ class TernaryPlotWindow:
                     fontsize=14, fontweight='bold', ha='center', va='center',
                     bbox=dict(boxstyle='round,pad=0.3', facecolor='lightcoral', alpha=0.8))
         
-        # Add edge labels (midpoints of sides)
-        mid_offset = 0.04
+        # Add edge labels (midpoints of sides) - positioned well outside triangle
+        mid_offset = 0.08  # Increased from 0.04
         
         # Bottom edge label (L* - a*)
         mid_AB = ((A[0] + B[0])/2, (A[1] + B[1])/2 - mid_offset)
@@ -315,24 +315,24 @@ class TernaryPlotWindow:
                     color='darkblue')
         
         # Right edge label (a* - b*)
-        mid_BC = ((B[0] + C[0])/2 + mid_offset/2, (B[1] + C[1])/2)
+        mid_BC = ((B[0] + C[0])/2 + mid_offset, (B[1] + C[1])/2)  # Increased offset
         self.ax.text(mid_BC[0], mid_BC[1], 'a* ↔ b*', 
                     fontsize=10, ha='center', va='center', style='italic',
-                    rotation=60, color='darkgreen')
+                    rotation=-60, color='darkgreen')  # Fixed rotation to match edge
         
         # Left edge label (b* - L*)
-        mid_CA = ((C[0] + A[0])/2 - mid_offset/2, (C[1] + A[1])/2)
+        mid_CA = ((C[0] + A[0])/2 - mid_offset, (C[1] + A[1])/2)  # Increased offset
         self.ax.text(mid_CA[0], mid_CA[1], 'b* ↔ L*', 
                     fontsize=10, ha='center', va='center', style='italic',
-                    rotation=-60, color='darkred')
+                    rotation=60, color='darkred')  # Fixed rotation to match edge
         
         # Add tick marks and percentage labels
         self._add_ternary_tick_marks(A, B, C)
         
         # Configure plot
         self.ax.set_aspect('equal', adjustable='box')
-        self.ax.set_xlim(-0.15, 1.15)
-        self.ax.set_ylim(-0.15, h + 0.15)
+        self.ax.set_xlim(-0.20, 1.20)  # More space for labels
+        self.ax.set_ylim(-0.20, h + 0.20)  # More space for labels
         self.ax.set_xticks([])
         self.ax.set_yticks([])
         self.ax.set_xlabel('')  # Clear default labels
@@ -363,10 +363,10 @@ class TernaryPlotWindow:
             # a* increases from 0% to 100% as we go from A to B  
             a_percent = tick_labels[i]
             
-            if i % 2 == 0:  # Even positions: show both labels
-                self.ax.text(tick_x, tick_y - label_offset - 0.015, l_percent, 
+            if i % 2 == 0:  # Even positions: show both labels with better spacing
+                self.ax.text(tick_x, tick_y - label_offset - 0.025, l_percent, 
                            fontsize=8, ha='center', va='center', color='blue')
-                self.ax.text(tick_x, tick_y - label_offset, a_percent, 
+                self.ax.text(tick_x, tick_y - label_offset - 0.005, a_percent, 
                            fontsize=8, ha='center', va='center', color='green')
         
         # Right edge (B to C): a* at B, b* at C
@@ -390,12 +390,13 @@ class TernaryPlotWindow:
             b_percent = tick_labels[i]              # b* increases B to C
             
             if i % 2 == 0:  # Even positions
-                label_x = tick_x + perp_dx * 2
-                label_y = tick_y + perp_dy * 2
-                self.ax.text(label_x, label_y + 0.01, a_percent, 
-                           fontsize=8, ha='center', va='center', color='green', rotation=60)
-                self.ax.text(label_x, label_y - 0.01, b_percent, 
-                           fontsize=8, ha='center', va='center', color='red', rotation=60)
+                label_x = tick_x + perp_dx * 4.5  # Push further outside
+                label_y = tick_y + perp_dy * 4.5
+                # Right edge goes from bottom-right to top, so angle is about -60°
+                self.ax.text(label_x, label_y + 0.03, a_percent, 
+                           fontsize=8, ha='center', va='center', color='green', rotation=-60)
+                self.ax.text(label_x, label_y - 0.03, b_percent, 
+                           fontsize=8, ha='center', va='center', color='red', rotation=-60)
         
         # Left edge (C to A): b* at C, L* at A
         for i, t in enumerate(ticks):
@@ -406,9 +407,9 @@ class TernaryPlotWindow:
             # Tick mark pointing perpendicular to edge (outward)
             edge_dx = A[0] - C[0]
             edge_dy = A[1] - C[1]
-            # Perpendicular vector (rotate 90 degrees)
-            perp_dx = -edge_dy * tick_length
-            perp_dy = edge_dx * tick_length
+            # Perpendicular vector (rotate 90 degrees clockwise for outward direction)
+            perp_dx = edge_dy * tick_length  # Reversed sign
+            perp_dy = -edge_dx * tick_length  # Reversed sign
             
             self.ax.plot([tick_x, tick_x + perp_dx], [tick_y, tick_y + perp_dy], 
                         color='black', lw=1)
@@ -418,12 +419,14 @@ class TernaryPlotWindow:
             l_percent = tick_labels[i]              # L* increases C to A
             
             if i % 2 == 0:  # Even positions
-                label_x = tick_x + perp_dx * 2
-                label_y = tick_y + perp_dy * 2
-                self.ax.text(label_x - 0.01, label_y, b_percent, 
-                           fontsize=8, ha='center', va='center', color='red', rotation=-60)
-                self.ax.text(label_x + 0.01, label_y, l_percent, 
-                           fontsize=8, ha='center', va='center', color='blue', rotation=-60)
+                label_x = tick_x + perp_dx * 4.5  # Push even further outside
+                label_y = tick_y + perp_dy * 4.5
+                # Left edge goes from top to bottom-left, so angle is about 60°
+                # Separate the labels more along the perpendicular direction
+                self.ax.text(label_x - 0.04, label_y, b_percent, 
+                           fontsize=8, ha='center', va='center', color='red', rotation=60)
+                self.ax.text(label_x + 0.04, label_y, l_percent, 
+                           fontsize=8, ha='center', va='center', color='blue', rotation=60)
 
     @staticmethod
     def _barycentric_to_cartesian(A, B, C):
