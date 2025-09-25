@@ -2029,25 +2029,25 @@ class AnalysisManager:
                 )
                 return
             
-        # Check if we have color analysis data to analyze
-        measurements = None
-        
-        # First, try to get measurements from database if we have a sample set
-        current_sample_set = None
-        if (hasattr(self.app, 'control_panel') and 
-            hasattr(self.app.control_panel, 'sample_set_name') and 
-            self.app.control_panel.sample_set_name.get().strip()):
-            current_sample_set = self.app.control_panel.sample_set_name.get().strip()
-            print(f"DEBUG: Spectral analysis looking for sample set: '{current_sample_set}'")
+            # Check if we have color analysis data to analyze
+            measurements = None
             
-            try:
-                from utils.color_analysis_db import ColorAnalysisDB
-                db = ColorAnalysisDB(current_sample_set)
-                print(f"DEBUG: Database path: {db.get_database_path()}")
-                print(f"DEBUG: Database file exists: {os.path.exists(db.get_database_path())}")
-                db_measurements = db.get_all_measurements()
-                print(f"DEBUG: Found {len(db_measurements) if db_measurements else 0} measurements in database")
-                if db_measurements:
+            # First, try to get measurements from database if we have a sample set
+            current_sample_set = None
+            if (hasattr(self.app, 'control_panel') and 
+                hasattr(self.app.control_panel, 'sample_set_name') and 
+                self.app.control_panel.sample_set_name.get().strip()):
+                current_sample_set = self.app.control_panel.sample_set_name.get().strip()
+                print(f"DEBUG: Spectral analysis looking for sample set: '{current_sample_set}'")
+                
+                try:
+                    from utils.color_analysis_db import ColorAnalysisDB
+                    db = ColorAnalysisDB(current_sample_set)
+                    print(f"DEBUG: Database path: {db.get_database_path()}")
+                    print(f"DEBUG: Database file exists: {os.path.exists(db.get_database_path())}")
+                    db_measurements = db.get_all_measurements()
+                    print(f"DEBUG: Found {len(db_measurements) if db_measurements else 0} measurements in database")
+                    if db_measurements:
                         # Convert database measurements to ColorMeasurement objects
                         from utils.color_analyzer import ColorMeasurement
                         measurements = []
@@ -2067,46 +2067,46 @@ class AnalysisManager:
                 except Exception as db_error:
                     print(f"DEBUG: Could not load from database: {db_error}")
                     measurements = None
-        
-        # Fallback: Try to find any available color analysis databases if no current sample set
-        if not measurements:
-            try:
-                from utils.color_analysis_db import ColorAnalysisDB
-                from utils.path_utils import get_color_analysis_dir
-                
-                available_databases = ColorAnalysisDB.get_all_sample_set_databases(get_color_analysis_dir())
-                print(f"DEBUG: Available databases for fallback: {available_databases}")
-                
-                if available_databases:
-                    # Try the most recent database (likely the one the user is working on)
-                    latest_db = available_databases[-1]  # Databases are sorted, so last is most recent
-                    print(f"DEBUG: Trying fallback database: '{latest_db}'")
+            
+            # Fallback: Try to find any available color analysis databases if no current sample set
+            if not measurements:
+                try:
+                    from utils.color_analysis_db import ColorAnalysisDB
+                    from utils.path_utils import get_color_analysis_dir
                     
-                    db = ColorAnalysisDB(latest_db)
-                    db_measurements = db.get_all_measurements()
-                    if db_measurements:
-                        current_sample_set = latest_db  # Update current sample set for display
-                        print(f"DEBUG: Fallback successful - using database '{latest_db}' with {len(db_measurements)} measurements")
+                    available_databases = ColorAnalysisDB.get_all_sample_set_databases(get_color_analysis_dir())
+                    print(f"DEBUG: Available databases for fallback: {available_databases}")
+                    
+                    if available_databases:
+                        # Try the most recent database (likely the one the user is working on)
+                        latest_db = available_databases[-1]  # Databases are sorted, so last is most recent
+                        print(f"DEBUG: Trying fallback database: '{latest_db}'")
                         
-                        # Convert database measurements to ColorMeasurement objects
-                        from utils.color_analyzer import ColorMeasurement
-                        measurements = []
-                        for i, m in enumerate(db_measurements):
-                            measurement = ColorMeasurement(
-                                coordinate_id=m.get('id', i),
-                                coordinate_point=m.get('coordinate_point', 1),
-                                position=(m.get('x_pos', 0.0), m.get('y_pos', 0.0)),
-                                rgb=(int(m.get('rgb_r', 0)), int(m.get('rgb_g', 0)), int(m.get('rgb_b', 0))),
-                                lab=(m.get('l_value', 0.0), m.get('a_value', 0.0), m.get('b_value', 0.0)),
-                                sample_area={'type': 'circle', 'size': (10, 10), 'anchor': 'center'},
-                                measurement_date=m.get('timestamp', ''),
-                                notes=f"From sample set: {latest_db} (auto-discovered)"
-                            )
-                            measurements.append(measurement)
-                        print(f"DEBUG: Converted {len(measurements)} measurements from fallback database")
-            except Exception as fallback_error:
-                print(f"DEBUG: Fallback database discovery failed: {fallback_error}")
-                measurements = None
+                        db = ColorAnalysisDB(latest_db)
+                        db_measurements = db.get_all_measurements()
+                        if db_measurements:
+                            current_sample_set = latest_db  # Update current sample set for display
+                            print(f"DEBUG: Fallback successful - using database '{latest_db}' with {len(db_measurements)} measurements")
+                            
+                            # Convert database measurements to ColorMeasurement objects
+                            from utils.color_analyzer import ColorMeasurement
+                            measurements = []
+                            for i, m in enumerate(db_measurements):
+                                measurement = ColorMeasurement(
+                                    coordinate_id=m.get('id', i),
+                                    coordinate_point=m.get('coordinate_point', 1),
+                                    position=(m.get('x_pos', 0.0), m.get('y_pos', 0.0)),
+                                    rgb=(int(m.get('rgb_r', 0)), int(m.get('rgb_g', 0)), int(m.get('rgb_b', 0))),
+                                    lab=(m.get('l_value', 0.0), m.get('a_value', 0.0), m.get('b_value', 0.0)),
+                                    sample_area={'type': 'circle', 'size': (10, 10), 'anchor': 'center'},
+                                    measurement_date=m.get('timestamp', ''),
+                                    notes=f"From sample set: {latest_db} (auto-discovered)"
+                                )
+                                measurements.append(measurement)
+                            print(f"DEBUG: Converted {len(measurements)} measurements from fallback database")
+                except Exception as fallback_error:
+                    print(f"DEBUG: Fallback database discovery failed: {fallback_error}")
+                    measurements = None
             
             # If no database measurements, check for coordinate markers (sample points)
             if not measurements and hasattr(self.app.canvas, '_coord_markers') and self.app.canvas._coord_markers:
