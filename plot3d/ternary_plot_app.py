@@ -133,40 +133,82 @@ class TernaryPlotWindow:
     def _load_from_realtime_db(self):
         """Load data from the realtime datasheet database."""
         try:
-            # Import the database module
-            from utils.color_analysis_db import ColorAnalysisDB
-            from utils.path_utils import get_color_analysis_dir
+            # COMPREHENSIVE DEBUGGING FOR BUNDLED APPS
+            import sys
             import os
-            import glob
-            from tkinter import simpledialog
+            from tkinter import messagebox, simpledialog
+            
+            # Show debug info in dialog for bundled apps
+            debug_info = []
+            debug_info.append(f"Python executable: {sys.executable}")
+            debug_info.append(f"Frozen (bundled): {getattr(sys, 'frozen', False)}")
+            debug_info.append(f"Current working directory: {os.getcwd()}")
+            
+            if hasattr(sys, '_MEIPASS'):
+                debug_info.append(f"PyInstaller temp dir: {sys._MEIPASS}")
+            
+            # Try importing the modules
+            try:
+                from utils.path_utils import get_color_analysis_dir
+                debug_info.append("✅ utils.path_utils imported")
+            except Exception as e:
+                debug_info.append(f"❌ utils.path_utils import failed: {e}")
+                # Fallback to hardcoded paths
+                if sys.platform == 'darwin':
+                    def get_color_analysis_dir():
+                        return os.path.expanduser('~/Library/Application Support/StampZ-III/data/color_analysis')
+                else:
+                    def get_color_analysis_dir():
+                        return os.path.join(os.getcwd(), 'data', 'color_analysis')
+                debug_info.append("Using fallback path function")
+            
+            try:
+                from utils.color_analysis_db import ColorAnalysisDB
+                debug_info.append("✅ ColorAnalysisDB imported")
+            except Exception as e:
+                debug_info.append(f"❌ ColorAnalysisDB import failed: {e}")
+                messagebox.showerror("Import Error", f"Failed to import ColorAnalysisDB:\n\n{e}\n\nDebug:\n" + "\n".join(debug_info))
+                return
             
             # Use proper path resolution for bundled apps
             db_dir = get_color_analysis_dir()
-            print(f"DEBUG: Ternary Plot looking for databases in: {db_dir}")
-            print(f"DEBUG: Database directory exists: {os.path.exists(db_dir)}")
+            debug_info.append(f"Database directory: {db_dir}")
+            debug_info.append(f"Directory exists: {os.path.exists(db_dir)}")
+            
+            if os.path.exists(db_dir):
+                try:
+                    files = os.listdir(db_dir)
+                    debug_info.append(f"Files in directory: {files}")
+                except Exception as e:
+                    debug_info.append(f"Error listing directory: {e}")
+            
+            # Show debug info to user
+            debug_text = "\n".join(debug_info)
+            messagebox.showinfo("Ternary Plot Debug Info", debug_text)
             
             if not os.path.exists(db_dir):
                 error_msg = (
                     "No color analysis databases found.\n\n"
-                    f"DEBUG INFO:\n"
-                    f"• Searched in: {db_dir}\n"
-                    f"• Directory exists: {os.path.exists(db_dir)}\n\n"
+                    f"DEBUG INFO:\n" + "\n".join(debug_info) + "\n\n"
                     f"Please run color analysis first using the Sample tool."
                 )
                 messagebox.showerror("Error", error_msg)
                 return
             
             # Use ColorAnalysisDB's built-in database discovery instead of manual glob
-            available_databases = ColorAnalysisDB.get_all_sample_set_databases(db_dir)
-            print(f"DEBUG: Found {len(available_databases)} databases: {available_databases}")
+            try:
+                available_databases = ColorAnalysisDB.get_all_sample_set_databases(db_dir)
+                debug_info.append(f"Found {len(available_databases)} databases: {available_databases}")
+            except Exception as e:
+                debug_info.append(f"Error discovering databases: {e}")
+                error_msg = "Database discovery failed:\n\n" + "\n".join(debug_info)
+                messagebox.showerror("Error", error_msg)
+                return
             
             if not available_databases:
                 error_msg = (
                     "No database files found in Application Support.\n\n"
-                    f"DEBUG INFO:\n"
-                    f"• Searched in: {db_dir}\n"
-                    f"• Directory exists: {os.path.exists(db_dir)}\n"
-                    f"• Files in directory: {os.listdir(db_dir) if os.path.exists(db_dir) else 'N/A'}\n\n"
+                    f"FULL DEBUG INFO:\n" + "\n".join(debug_info) + "\n\n"
                     f"Please run color analysis first using the Sample tool."
                 )
                 messagebox.showerror("Error", error_msg)
