@@ -291,16 +291,52 @@ class TernaryPlotWindow:
                 load_initial_data=False  # We'll load our own data
             )
             
+            # Override the refresh method to refresh Ternary Plot instead of StampZ
+            original_refresh = datasheet._refresh_from_stampz
+            def ternary_refresh(*args, **kwargs):
+                print("DEBUG: Ternary Plot refresh triggered")
+                try:
+                    # Reload data from current database
+                    self._load_from_realtime_db()
+                    messagebox.showinfo("Refresh Complete", "Ternary Plot data refreshed from database.")
+                except Exception as e:
+                    messagebox.showerror("Refresh Error", f"Failed to refresh Ternary Plot data:\n\n{e}")
+            datasheet._refresh_from_stampz = ternary_refresh
+            
             # Load our converted data into the datasheet
             if hasattr(datasheet, 'sheet') and len(plot3d_df) > 0:
                 # Convert DataFrame to list format for tksheet
                 data_values = plot3d_df.values.tolist()
-                datasheet.sheet.set_sheet_data(data_values)
+                
+                # Insert rows if needed (tksheet needs proper row count)
+                current_rows = datasheet.sheet.get_total_rows()
+                needed_rows = max(len(data_values) + 10, 50)  # Data + buffer
+                
+                if current_rows < needed_rows:
+                    empty_rows = [[''] * len(plot3d_df.columns)] * (needed_rows - current_rows)
+                    datasheet.sheet.insert_rows(rows=empty_rows, idx=current_rows)
+                
+                # Set the data row by row starting from data area (row 7, display row 8)
+                data_start_row = 7  # Skip header and centroid rows
+                for i, row_data in enumerate(data_values):
+                    row_idx = data_start_row + i
+                    if row_idx < datasheet.sheet.get_total_rows():
+                        datasheet.sheet.set_row_data(row_idx, values=row_data)
                 
                 # Set proper column headers
                 datasheet.sheet.headers(list(plot3d_df.columns))
                 
-                # Force refresh
+                # CRITICAL: Apply formatting and validation after data is loaded
+                try:
+                    print("DEBUG: Applying formatting to loaded data...")
+                    datasheet._apply_formatting()
+                    print("DEBUG: Applying validation dropdowns...")
+                    datasheet._setup_validation()
+                    print("DEBUG: Formatting and validation applied successfully")
+                except Exception as format_error:
+                    print(f"DEBUG: Error applying formatting: {format_error}")
+                
+                # Force refresh to update display
                 datasheet.sheet.refresh()
             
         except ImportError as e:
@@ -350,9 +386,22 @@ class TernaryPlotWindow:
         plot3d_df['Cluster'] = 1
         plot3d_df['∆E'] = 0.0
         
-        # Use marker and color from original data if available
-        plot3d_df['Marker'] = df.get('Marker', '.').fillna('.')
-        plot3d_df['Color'] = df.get('Color', 'blue').fillna('blue')
+        # Use marker and color from original data if available, with proper defaults
+        if 'Marker' in df.columns:
+            plot3d_df['Marker'] = df['Marker'].fillna('.').astype(str)
+            # Ensure all markers are valid
+            valid_markers = ['.', 'o', '*', '^', '<', '>', 'v', 's', 'D', '+', 'x']
+            plot3d_df['Marker'] = plot3d_df['Marker'].apply(lambda x: x if x in valid_markers else '.')
+        else:
+            plot3d_df['Marker'] = '.'
+            
+        if 'Color' in df.columns:
+            plot3d_df['Color'] = df['Color'].fillna('blue').astype(str)
+            # Ensure all colors are valid
+            valid_colors = ['red', 'blue', 'green', 'orange', 'purple', 'yellow', 'cyan', 'magenta', 'brown', 'pink', 'lime', 'navy', 'teal', 'gray']
+            plot3d_df['Color'] = plot3d_df['Color'].apply(lambda x: x if x in valid_colors else 'blue')
+        else:
+            plot3d_df['Color'] = 'blue'
         
         # Add empty columns for Plot_3D features
         plot3d_df['Centroid_X'] = np.nan
