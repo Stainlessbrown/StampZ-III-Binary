@@ -312,12 +312,23 @@ for dir_name in data_dirs:
     user_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Ensured directory exists: {user_dir}")
     
-    # Copy initial data files on first run
+    # Copy initial data files on first run ONLY - don't overwrite existing user data
     if dir_name == 'data':
         bundle_data_dir = app_bundle_dir / 'data'
         if bundle_data_dir.exists():
-            logger.info(f"Copying data from {bundle_data_dir} to {user_dir}")
-            copy_directory_contents(bundle_data_dir, user_dir)
+            # Only copy if user data directory is empty or doesn't have critical files
+            color_libs_dir = user_dir / 'color_libraries'
+            has_existing_data = (
+                color_libs_dir.exists() and 
+                any(color_libs_dir.glob('*.db')) and
+                any(db.stat().st_size > 32768 for db in color_libs_dir.glob('*.db'))  # Check for non-empty DBs
+            )
+            
+            if not has_existing_data:
+                logger.info(f"First run detected - copying initial data from {bundle_data_dir} to {user_dir}")
+                copy_directory_contents(bundle_data_dir, user_dir)
+            else:
+                logger.info(f"Existing user data found - skipping data copy to preserve user libraries")
 
 # Set environment variable for app data directory
 os.environ['STAMPZ_DATA_DIR'] = str(user_data_dir)
