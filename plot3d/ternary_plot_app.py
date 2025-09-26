@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.patches import Rectangle
 
 from utils.data_file_manager import get_data_file_manager, DataFormat
@@ -31,6 +31,7 @@ class TernaryPlotWindow:
         self.show_hull = tk.BooleanVar(value=False)
         self.show_grid = tk.BooleanVar(value=True)
         self.use_rgb_labels = tk.BooleanVar(value=False)  # False = L*a*b*, True = RGB
+        self.zoom_level = tk.DoubleVar(value=1.0)  # Zoom level for markers
         self.manager = get_data_file_manager()
         self.current_database = tk.StringVar(value="No database loaded")
         self.current_database_name = None  # Track actual database name for viewer
@@ -70,11 +71,7 @@ class TernaryPlotWindow:
         # View current database
         ttk.Button(self.side, text="View Database Contents", command=self._view_database).pack(fill=tk.X, pady=4)
         
-        # Refresh data from database
-        ttk.Button(self.side, text="Refresh from Database", command=self._refresh_data).pack(fill=tk.X, pady=4)
-        
-        # Refresh plot rendering
-        ttk.Button(self.side, text="Refresh Plot", command=self._render).pack(fill=tk.X, pady=4)
+        # Note: Refresh functionality moved to database viewer where changes are made
 
         # Current database indicator
         db_frame = ttk.LabelFrame(self.side, text="Current Database")
@@ -90,6 +87,16 @@ class TernaryPlotWindow:
         ttk.Checkbutton(options_frame, text="Show Convex Hull", variable=self.show_hull, command=self._render).pack(anchor='w', padx=5, pady=2)
         ttk.Checkbutton(options_frame, text="Show Grid Lines", variable=self.show_grid, command=self._render).pack(anchor='w', padx=5, pady=2)
         ttk.Checkbutton(options_frame, text="Use RGB Labels", variable=self.use_rgb_labels, command=self._render).pack(anchor='w', padx=5, pady=2)
+        
+        # Zoom control
+        zoom_frame = ttk.Frame(options_frame)
+        zoom_frame.pack(fill=tk.X, padx=5, pady=2)
+        ttk.Label(zoom_frame, text="Marker Size:").pack(side=tk.LEFT)
+        zoom_scale = ttk.Scale(zoom_frame, from_=0.5, to=3.0, variable=self.zoom_level, 
+                              orient=tk.HORIZONTAL, length=100, command=self._on_zoom_change)
+        zoom_scale.pack(side=tk.LEFT, padx=(5,0))
+        self.zoom_label = ttk.Label(zoom_frame, text=f"{self.zoom_level.get():.1f}x")
+        self.zoom_label.pack(side=tk.LEFT, padx=(5,0))
 
         # Save plot image
         ttk.Button(self.side, text="Save Plot as PNG", command=self._save_png).pack(fill=tk.X, pady=8)
@@ -102,22 +109,38 @@ class TernaryPlotWindow:
             "Data Sources:\n"
             " - External files: ODS/XLSX/CSV\n"
             " - Realtime DB: Current session data\n\n"
+            "Navigation:\n"
+            " - Use toolbar: Pan, Zoom, Home, Back/Forward\n"
+            " - Click points to highlight and show details\n\n"
             "Columns used:\n"
             " - L*, a*, b*, DataID, Marker, Color\n\n"
             "Notes:\n"
-            " - Data is normalized to sum=1 for ternary projection\n"
-            " - Convex hull uses a simple 2D hull on projected points"
+            " - Data normalized to sum=1 for ternary projection\n"
+            " - Perfect for analyzing dense marker clusters"
         )
         ttk.Label(self.side, text=info, wraplength=240, foreground='gray').pack(anchor='w', pady=(10, 0))
 
     def _build_plot(self):
         self.fig = plt.Figure(figsize=(9.0, 8.5), facecolor='white')
+        # Adjust subplot to use more of the figure area
         self.ax = self.fig.add_subplot(111)
+        # Reduce margins to maximize plot area
+        self.fig.subplots_adjust(left=0.05, right=0.95, top=0.90, bottom=0.10)  # Leave room for toolbar
+        
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.main)
-        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        
+        # Add matplotlib navigation toolbar for pan/zoom
+        self.toolbar = NavigationToolbar2Tk(self.canvas, self.main)
+        self.toolbar.update()
         
         # Bind click events for point highlighting
         self.canvas.mpl_connect('button_press_event', self._on_plot_click)
+    
+    def _on_zoom_change(self, value):
+        """Handle zoom level changes."""
+        self.zoom_label.config(text=f"{self.zoom_level.get():.1f}x")
+        self._render()
 
     # === File handling ===
     def _open_file(self):
@@ -311,18 +334,44 @@ class TernaryPlotWindow:
             def ternary_refresh(*args, **kwargs):
                 print("DEBUG: Ternary Plot refresh triggered")
                 try:
-                    # 1. Reload data from current database into Ternary Plot
-                    self._load_from_realtime_db()
+                    # Reload data silently (no popup messages)
+                    from utils.color_analysis_db import ColorAnalysisDB
+                    import pandas as pd
                     
-                    # 2. Use the RealtimePlot3DSheet's built-in refresh mechanism
-                    datasheet._refresh_from_stampz()
+                    db = ColorAnalysisDB(self.current_database_name)
+                    measurements = db.get_all_measurements()
                     
-                    messagebox.showinfo("Refresh Complete", "Both Ternary Plot and database viewer refreshed successfully.")
+                    if measurements:
+                        df_data = []
+                        for m in measurements:
+                            l_val = m.get('l_value', 50)
+                            a_val = m.get('a_value', 0) 
+                            b_val = m.get('b_value', 0)
+                            
+                            # Convert normalized to Lab ranges if needed
+                            if 0 <= l_val <= 1: l_val = l_val * 100
+                            if -1 <= a_val <= 1: a_val = a_val * 128
+                            if -1 <= b_val <= 1: b_val = b_val * 128
+                            
+                            df_data.append({
+                                'L*': l_val, 'a*': a_val, 'b*': b_val,
+                                'DataID': m.get('image_name', '') + f"_pt{m.get('coordinate_point', '')}",
+                                'Marker': m.get('marker_preference', '.'),
+                                'Color': m.get('color_preference', 'blue')
+                            })
+                        
+                        # Update ternary plot
+                        self.df = pd.DataFrame(df_data)
+                        self.current_database.set(f"{self.current_database_name} ({len(measurements)} points)")
+                        self._render()
+                        print(f"DEBUG: Updated ternary plot with {len(measurements)} points")
+                    
+                    # Refresh datasheet with original method (avoid recursion)
+                    original_refresh()
+                    
                 except Exception as e:
                     print(f"DEBUG: Refresh error: {e}")
-                    import traceback
-                    print(f"DEBUG: Traceback: {traceback.format_exc()}")
-                    messagebox.showerror("Refresh Error", f"Failed to refresh data:\n\n{e}")
+                    messagebox.showerror("Refresh Error", f"Failed to refresh data: {e}")
             datasheet._refresh_from_stampz = ternary_refresh
             
             # Update the window title to show Ternary Plot context while keeping database functionality
@@ -388,15 +437,56 @@ class TernaryPlotWindow:
     
     def _refresh_data(self):
         """Refresh data from the current database and update the plot."""
+        print(f"DEBUG: _refresh_data called with current_database_name: {self.current_database_name}")
         if not self.current_database_name:
             messagebox.showwarning("No Database", "No database is currently loaded.")
             return
         
         try:
-            # Reload data from the current database
-            self._load_from_realtime_db()
+            # Import required modules
+            from utils.color_analysis_db import ColorAnalysisDB
+            
+            # Directly reload from the known database without selection dialog
+            db = ColorAnalysisDB(self.current_database_name)
+            measurements = db.get_all_measurements()
+            
+            if not measurements:
+                messagebox.showwarning("No Data", f"No measurements found in database '{self.current_database_name}'.")
+                return
+            
+            # Convert to DataFrame with ternary-compatible columns (same logic as _load_from_realtime_db)
+            import pandas as pd
+            df_data = []
+            for m in measurements:
+                # Convert L*a*b* values - check if they're already in reasonable ranges
+                l_val = m.get('l_value', 50)  # Default to mid-range if missing
+                a_val = m.get('a_value', 0)
+                b_val = m.get('b_value', 0)
+                
+                # If values seem to be normalized (0-1), convert to L*a*b* ranges
+                if 0 <= l_val <= 1:
+                    l_val = l_val * 100
+                if -1 <= a_val <= 1:
+                    a_val = a_val * 128
+                if -1 <= b_val <= 1:
+                    b_val = b_val * 128
+                
+                df_data.append({
+                    'L*': l_val,
+                    'a*': a_val,
+                    'b*': b_val,
+                    'DataID': m.get('image_name', '') + f"_pt{m.get('coordinate_point', '')}",
+                    'Marker': m.get('marker_preference', '.'),
+                    'Color': m.get('color_preference', 'blue')
+                })
+            
+            self.df = pd.DataFrame(df_data)
+            self.current_database.set(f"{self.current_database_name} ({len(measurements)} points)")
+            self._render()
+            
             messagebox.showinfo("Refresh Complete", 
                 f"Refreshed data from '{self.current_database_name}' and updated plot.")
+                
         except Exception as e:
             messagebox.showerror("Refresh Error", 
                 f"Failed to refresh data from database:\n\n{e}")
@@ -615,8 +705,9 @@ class TernaryPlotWindow:
         # Clear previous point data for click detection
         self.plot_points = []
         
-        # Use smaller marker size to reduce boundary issues
-        marker_size = 25  # Reduced from 40
+        # Use zoom level to control marker size
+        base_marker_size = 25  # Base size
+        marker_size = base_marker_size * self.zoom_level.get()
         
         for i in range(len(df)):
             m = markers.iloc[i]
