@@ -32,6 +32,13 @@ class ReferencePointCalculator:
     # Define critical columns that must be present
     CRITICAL_COLUMNS = ['Xnorm', 'Ynorm', 'Znorm', 'Centroid_X', 'Centroid_Y', 'Centroid_Z', '∆E']
     
+    # Alternative column names that should be accepted
+    COLUMN_ALIASES = {
+        'DeltaE': '∆E',  # DeltaE should map to ∆E
+        'deltae': '∆E',  # case insensitive version
+        'Delta_E': '∆E'  # underscore version
+    }
+    
     # Define file operation configurations
     MAX_RETRIES = 3        # Maximum retry attempts for file operations
     RETRY_DELAY = 1        # Seconds between retry attempts
@@ -494,20 +501,47 @@ class ReferencePointCalculator:
         common_cols = set(expected_cols_lower).intersection(set(found_cols_lower))
         self.logger.info(f"Found {len(common_cols)}/{len(self.EXPECTED_COLUMNS)} expected columns (case-insensitive)")
             
-        # Check for required columns with case-insensitive matching
+        # Check for required columns with case-insensitive matching and aliases
         missing_columns = []
+        renamed_columns = {}
         
         for expected_col in self.EXPECTED_COLUMNS:
+            found = False
+            
             if expected_col in dataframe.columns:
                 # Column exists with exact name
-                continue
+                found = True
             elif expected_col.lower() in column_map:
                 # Column exists with different case
                 actual_col = column_map[expected_col.lower()]
+                renamed_columns[actual_col] = expected_col
                 self.logger.info(f"Case mismatch: Found '{actual_col}' matching expected '{expected_col}'")
+                found = True
             else:
-                # Column is missing
+                # Check for column aliases (e.g., DeltaE -> ∆E)
+                for alias, target in self.COLUMN_ALIASES.items():
+                    if target == expected_col:  # This is the target column we're looking for
+                        if alias in dataframe.columns:
+                            # Found alias in exact case
+                            renamed_columns[alias] = expected_col
+                            self.logger.info(f"Found column alias '{alias}' for expected '{expected_col}'")
+                            found = True
+                            break
+                        elif alias.lower() in column_map:
+                            # Found alias in different case
+                            actual_col = column_map[alias.lower()]
+                            renamed_columns[actual_col] = expected_col
+                            self.logger.info(f"Found column alias '{actual_col}' for expected '{expected_col}'")
+                            found = True
+                            break
+            
+            if not found:
                 missing_columns.append(expected_col)
+        
+        # Apply column renaming if needed
+        if renamed_columns:
+            self.logger.info(f"Renaming {len(renamed_columns)} columns to expected names")
+            dataframe = dataframe.rename(columns=renamed_columns)
         
         # Handle missing columns with enhanced diagnostics
         if missing_columns:

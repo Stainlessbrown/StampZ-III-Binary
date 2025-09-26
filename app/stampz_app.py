@@ -210,6 +210,10 @@ class StampZApp:
         """Open the ternary plot window."""
         return self.analysis_manager.open_ternary_plot()
         
+    def create_realtime_sheet_from_ods(self):
+        """Create a new realtime datasheet from an external ODS/XLSX file."""
+        return self.analysis_manager.create_realtime_sheet_from_ods()
+        
     def show_about(self):
         """Delegate to settings manager."""
         return self.settings_manager.show_about()

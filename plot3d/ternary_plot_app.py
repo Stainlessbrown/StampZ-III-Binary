@@ -163,11 +163,72 @@ class TernaryPlotWindow:
                 return
 
             df = src_df.copy()
-            if all(col in df.columns for col in ['Xnorm', 'Ynorm', 'Znorm']):
-                # Convert normalized 0-1 to approximate L*,a*,b* ranges
+            
+            # CRITICAL FIX: Detect data format to prevent double conversion
+            # Check if the file already contains L*a*b* columns with reasonable values
+            has_lab_columns = all(col in df.columns for col in ['L*', 'a*', 'b*'])
+            has_normalized_columns = all(col in df.columns for col in ['Xnorm', 'Ynorm', 'Znorm'])
+            
+            if has_lab_columns:
+                # File already has L*a*b* data - use it directly
+                print(f"DEBUG: File contains L*a*b* columns, using directly")
+                l_values = pd.to_numeric(df['L*'], errors='coerce')
+                a_values = pd.to_numeric(df['a*'], errors='coerce')
+                b_values = pd.to_numeric(df['b*'], errors='coerce')
+                
+                # Verify the values are in reasonable L*a*b* ranges
+                l_reasonable = l_values.between(0, 100).sum() > len(l_values) * 0.8
+                a_reasonable = a_values.between(-128, 127).sum() > len(a_values) * 0.8  
+                b_reasonable = b_values.between(-128, 127).sum() > len(b_values) * 0.8
+                
+                if l_reasonable and a_reasonable and b_reasonable:
+                    print(f"DEBUG: L*a*b* values are in reasonable ranges, using as-is")
+                    df['L*'] = l_values
+                    df['a*'] = a_values
+                    df['b*'] = b_values
+                else:
+                    print(f"DEBUG: L*a*b* values seem out of range, may be normalized format mislabeled")
+                    # Treat as normalized data despite column names
+                    df['L*'] = l_values * 100.0
+                    df['a*'] = a_values * 255.0 - 128.0
+                    df['b*'] = b_values * 255.0 - 128.0
+                    
+            elif has_normalized_columns:
+                # File has Plot_3D normalized format - convert to L*a*b*
+                print(f"DEBUG: File contains normalized columns, converting to L*a*b*")
                 df['L*'] = pd.to_numeric(df['Xnorm'], errors='coerce') * 100.0
                 df['a*'] = pd.to_numeric(df['Ynorm'], errors='coerce') * 255.0 - 128.0
                 df['b*'] = pd.to_numeric(df['Znorm'], errors='coerce') * 255.0 - 128.0
+            else:
+                # Try to auto-detect from any numeric columns
+                print(f"DEBUG: No standard columns found, attempting auto-detection")
+                numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+                if len(numeric_cols) >= 3:
+                    # Use first 3 numeric columns and assume they need conversion if values are 0-1
+                    col1, col2, col3 = numeric_cols[:3]
+                    val1 = pd.to_numeric(df[col1], errors='coerce')
+                    val2 = pd.to_numeric(df[col2], errors='coerce')
+                    val3 = pd.to_numeric(df[col3], errors='coerce')
+                    
+                    # Check if values are in 0-1 range (normalized) or larger ranges (L*a*b*)
+                    if (val1.between(0, 1).sum() > len(val1) * 0.8 and 
+                        val2.between(0, 1).sum() > len(val2) * 0.8 and 
+                        val3.between(0, 1).sum() > len(val3) * 0.8):
+                        print(f"DEBUG: Auto-detected normalized format in columns {col1}, {col2}, {col3}")
+                        df['L*'] = val1 * 100.0
+                        df['a*'] = val2 * 255.0 - 128.0
+                        df['b*'] = val3 * 255.0 - 128.0
+                    else:
+                        print(f"DEBUG: Auto-detected L*a*b* format in columns {col1}, {col2}, {col3}")
+                        df['L*'] = val1
+                        df['a*'] = val2  
+                        df['b*'] = val3
+                else:
+                    messagebox.showerror("Import Error", 
+                        "Could not detect color data format.\n\n"
+                        "Expected columns: L*, a*, b* (for Lab data) or Xnorm, Ynorm, Znorm (for normalized data)\n"
+                        "Or at least 3 numeric columns for auto-detection.")
+                    return
 
             # Marker/Color/DataID defaults
             if 'Marker' not in df.columns:
@@ -175,9 +236,15 @@ class TernaryPlotWindow:
             if 'Color' not in df.columns:
                 df['Color'] = 'blue'
             if 'DataID' not in df.columns:
-                df['DataID'] = ''
+                df['DataID'] = [f"Point_{i+1}" for i in range(len(df))]
 
             self.df = df[['L*', 'a*', 'b*', 'DataID', 'Marker', 'Color']].copy()
+            
+            # Debug output
+            print(f"DEBUG: Final L*a*b* ranges after import:")
+            print(f"  L*: {self.df['L*'].min():.2f} to {self.df['L*'].max():.2f}")
+            print(f"  a*: {self.df['a*'].min():.2f} to {self.df['a*'].max():.2f}")
+            print(f"  b*: {self.df['b*'].min():.2f} to {self.df['b*'].max():.2f}")
             
             # Update database indicator for external files
             import os
@@ -640,18 +707,39 @@ class TernaryPlotWindow:
             self.canvas.draw_idle()
             return
 
-        # Convert L*, a*, b* to normalized proportions (non-negative then normalize)
+        # Convert L*, a*, b* to normalized proportions for ternary display
         df = self.df.copy()
-        a_shift = df['a*'].min()
-        b_shift = df['b*'].min()
-        L = pd.to_numeric(df['L*'], errors='coerce').fillna(0).clip(lower=0)
-        A = (pd.to_numeric(df['a*'], errors='coerce').fillna(0) - a_shift).clip(lower=0)
-        B = (pd.to_numeric(df['b*'], errors='coerce').fillna(0) - b_shift).clip(lower=0)
-
-        total = (L + A + B).replace(0, np.nan)
-        Lp = (L / total).fillna(0)
-        Ap = (A / total).fillna(0)
-        Bp = (B / total).fillna(0)
+        
+        # Get L*a*b* values and handle missing data
+        L = pd.to_numeric(df['L*'], errors='coerce').fillna(50.0)  # Default to mid-gray
+        A = pd.to_numeric(df['a*'], errors='coerce').fillna(0.0)
+        B = pd.to_numeric(df['b*'], errors='coerce').fillna(0.0)
+        
+        print(f"DEBUG: Ternary plot L*a*b* ranges before conversion:")
+        print(f"  L*: {L.min():.2f} to {L.max():.2f}")
+        print(f"  a*: {A.min():.2f} to {A.max():.2f}")
+        print(f"  b*: {B.min():.2f} to {B.max():.2f}")
+        
+        # PROPER TERNARY CONVERSION: Use absolute values to create meaningful proportions
+        # This preserves the actual color relationships without distorting the data
+        
+        # Method 1: Use L* directly and absolute values for a* and b*
+        # This creates a meaningful ternary relationship based on color lightness and chromaticity
+        L_component = L.clip(lower=0.1)  # Ensure minimum positive value
+        A_component = A.abs().clip(lower=0.1)  # Use absolute value of a*
+        B_component = B.abs().clip(lower=0.1)  # Use absolute value of b*
+        
+        # Normalize to create ternary coordinates (sum = 1)
+        total = (L_component + A_component + B_component).replace(0, np.nan)
+        Lp = (L_component / total).fillna(0.33)
+        Ap = (A_component / total).fillna(0.33)
+        Bp = (B_component / total).fillna(0.33)
+        
+        print(f"DEBUG: Ternary coordinates after conversion:")
+        print(f"  Lp: {Lp.min():.3f} to {Lp.max():.3f}")
+        print(f"  Ap: {Ap.min():.3f} to {Ap.max():.3f}")
+        print(f"  Bp: {Bp.min():.3f} to {Bp.max():.3f}")
+        print(f"  Sum check: {(Lp + Ap + Bp).min():.3f} to {(Lp + Ap + Bp).max():.3f}")
 
         # Project to 2D Cartesian in an equilateral triangle
         pts = self._barycentric_to_cartesian(Lp.values, Ap.values, Bp.values)

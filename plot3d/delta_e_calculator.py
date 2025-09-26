@@ -298,9 +298,37 @@ class DeltaECalculator:
         Raises:
             ValueError: If data validation fails
         """
-        # Check required columns
+        # Check required columns with flexible column name matching
         required_columns = ['Xnorm', 'Ynorm', 'Znorm', 'Centroid_X', 'Centroid_Y', 'Centroid_Z', '∆E']
-        missing_columns = [col for col in required_columns if col not in data.columns]
+        column_aliases = {'DeltaE': '∆E', 'deltae': '∆E', 'Delta_E': '∆E'}  # Map DeltaE variations to ∆E
+        
+        missing_columns = []
+        
+        for req_col in required_columns:
+            found = False
+            
+            if req_col in data.columns:
+                # Exact match found
+                found = True
+            else:
+                # Check for aliases (e.g., DeltaE -> ∆E)
+                for alias, target in column_aliases.items():
+                    if target == req_col and alias in data.columns:
+                        # Found alias, rename it
+                        data = data.rename(columns={alias: req_col})
+                        self.logger.info(f"Mapped column '{alias}' to expected '{req_col}'")
+                        found = True
+                        break
+                    elif target == req_col and alias.lower() in [col.lower() for col in data.columns]:
+                        # Found case-insensitive alias
+                        actual_col = next(col for col in data.columns if col.lower() == alias.lower())
+                        data = data.rename(columns={actual_col: req_col})
+                        self.logger.info(f"Mapped column '{actual_col}' to expected '{req_col}'")
+                        found = True
+                        break
+            
+            if not found:
+                missing_columns.append(req_col)
         
         if missing_columns:
             self.logger.error(f"Missing required columns: {missing_columns}")
@@ -436,13 +464,28 @@ class DeltaECalculator:
             self.logger.info(f"Loading data from {self.file_path}")
             data = pd.read_excel(self.file_path, engine='odf')
             
-            # Verify required columns exist
-            required_columns = ['Xnorm', 'Ynorm', 'Znorm', 'Centroid_X', 'Centroid_Y', 'Centroid_Z', '∆E']
-            missing_columns = [col for col in required_columns if col not in data.columns]
-            
-            if missing_columns:
-                self.logger.error(f"Missing required columns: {missing_columns}")
-                raise ValueError(f"Missing required columns: {missing_columns}")
+        # Verify required columns exist with alias handling
+        required_columns = ['Xnorm', 'Ynorm', 'Znorm', 'Centroid_X', 'Centroid_Y', 'Centroid_Z', '∆E']
+        column_aliases = {'DeltaE': '∆E', 'deltae': '∆E', 'Delta_E': '∆E'}
+        
+        # Perform same alias mapping as in validate_data
+        for req_col in required_columns:
+            if req_col not in data.columns:
+                for alias, target in column_aliases.items():
+                    if target == req_col and alias in data.columns:
+                        data = data.rename(columns={alias: req_col})
+                        self.logger.info(f"Mapped column '{alias}' to expected '{req_col}'")
+                        break
+                    elif target == req_col and alias.lower() in [c.lower() for c in data.columns]:
+                        actual_col = next(c for c in data.columns if c.lower() == alias.lower())
+                        data = data.rename(columns={actual_col: req_col})
+                        self.logger.info(f"Mapped column '{actual_col}' to expected '{req_col}'")
+                        break
+        
+        missing_columns = [col for col in required_columns if col not in data.columns]
+        if missing_columns:
+            self.logger.error(f"Missing required columns: {missing_columns}")
+            raise ValueError(f"Missing required columns: {missing_columns}")
             
             # Get indices for the selected row range
             row_indices = self._get_data_indices(start_row, end_row)

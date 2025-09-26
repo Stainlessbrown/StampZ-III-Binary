@@ -18,9 +18,16 @@ class DeltaEManager:
     and their cluster centroids.
     """
     
-    # Define expected column structure
+    # Define expected column structure - note ∆E can be either ∆E or DeltaE
     EXPECTED_COLUMNS = ['Xnorm', 'Ynorm', 'Znorm', 'DataID', 'Cluster', '∆E', 'Marker',
                      'Color', 'Sphere', 'Centroid_X', 'Centroid_Y', 'Centroid_Z']
+    
+    # Alternative column names that should be accepted
+    COLUMN_ALIASES = {
+        'DeltaE': '∆E',  # DeltaE should map to ∆E
+        'deltae': '∆E',  # case insensitive version
+        'Delta_E': '∆E'  # underscore version
+    }
     
     # Reference white point for XYZ to L*a*b* conversion
     # For normalized values in 0-1 range, use these reference values
@@ -76,20 +83,41 @@ class DeltaEManager:
             
         self.logger.info(f"Case-insensitive column map created with {len(column_map)} entries")
         
-        # Check for required columns with case-insensitive matching
+        # Check for required columns with case-insensitive matching and aliases
         missing_columns = []
         renamed_columns = {}
         
         for expected_col in self.EXPECTED_COLUMNS:
+            found = False
+            
             if expected_col in dataframe.columns:
                 # Column exists with exact name
-                continue
+                found = True
             elif expected_col.lower() in column_map:
                 # Column exists with different case
                 actual_col = column_map[expected_col.lower()]
                 renamed_columns[actual_col] = expected_col
                 self.logger.info(f"Found column '{actual_col}' matching expected '{expected_col}'")
+                found = True
             else:
+                # Check for column aliases (e.g., DeltaE -> ∆E)
+                for alias, target in self.COLUMN_ALIASES.items():
+                    if target == expected_col:  # This is the target column we're looking for
+                        if alias in dataframe.columns:
+                            # Found alias in exact case
+                            renamed_columns[alias] = expected_col
+                            self.logger.info(f"Found column alias '{alias}' for expected '{expected_col}'")
+                            found = True
+                            break
+                        elif alias.lower() in column_map:
+                            # Found alias in different case
+                            actual_col = column_map[alias.lower()]
+                            renamed_columns[actual_col] = expected_col
+                            self.logger.info(f"Found column alias '{actual_col}' for expected '{expected_col}'")
+                            found = True
+                            break
+            
+            if not found:
                 # Column is missing
                 missing_columns.append(expected_col)
         

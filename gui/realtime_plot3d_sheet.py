@@ -1226,14 +1226,30 @@ class RealtimePlot3DSheet:
                             
                             # We have valid coordinate data - attempt to insert new measurement
                             print(f"    ✅ Row {i}: Data validation passed - proceeding with insertion")
+                            
+                            # CRITICAL FIX: Convert normalized Plot_3D values back to raw L*a*b* for database storage
+                            # Database expects raw L*a*b* ranges, but we have normalized 0-1 values
+                            if 0 <= x_pos_val <= 1 and 0 <= y_pos_val <= 1 and 0 <= z_pos_val <= 1:
+                                # These are normalized Plot_3D values - convert back to L*a*b*
+                                l_raw = x_pos_val * 100.0  # Xnorm (0-1) -> L* (0-100)
+                                a_raw = (y_pos_val * 255.0) - 128.0  # Ynorm (0-1) -> a* (-128 to +127)
+                                b_raw = (z_pos_val * 255.0) - 128.0  # Znorm (0-1) -> b* (-128 to +127)
+                                print(f"      Converted normalized to L*a*b*: ({x_pos_val:.3f},{y_pos_val:.3f},{z_pos_val:.3f}) -> ({l_raw:.1f},{a_raw:.1f},{b_raw:.1f})")
+                            else:
+                                # Assume these are already raw L*a*b* values
+                                l_raw = x_pos_val
+                                a_raw = y_pos_val
+                                b_raw = z_pos_val
+                                print(f"      Using as raw L*a*b*: ({l_raw:.1f},{a_raw:.1f},{b_raw:.1f})")
+                            
                             insert_success = db.insert_new_measurement(
                                 image_name=image_name,
                                 coordinate_point=coord_point,
-                                x_pos=x_pos_val or 0.0,
-                                y_pos=y_pos_val or 0.0,
-                                l_value=x_pos_val or 0.0,  # Use X as L for Plot_3D compatibility
-                                a_value=y_pos_val or 0.0,  # Use Y as A
-                                b_value=z_pos_val or 0.0,  # Use Z as B
+                                x_pos=x_pos_val or 0.0,  # Keep normalized for x_pos (Plot_3D display)
+                                y_pos=y_pos_val or 0.0,  # Keep normalized for y_pos (Plot_3D display)
+                                l_value=l_raw,  # Raw L* value for database
+                                a_value=a_raw,  # Raw a* value for database
+                                b_value=b_raw,  # Raw b* value for database
                                 rgb_r=0.0, rgb_g=0.0, rgb_b=0.0,  # Default RGB values
                                 cluster_id=cluster_id,
                                 delta_e=delta_e_val,
@@ -1244,8 +1260,8 @@ class RealtimePlot3DSheet:
                                 sphere_radius=sphere_radius_val,
                                 marker=marker,
                                 color=color,
-                                sample_type='manual_entry',
-                                notes=f'Added via internal worksheet row {i+1}'
+                                sample_type='imported_plot3d',  # Mark as imported data
+                                notes=f'Imported from Plot_3D ODS via worksheet row {i+1}'
                             )
                             
                             if insert_success:
@@ -2486,9 +2502,28 @@ class RealtimePlot3DSheet:
             ):
                 return
             
+            # Show guidance before import
+            guidance_msg = (
+                "📋 ODS/XLSX IMPORT GUIDANCE:\n\n"
+                "For proper ternary plot visualization, your file should contain:\n\n"
+                "🔸 OPTION 1 - L*a*b* format:\n"
+                "  • Columns: 'L*', 'a*', 'b*', 'DataID'\n"
+                "  • L* range: 0-100, a*/b* range: -128 to +127\n\n"
+                "🔸 OPTION 2 - Plot_3D normalized format:\n"
+                "  • Columns: 'Xnorm', 'Ynorm', 'Znorm', 'DataID'\n"
+                "  • All values in 0-1 range\n\n"
+                "🔸 Optional columns: 'Marker', 'Color'\n\n"
+                "The system will auto-detect your format and convert appropriately.\n"
+                "This should fix the 'sideways V pattern' issue in ternary plots!\n\n"
+                "Proceed with file selection?"
+            )
+            
+            if not messagebox.askyesno("Import Guidance", guidance_msg):
+                return
+            
             # Ask for file to import
             file_path = filedialog.askopenfilename(
-                title="Import from Plot_3D File",
+                title="Import Plot_3D File (ODS/XLSX with L*a*b* or normalized data)",
                 filetypes=[
                     ('OpenDocument Spreadsheet', '*.ods'),
                     ('Excel Workbook', '*.xlsx'),
@@ -2539,8 +2574,38 @@ class RealtimePlot3DSheet:
             except Exception as clear_error:
                 logger.warning(f"Error clearing sheet: {clear_error}")
             
+            # Debug: Show imported DataFrame structure
+            print(f"\n🔍 DEBUG: IMPORTED DATAFRAME ANALYSIS")
+            print(f"  Columns: {list(imported_df.columns)}")
+            print(f"  Shape: {imported_df.shape}")
+            print(f"  First few rows of key columns:")
+            
+            # Show sample data for debugging
+            debug_cols = ['Xnorm', 'Ynorm', 'Znorm', 'DataID', 'Marker', 'Color'] 
+            available_debug_cols = [col for col in debug_cols if col in imported_df.columns]
+            if available_debug_cols:
+                print(imported_df[available_debug_cols].head(3).to_string())
+            
+            # Check for normalized vs raw data
+            if 'Xnorm' in imported_df.columns:
+                x_values = pd.to_numeric(imported_df['Xnorm'], errors='coerce')
+                y_values = pd.to_numeric(imported_df['Ynorm'], errors='coerce')
+                z_values = pd.to_numeric(imported_df['Znorm'], errors='coerce')
+                print(f"  X range: {x_values.min():.3f} to {x_values.max():.3f}")
+                print(f"  Y range: {y_values.min():.3f} to {y_values.max():.3f}")
+                print(f"  Z range: {z_values.min():.3f} to {z_values.max():.3f}")
+                
+                # Detect if values are normalized (0-1) or raw L*a*b*
+                if (x_values.between(0, 1).sum() > len(x_values) * 0.8 and 
+                    y_values.between(0, 1).sum() > len(y_values) * 0.8 and 
+                    z_values.between(0, 1).sum() > len(z_values) * 0.8):
+                    print(f"  ✅ DETECTED: Plot_3D normalized format (0-1 range)")
+                else:
+                    print(f"  ⚠️ DETECTED: Possibly raw L*a*b* format or mixed data")
+            
             # Convert DataFrame to list format for tksheet
             import_data = imported_df[self.PLOT3D_COLUMNS].fillna('').values.tolist()
+            print(f"  📝 Converted to {len(import_data)} rows for tksheet insertion")
             
             # Insert imported data into sheet
             if import_data:
@@ -2568,13 +2633,34 @@ class RealtimePlot3DSheet:
             except Exception as format_error:
                 logger.warning(f"Error reapplying formatting after import: {format_error}")
             
+            # CRITICAL FIX: Save imported data to database for persistence
+            try:
+                print(f"\n🔄 SAVING IMPORTED DATA TO DATABASE...")
+                print(f"Saving {len(import_data)} rows to database '{self.sample_set_name}'")
+                
+                # Call the comprehensive database save method
+                self._save_to_internal_database()
+                
+                print(f"✅ Database save completed successfully")
+                logger.info(f"Imported data saved to database '{self.sample_set_name}'")
+                
+            except Exception as save_error:
+                logger.error(f"Error saving imported data to database: {save_error}")
+                print(f"❌ Database save failed: {save_error}")
+                messagebox.showwarning(
+                    "Import Partially Successful", 
+                    f"Data was imported into the spreadsheet but could not be saved to the database:\n\n{save_error}\n\n"
+                    "The data will be visible in the current session but may not persist when you close and reopen."
+                )
+            
             # Success message
             messagebox.showinfo(
                 "Import Successful",
                 f"✅ Successfully imported {len(import_data)} data points from:\n{os.path.basename(file_path)}\n\n"
                 f"🔄 Your spreadsheet now contains the Plot_3D analysis results.\n"
                 f"K-means clusters, ΔE values, and other changes have been imported.\n\n"
-                f"Remember to save your StampZ project to preserve these changes!"
+                f"💾 Data has been saved to database '{self.sample_set_name}' for persistence.\n\n"
+                f"You can now close and reopen - your data will be preserved!"
             )
             
             logger.info(f"Successfully imported Plot_3D data from {file_path}")

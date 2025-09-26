@@ -71,9 +71,16 @@ class KmeansManager:
     """
     
     # Define expected column structure
-    # Define expected column structure
     EXPECTED_COLUMNS = ['Xnorm','Ynorm','Znorm','DataID','Cluster','∆E','Marker',
                         'Color','Centroid_X','Centroid_Y','Centroid_Z','Sphere']
+    
+    # Alternative column names that should be accepted
+    COLUMN_ALIASES = {
+        'DeltaE': '∆E',  # DeltaE should map to ∆E
+        'deltae': '∆E',  # case insensitive version
+        'Delta_E': '∆E'  # underscore version
+    }
+    
     # Columns used for clustering
     CLUSTER_COLUMNS = ['Xnorm', 'Ynorm', 'Znorm']
     
@@ -177,11 +184,55 @@ class KmeansManager:
             self.data = None
             return
             
-        # Validate DataFrame columns
-        if not all(col in dataframe.columns for col in self.EXPECTED_COLUMNS):
-            missing = [col for col in self.EXPECTED_COLUMNS if col not in dataframe.columns]
-            self.logger.error(f"DataFrame is missing required columns: {missing}")
-            raise ValueError(f"DataFrame is missing required columns: {missing}")
+        # Validate DataFrame columns with flexible column name matching
+        missing_columns = []
+        renamed_columns = {}
+        
+        # Create case-insensitive column mapping
+        column_map = {col.lower(): col for col in dataframe.columns}
+        
+        for expected_col in self.EXPECTED_COLUMNS:
+            found = False
+            
+            if expected_col in dataframe.columns:
+                # Column exists with exact name
+                found = True
+            elif expected_col.lower() in column_map:
+                # Column exists with different case
+                actual_col = column_map[expected_col.lower()]
+                renamed_columns[actual_col] = expected_col
+                self.logger.info(f"Found column '{actual_col}' matching expected '{expected_col}'")
+                found = True
+            else:
+                # Check for column aliases (e.g., DeltaE -> ∆E)
+                for alias, target in self.COLUMN_ALIASES.items():
+                    if target == expected_col:  # This is the target column we're looking for
+                        if alias in dataframe.columns:
+                            # Found alias in exact case
+                            renamed_columns[alias] = expected_col
+                            self.logger.info(f"Found column alias '{alias}' for expected '{expected_col}'")
+                            found = True
+                            break
+                        elif alias.lower() in column_map:
+                            # Found alias in different case
+                            actual_col = column_map[alias.lower()]
+                            renamed_columns[actual_col] = expected_col
+                            self.logger.info(f"Found column alias '{actual_col}' for expected '{expected_col}'")
+                            found = True
+                            break
+            
+            if not found:
+                missing_columns.append(expected_col)
+        
+        # Handle missing columns
+        if missing_columns:
+            self.logger.error(f"DataFrame is missing required columns: {missing_columns}")
+            raise ValueError(f"DataFrame is missing required columns: {missing_columns}")
+        
+        # Apply column renaming if needed
+        if renamed_columns:
+            self.logger.info(f"Renaming {len(renamed_columns)} columns to expected names")
+            dataframe = dataframe.rename(columns=renamed_columns)
         
         # Copy the dataframe
         dataframe = dataframe.copy()

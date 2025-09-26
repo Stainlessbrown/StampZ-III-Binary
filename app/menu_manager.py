@@ -116,10 +116,15 @@ class MenuManager:
             command=self.app.analysis_manager.open_plot3d_data_manager
         )
         self.color_menu.add_command(
-            label="Export to Plot_3D Format...", 
+            label="Export to Plot_3D Format...",
             command=self.app.analysis_manager.export_plot3d_flexible
         )
         self.color_menu.add_separator()
+        
+        self.color_menu.add_command(
+            label="📋 Create Realtime Sheet from ODS/XLSX...",
+            command=self.app.create_realtime_sheet_from_ods
+        )
         
         self.color_menu.add_command(
             label="Black Ink Extractor...",

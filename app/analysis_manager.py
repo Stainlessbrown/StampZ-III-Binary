@@ -493,9 +493,196 @@ class AnalysisManager:
             return ternary_window
         except Exception as e:
             import traceback
-            logger.error(f"Failed to open Ternary Plot: {e}\n{traceback.format_exc()}")
-            messagebox.showerror("Error", f"Failed to open Ternary Plot:\n\n{e}")
+            logger.error(f"Failed to open Ternary Plot: {e}\\n{traceback.format_exc()}")
+            messagebox.showerror("Error", f"Failed to open Ternary Plot:\\n\\n{e}")
             return None
+    
+    def create_realtime_sheet_from_ods(self):
+        """Create a new realtime datasheet from an external ODS/XLSX file.
+        
+        This provides a simple workflow: select ODS file -> name new sample set -> get new realtime sheet.
+        """
+        try:
+            # Step 1: Get the ODS/XLSX file
+            file_path = filedialog.askopenfilename(
+                title="Select Plot_3D Data File to Import",
+                filetypes=[
+                    ('Data Files', '*.ods *.xlsx *.xls'),
+                    ('OpenDocument Spreadsheet', '*.ods'),
+                    ('Excel Workbook', '*.xlsx *.xls'),
+                    ('All files', '*.*')
+                ]
+            )
+            
+            if not file_path:
+                return  # User cancelled
+            
+            # Step 2: Get name for the new sample set
+            import os
+            default_name = os.path.splitext(os.path.basename(file_path))[0]
+            
+            new_sample_set = simpledialog.askstring(
+                "New Sample Set Name",
+                f"Enter a name for the new sample set:\\n\\n"
+                f"(This will create a new database to import your data into)",
+                initialvalue=default_name
+            )
+            
+            if not new_sample_set or not new_sample_set.strip():
+                return  # User cancelled or empty name
+            
+            new_sample_set = new_sample_set.strip()
+            
+            # Step 3: Create new realtime sheet with the sample set name
+            from gui.realtime_plot3d_sheet import RealtimePlot3DSheet
+            
+            # Create new realtime sheet (will create empty database)
+            realtime_sheet = RealtimePlot3DSheet(
+                parent=self.root, 
+                sample_set_name=new_sample_set,
+                load_initial_data=False  # Don't load - we'll import instead
+            )
+            
+            # Step 4: Import the ODS data directly using the fixed import logic
+            print(f"\\n📄 IMPORTING ODS DATA INTO NEW REALTIME SHEET")
+            print(f"File: {file_path}")
+            print(f"Sample Set: {new_sample_set}")
+            
+            # Read the file using the same logic as the ternary plot
+            try:
+                file_ext = os.path.splitext(file_path)[1].lower()
+                if file_ext == '.xlsx':
+                    imported_df = pd.read_excel(file_path)
+                else:
+                    # Try to read as ODS first, fallback to Excel
+                    try:
+                        imported_df = pd.read_excel(file_path, engine='odf')
+                    except:
+                        imported_df = pd.read_excel(file_path)
+                
+                print(f"Successfully read {len(imported_df)} rows from {file_path}")
+                
+                # Debug: Show what columns we actually have vs what we expect
+                print(f"  Imported columns: {list(imported_df.columns)}")
+                print(f"  Expected columns: {realtime_sheet.PLOT3D_COLUMNS}")
+                
+                # FLEXIBLE COLUMN MAPPING: Handle common variations like ∆E vs DeltaE
+                column_mapping = {}
+                for col in imported_df.columns:
+                    column_mapping[col] = col  # Direct match first
+                
+                # Handle special cases
+                if '∆E' in imported_df.columns and 'DeltaE' not in imported_df.columns:
+                    column_mapping['DeltaE'] = '∆E'
+                    print(f"  Mapped: DeltaE -> ∆E")
+                
+                # Check if we can map all required columns
+                missing_cols = []
+                available_cols = set(imported_df.columns)
+                
+                for expected_col in realtime_sheet.PLOT3D_COLUMNS:
+                    if expected_col not in available_cols:
+                        # Check if we have a mapping for this column
+                        if expected_col not in column_mapping:
+                            missing_cols.append(expected_col)
+                
+                if missing_cols:
+                    messagebox.showerror(
+                        "Import Error", 
+                        f"The selected file is missing required Plot_3D columns:\\n{', '.join(missing_cols)}\\n\\n"
+                        f"File has: {', '.join(imported_df.columns)}\\n"
+                        f"Expected: {', '.join(realtime_sheet.PLOT3D_COLUMNS)}\\n\\n"
+                        f"Note: Column names must match exactly (including ∆E vs DeltaE)"
+                    )
+                    return
+                
+                # Apply column mapping if needed
+                if '∆E' in imported_df.columns and 'DeltaE' in realtime_sheet.PLOT3D_COLUMNS:
+                    imported_df = imported_df.rename(columns={'∆E': 'DeltaE'})
+                    print(f"  Renamed ∆E -> DeltaE for compatibility")
+                
+                # Debug: Show imported DataFrame structure
+                print(f"\n🔍 DEBUG: IMPORTED DATAFRAME ANALYSIS")
+                print(f"  Columns: {list(imported_df.columns)}")
+                print(f"  Shape: {imported_df.shape}")
+                print(f"  Expected columns: {realtime_sheet.PLOT3D_COLUMNS}")
+                print(f"  First few rows:")
+                print(imported_df.head(3).to_string())
+                
+                # Convert DataFrame to list format for tksheet
+                import_data = imported_df[realtime_sheet.PLOT3D_COLUMNS].fillna('').values.tolist()
+                print(f"  📝 Converted to {len(import_data)} rows for tksheet insertion")
+                
+                # Show sample of converted data
+                if import_data:
+                    print(f"  Sample row 0: {import_data[0]}")
+                    if len(import_data) > 1:
+                        print(f"  Sample row 1: {import_data[1]}")
+                
+                # Clear the empty sheet and insert imported data
+                current_rows = realtime_sheet.sheet.get_total_rows()
+                print(f"  Current sheet has {current_rows} rows")
+                
+                if current_rows > 0:
+                    realtime_sheet.sheet.delete_rows(0, current_rows)
+                    print(f"  Deleted all {current_rows} existing rows")
+                
+                # Add rows and set data
+                if import_data:
+                    # CRITICAL FIX: Create enough rows first
+                    needed_rows = len(import_data) + 10  # Add some buffer
+                    empty_rows = [[''] * len(realtime_sheet.PLOT3D_COLUMNS)] * needed_rows
+                    realtime_sheet.sheet.insert_rows(rows=empty_rows, idx=0)
+                    print(f"  Created {needed_rows} empty rows")
+                    
+                    # Set data row by row with error checking
+                    successful_inserts = 0
+                    for i, row in enumerate(import_data):
+                        try:
+                            realtime_sheet.sheet.set_row_data(i, values=row)
+                            successful_inserts += 1
+                            
+                            # Show progress for first few rows
+                            if i < 5:
+                                print(f"    Row {i}: {row[:4]}... (first 4 columns)")
+                        except Exception as row_error:
+                            print(f"    ERROR setting row {i}: {row_error}")
+                    
+                    print(f"  Successfully inserted {successful_inserts}/{len(import_data)} rows into sheet")
+                    
+                    # Refresh the sheet display to show inserted data
+                    realtime_sheet.sheet.refresh()
+                    print(f"  Sheet refreshed to display imported data")
+                    
+                    # Apply formatting and validation
+                    print(f"  Applying formatting and validation...")
+                    realtime_sheet._apply_formatting()
+                    realtime_sheet._setup_validation()
+                    print(f"  Formatting and validation applied")
+                    
+                    # CRITICAL: Save imported data to database
+                    print(f"  Saving imported data to database...")
+                    realtime_sheet._save_to_internal_database()
+                    print(f"  Database save completed")
+                    
+                    messagebox.showinfo(
+                        "Import Successful",
+                        f"✅ Successfully created new realtime sheet '{new_sample_set}'!\\n\\n"
+                        f"📋 Imported {len(import_data)} data points from:\\n{os.path.basename(file_path)}\\n\\n"
+                        f"💾 Data has been saved to database for persistence.\\n\\n"
+                        f"You now have a fully functional realtime datasheet with your imported data!"
+                    )
+                    
+                else:
+                    messagebox.showwarning("No Data", "No data found in the selected file.")
+                    
+            except Exception as read_error:
+                logger.error(f"Error reading ODS file: {read_error}")
+                messagebox.showerror("File Read Error", f"Failed to read the selected file:\\n\\n{read_error}\\n\\nPlease ensure the file is a valid ODS/XLSX file.")
+                
+        except Exception as e:
+            logger.error(f"Error creating realtime sheet from ODS: {e}")
+            messagebox.showerror("Error", f"Failed to create realtime sheet:\\n\\n{e}")
     
     def export_color_data(self):
         """Export color analysis data - delegate to DataExportManager."""
