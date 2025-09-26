@@ -20,7 +20,7 @@ class TernaryPlotWindow:
         # Create as a child window so it stays owned by the app
         self.root = tk.Toplevel(parent) if isinstance(parent, (tk.Tk, tk.Toplevel)) else tk.Toplevel()
         self.root.title("Ternary Plot")
-        self.root.geometry("1000x680")
+        self.root.geometry("1400x900")
         try:
             self.root.attributes('-topmost', False)
         except Exception:
@@ -29,6 +29,8 @@ class TernaryPlotWindow:
         # State
         self.df = pd.DataFrame(columns=['L*', 'a*', 'b*', 'DataID', 'Marker', 'Color'])
         self.show_hull = tk.BooleanVar(value=False)
+        self.show_grid = tk.BooleanVar(value=True)
+        self.use_rgb_labels = tk.BooleanVar(value=False)  # False = L*a*b*, True = RGB
         self.manager = get_data_file_manager()
         self.current_database = tk.StringVar(value="No database loaded")
         self.current_database_name = None  # Track actual database name for viewer
@@ -82,10 +84,12 @@ class TernaryPlotWindow:
                                  wraplength=240)
         self.db_label.pack(anchor='w', padx=5, pady=3)
         
-        # Convex hull
-        hull_frame = ttk.Frame(self.side)
-        hull_frame.pack(fill=tk.X, pady=6)
-        ttk.Checkbutton(hull_frame, text="Show Convex Hull", variable=self.show_hull, command=self._render).pack(anchor='w')
+        # Display options
+        options_frame = ttk.LabelFrame(self.side, text="Display Options")
+        options_frame.pack(fill=tk.X, pady=6)
+        ttk.Checkbutton(options_frame, text="Show Convex Hull", variable=self.show_hull, command=self._render).pack(anchor='w', padx=5, pady=2)
+        ttk.Checkbutton(options_frame, text="Show Grid Lines", variable=self.show_grid, command=self._render).pack(anchor='w', padx=5, pady=2)
+        ttk.Checkbutton(options_frame, text="Use RGB Labels", variable=self.use_rgb_labels, command=self._render).pack(anchor='w', padx=5, pady=2)
 
         # Save plot image
         ttk.Button(self.side, text="Save Plot as PNG", command=self._save_png).pack(fill=tk.X, pady=8)
@@ -107,7 +111,7 @@ class TernaryPlotWindow:
         ttk.Label(self.side, text=info, wraplength=240, foreground='gray').pack(anchor='w', pady=(10, 0))
 
     def _build_plot(self):
-        self.fig = plt.Figure(figsize=(6.5, 6.0), facecolor='white')
+        self.fig = plt.Figure(figsize=(9.0, 8.5), facecolor='white')
         self.ax = self.fig.add_subplot(111)
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.main)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
@@ -690,44 +694,56 @@ class TernaryPlotWindow:
         # Add axis labels around the perimeter
         label_offset = 0.08
         
-        # L* label (bottom left vertex)
-        self.ax.text(A[0] - label_offset, A[1] - label_offset, 'L*', 
-                    fontsize=14, fontweight='bold', ha='center', va='center',
-                    bbox=dict(boxstyle='round,pad=0.3', facecolor='lightblue', alpha=0.8))
+        # Choose labels based on toggle
+        if self.use_rgb_labels.get():
+            label1, label2, label3 = 'R', 'G', 'B'
+            color1, color2, color3 = 'lightcoral', 'lightgreen', 'lightblue'
+        else:
+            label1, label2, label3 = 'L*', 'a*', 'b*'
+            color1, color2, color3 = 'lightblue', 'lightgreen', 'lightcoral'
         
-        # a* label (bottom right vertex)
-        self.ax.text(B[0] + label_offset, B[1] - label_offset, 'a*', 
+        # Label (bottom left vertex)
+        self.ax.text(A[0] - label_offset, A[1] - label_offset, label1, 
                     fontsize=14, fontweight='bold', ha='center', va='center',
-                    bbox=dict(boxstyle='round,pad=0.3', facecolor='lightgreen', alpha=0.8))
+                    bbox=dict(boxstyle='round,pad=0.3', facecolor=color1, alpha=0.8))
         
-        # b* label (top vertex)
-        self.ax.text(C[0], C[1] + label_offset, 'b*', 
+        # Label (bottom right vertex)
+        self.ax.text(B[0] + label_offset, B[1] - label_offset, label2, 
                     fontsize=14, fontweight='bold', ha='center', va='center',
-                    bbox=dict(boxstyle='round,pad=0.3', facecolor='lightcoral', alpha=0.8))
+                    bbox=dict(boxstyle='round,pad=0.3', facecolor=color2, alpha=0.8))
+        
+        # Label (top vertex)
+        self.ax.text(C[0], C[1] + label_offset, label3, 
+                    fontsize=14, fontweight='bold', ha='center', va='center',
+                    bbox=dict(boxstyle='round,pad=0.3', facecolor=color3, alpha=0.8))
         
         # Add edge labels (midpoints of sides) - positioned well outside triangle
         mid_offset = 0.08  # Increased from 0.04
         
-        # Bottom edge label (L* - a*)
+        # Bottom edge label
         mid_AB = ((A[0] + B[0])/2, (A[1] + B[1])/2 - mid_offset)
-        self.ax.text(mid_AB[0], mid_AB[1], 'L* ← → a*', 
+        self.ax.text(mid_AB[0], mid_AB[1], f'{label1} ← → {label2}', 
                     fontsize=10, ha='center', va='center', style='italic',
                     color='darkblue')
         
-        # Right edge label (a* - b*)
+        # Right edge label
         mid_BC = ((B[0] + C[0])/2 + mid_offset, (B[1] + C[1])/2)  # Increased offset
-        self.ax.text(mid_BC[0], mid_BC[1], 'a* ↔ b*', 
+        self.ax.text(mid_BC[0], mid_BC[1], f'{label2} ↔ {label3}', 
                     fontsize=10, ha='center', va='center', style='italic',
                     rotation=-60, color='darkgreen')  # Fixed rotation to match edge
         
-        # Left edge label (b* - L*)
+        # Left edge label
         mid_CA = ((C[0] + A[0])/2 - mid_offset, (C[1] + A[1])/2)  # Increased offset
-        self.ax.text(mid_CA[0], mid_CA[1], 'b* ↔ L*', 
+        self.ax.text(mid_CA[0], mid_CA[1], f'{label3} ↔ {label1}', 
                     fontsize=10, ha='center', va='center', style='italic',
                     rotation=60, color='darkred')  # Fixed rotation to match edge
         
         # Add tick marks and percentage labels
         self._add_ternary_tick_marks(A, B, C)
+        
+        # Add grid lines if enabled
+        if self.show_grid.get():
+            self._draw_grid_lines(A, B, C)
         
         # Configure plot - provide extra space around triangle for markers
         self.ax.set_aspect('equal', adjustable='box')
@@ -746,9 +762,9 @@ class TernaryPlotWindow:
 
     def _add_ternary_tick_marks(self, A, B, C):
         """Add tick marks and percentage labels along triangle edges."""
-        # Tick positions (0%, 20%, 40%, 60%, 80%, 100%)
-        ticks = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
-        tick_labels = ['0%', '20%', '40%', '60%', '80%', '100%']
+        # Tick positions (0.0, 0.1, 0.2, ..., 1.0)
+        ticks = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+        tick_labels = ['0.00', '0.10', '0.20', '0.30', '0.40', '0.50', '0.60', '0.70', '0.80', '0.90', '1.00']
         
         tick_length = 0.02  # Length of tick marks
         label_offset = 0.03  # Distance from edge for labels
@@ -833,6 +849,40 @@ class TernaryPlotWindow:
                            fontsize=8, ha='center', va='center', color='red', rotation=60)
                 self.ax.text(label_x + 0.04, label_y, l_percent, 
                            fontsize=8, ha='center', va='center', color='blue', rotation=60)
+    
+    def _draw_grid_lines(self, A, B, C):
+        """Draw grid lines parallel to each side of the triangle."""
+        print("DEBUG: Drawing grid lines with 3 sets of parallel lines")
+        # Grid positions at 10% intervals (excluding 0% and 100%)
+        grid_positions = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+        
+        for t in grid_positions:
+            # Set 1: Lines parallel to side AB (bottom edge) - HORIZONTAL
+            # Points at height t from bottom
+            point1_x = A[0] + t * (C[0] - A[0])  # Point on AC at height t
+            point1_y = A[1] + t * (C[1] - A[1])
+            point2_x = B[0] + t * (C[0] - B[0])  # Point on BC at height t
+            point2_y = B[1] + t * (C[1] - B[1])
+            self.ax.plot([point1_x, point2_x], [point1_y, point2_y], 
+                        color='lightgray', lw=0.5, alpha=0.7, zorder=0)
+            
+            # Set 2: Lines parallel to side BC (right edge G-B) - SLANT UP-LEFT
+            # From left edge AC to bottom edge AB
+            point1_x = A[0] + t * (C[0] - A[0])  # Point on AC
+            point1_y = A[1] + t * (C[1] - A[1])
+            point2_x = A[0] + t * (B[0] - A[0])  # Point on AB
+            point2_y = A[1] + t * (B[1] - A[1])
+            self.ax.plot([point1_x, point2_x], [point1_y, point2_y], 
+                        color='lightgray', lw=0.5, alpha=0.7, zorder=0)
+            
+            # Set 3: Lines parallel to side AC (left edge B-R) - SLANT UP-RIGHT
+            # From right edge BC to bottom edge AB (using reverse parameter)
+            point1_x = B[0] + t * (C[0] - B[0])  # Point on BC
+            point1_y = B[1] + t * (C[1] - B[1])
+            point2_x = A[0] + (1-t) * (B[0] - A[0])  # Point on AB (reverse direction)
+            point2_y = A[1] + (1-t) * (B[1] - A[1])
+            self.ax.plot([point1_x, point2_x], [point1_y, point2_y], 
+                        color='lightgray', lw=0.5, alpha=0.7, zorder=0)
 
     @staticmethod
     def _barycentric_to_cartesian(A, B, C):
