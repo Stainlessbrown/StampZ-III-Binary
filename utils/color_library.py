@@ -216,6 +216,45 @@ CREATE TABLE IF NOT EXISTS library_colors (
         
         return (L, a, b)
     
+    def hex_to_rgb(self, hex_color: str) -> Tuple[float, float, float]:
+        """Convert HEX color code to RGB values.
+        
+        Args:
+            hex_color: HEX color string (with or without #, 3 or 6 digits, case insensitive)
+                      Examples: "#FF0000", "ff0000", "#F00", "F00"
+        
+        Returns:
+            RGB values as (r, g, b) floats 0-255
+        """
+        # Clean the input - remove # if present, convert to uppercase
+        hex_clean = hex_color.strip().upper()
+        if hex_clean.startswith('#'):
+            hex_clean = hex_clean[1:]
+        
+        # Validate HEX format
+        if not hex_clean:
+            raise ValueError("Empty HEX color value")
+        
+        # Check for valid HEX characters
+        if not all(c in '0123456789ABCDEF' for c in hex_clean):
+            raise ValueError(f"Invalid HEX color format: {hex_color}")
+        
+        # Handle different HEX lengths
+        if len(hex_clean) == 3:
+            # 3-digit HEX: expand each digit (e.g., "F00" -> "FF0000")
+            hex_clean = ''.join([c*2 for c in hex_clean])
+        elif len(hex_clean) != 6:
+            raise ValueError(f"HEX color must be 3 or 6 characters, got {len(hex_clean)}: {hex_color}")
+        
+        # Convert to RGB
+        try:
+            r = int(hex_clean[0:2], 16)
+            g = int(hex_clean[2:4], 16)
+            b = int(hex_clean[4:6], 16)
+            return (float(r), float(g), float(b))
+        except ValueError as e:
+            raise ValueError(f"Failed to parse HEX color {hex_color}: {e}")
+    
     def _lab_to_rgb_approximation(self, lab: Tuple[float, float, float]) -> Tuple[float, float, float]:
         """Approximate L*a*b* to RGB conversion."""
         L, a, b = lab
@@ -721,6 +760,9 @@ CREATE TABLE IF NOT EXISTS library_colors (
                 header_map = {}
                 has_rgb = False
                 has_lab = False
+                has_hex = False
+                
+                print(f"DEBUG: CSV columns found: {reader.fieldnames}")
                 
                 for col in reader.fieldnames:
                     col_lower = col.lower().strip()
@@ -728,6 +770,13 @@ CREATE TABLE IF NOT EXISTS library_colors (
                     # Name mapping
                     if col_lower in ['name', 'color_name', 'color']:
                         header_map['name'] = col
+                        print(f"DEBUG: Mapped name column: '{col}' -> 'name'")
+                    
+                    # HEX mapping - support various common formats
+                    elif col_lower in ['hex', 'hex_code', 'hexcode', 'hex_color', 'color_hex', '#hex', 'html']:
+                        header_map['hex'] = col
+                        has_hex = True
+                        print(f"DEBUG: Mapped hex column: '{col}' -> 'hex'")
                     
                     # L*a*b* mapping - flexible column names
                     elif col_lower in ['lab_l', 'l*', 'l_star', 'l', 'lightness']:
@@ -769,10 +818,13 @@ CREATE TABLE IF NOT EXISTS library_colors (
                     print(f"Row {i+1}: {dict(row)}")
                 
                 # Validate required columns based on color space
-                if not has_lab and not has_rgb:
+                if not has_lab and not has_rgb and not has_hex:
                     raise ValueError(
-                        "CSV must contain either LAB values (lab_l,lab_a,lab_b) or "
-                        "RGB values (rgb_r,rgb_g,rgb_b). Neither found."
+                        "CSV must contain color values in one of these formats:\n"
+                        "- LAB values: columns lab_l, lab_a, lab_b (or L*, a*, b*)\n"
+                        "- RGB values: columns rgb_r, rgb_g, rgb_b (or r, g, b)\n"
+                        "- HEX codes: column hex (or hex_code, hexcode, etc.)\n\n"
+                        "No valid color format found in file."
                     )
                 
                 if has_rgb and not all(x in header_map for x in ['rgb_r', 'rgb_g', 'rgb_b']):
@@ -783,6 +835,9 @@ CREATE TABLE IF NOT EXISTS library_colors (
                 
                 if 'name' not in header_map:
                     raise ValueError("Column 'name' is required")
+                
+                print(f"DEBUG: Final header mapping: {header_map}")
+                print(f"DEBUG: Has HEX: {has_hex}, Has LAB: {has_lab}, Has RGB: {has_rgb}")
                 
                 if debug_callback:
                     debug_callback(f"Importing colors with columns: {list(header_map.keys())}")
@@ -837,13 +892,18 @@ CREATE TABLE IF NOT EXISTS library_colors (
                             continue
                         
                         try:
-                            # Get color values based on what's available
+                            # Get color values based on what's available (priority: LAB > HEX > RGB)
                             if has_lab:
                                 lab_l = float(row[header_map['lab_l']])
                                 lab_a = float(row[header_map['lab_a']])
                                 lab_b = float(row[header_map['lab_b']])
                                 lab = (lab_l, lab_a, lab_b)
                                 rgb = self.lab_to_rgb(lab)  # Convert to RGB for display
+                            elif has_hex:
+                                hex_value = row[header_map['hex']].strip()
+                                rgb = self.hex_to_rgb(hex_value)  # Convert HEX to RGB
+                                lab = self.rgb_to_lab(rgb)  # Convert to LAB for storage
+                                lab_l, lab_a, lab_b = lab
                             else:  # Using RGB
                                 rgb_r = float(row[header_map['rgb_r']])
                                 rgb_g = float(row[header_map['rgb_g']])
@@ -853,11 +913,15 @@ CREATE TABLE IF NOT EXISTS library_colors (
                                 lab_l, lab_a, lab_b = lab
                         except (KeyError, ValueError) as e:
                             if debug_callback:
-                                debug_callback(f"Error processing LAB values in row {row_num}: {e}")
+                                debug_callback(f"Error processing color values in row {row_num}: {e}")
                                 debug_callback(f"Row values: {dict(row)}")
+                                if has_hex:
+                                    debug_callback(f"HEX value: '{row.get(header_map.get('hex', ''), 'N/A')}'")
                             else:
-                                print(f"DEBUG: Error processing LAB values in row {row_num}: {e}")
+                                print(f"DEBUG: Error processing color values in row {row_num}: {e}")
                                 print(f"DEBUG: Row values: {dict(row)}")
+                                if has_hex:
+                                    print(f"DEBUG: HEX value: '{row.get(header_map.get('hex', ''), 'N/A')}'")
                             continue
                         lab = (lab_l, lab_a, lab_b)
                         

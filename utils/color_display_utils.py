@@ -9,13 +9,15 @@ from typing import Tuple, Optional
 
 def get_conditional_color_info(
     rgb: Tuple[float, float, float], 
-    lab: Optional[Tuple[float, float, float]] = None
+    lab: Optional[Tuple[float, float, float]] = None,
+    show_hex: bool = True
 ) -> str:
     """Generate color information string based on user preferences.
     
     Args:
         rgb: RGB color values (0-255)
         lab: L*a*b* color values (optional)
+        show_hex: Whether to include HEX code display
         
     Returns:
         Formatted color information string based on user preferences
@@ -29,9 +31,10 @@ def get_conditional_color_info(
         show_lab = prefs.get_export_include_lab()
         
         # Always show at least one color space to avoid empty display
-        if not show_rgb and not show_lab:
+        if not show_rgb and not show_lab and not show_hex:
             show_rgb = True
             show_lab = True
+            show_hex = True
         
         color_info_parts = []
         
@@ -43,15 +46,23 @@ def get_conditional_color_info(
         if show_rgb:
             color_info_parts.append(f"RGB: {rgb[0]:.0f}, {rgb[1]:.0f}, {rgb[2]:.0f}")
         
+        # Add HEX code if enabled
+        if show_hex:
+            hex_code = f"#{int(rgb[0]):02X}{int(rgb[1]):02X}{int(rgb[2]):02X}"
+            color_info_parts.append(f"HEX: {hex_code}")
+        
         return "\n".join(color_info_parts)
         
     except Exception as e:
         print(f"Error getting color display preferences: {e}")
-        # Fallback to showing both values
+        # Fallback to showing all values
         fallback_parts = []
         if lab is not None:
             fallback_parts.append(f"L*a*b*: {lab[0]:.1f}, {lab[1]:.1f}, {lab[2]:.1f}")
         fallback_parts.append(f"RGB: {rgb[0]:.0f}, {rgb[1]:.0f}, {rgb[2]:.0f}")
+        if show_hex:
+            hex_code = f"#{int(rgb[0]):02X}{int(rgb[1]):02X}{int(rgb[2]):02X}"
+            fallback_parts.append(f"HEX: {hex_code}")
         return "\n".join(fallback_parts)
 
 
