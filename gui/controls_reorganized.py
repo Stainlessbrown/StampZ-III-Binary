@@ -387,7 +387,7 @@ class ReorganizedControlPanel(ttk.Frame):
         
         # Create compact controls for each sample area in the scrollable frame
         self.sample_controls = []
-        for i in range(5):  # 5 sample areas
+        for i in range(6):  # 6 sample areas
             frame = ttk.Frame(self.sample_scrollable_frame)
             frame.pack(fill=tk.X, padx=1, pady=0)
             
@@ -490,13 +490,27 @@ class ReorganizedControlPanel(ttk.Frame):
                 print(f"DEBUG: Sample {idx+1} anchor changed to: {selected_value}")
             anchor_combo.bind('<<ComboboxSelected>>', on_anchor_select)
             
+            # Add individual reset button for this sample
+            def reset_single_sample(sample_idx=i):
+                """Reset a single sample to defaults and clear its marker."""
+                self._reset_single_sample(sample_idx)
+            
+            reset_btn = ttk.Button(
+                control_container,
+                text="Reset",
+                command=reset_single_sample,
+                width=6
+            )
+            reset_btn.pack(side=tk.LEFT, padx=2)
+            
             # Store all control variables
             self.sample_controls.append({
                 'frame': frame,
                 'shape': shape_var,
                 'width': width_var,
                 'height': height_var,
-                'anchor': anchor_var
+                'anchor': anchor_var,
+                'reset_btn': reset_btn
             })
         
         # Sample set buttons inside the scrollable area
@@ -631,7 +645,7 @@ class ReorganizedControlPanel(ttk.Frame):
         self.selected_sample = tk.IntVar(value=1)
         sample_combo = ttk.Combobox(
             individual_frame, textvariable=self.selected_sample,
-            values=[1, 2, 3, 4, 5], state='readonly', width=1
+            values=[1, 2, 3, 4, 5, 6], state='readonly', width=1
         )
         sample_combo.pack(side=tk.LEFT, padx=(2, 2))
         
@@ -1582,6 +1596,61 @@ class ReorganizedControlPanel(ttk.Frame):
         else:
             print("DEBUG: main_app not found for add to library")
             messagebox.showinfo("Info", "Add to library - connect to main app implementation")
+    
+    def _reset_single_sample(self, sample_idx):
+        """Reset a single sample area to defaults and clear its marker.
+        
+        Args:
+            sample_idx: Index of the sample to reset (0-based)
+        """
+        try:
+            print(f"DEBUG: Resetting sample #{sample_idx + 1}")
+            
+            # Get default values from preferences
+            from utils.user_preferences import get_preferences_manager
+            prefs_manager = get_preferences_manager()
+            default_settings = prefs_manager.get_default_sample_settings()
+            
+            # Reset the UI controls to defaults if sample exists
+            if sample_idx < len(self.sample_controls):
+                control = self.sample_controls[sample_idx]
+                control['shape'].set(default_settings['shape'])
+                control['width'].set(str(default_settings['width']))
+                control['height'].set(str(default_settings['height']))
+                control['anchor'].set(default_settings['anchor'])
+                print(f"DEBUG: Reset sample #{sample_idx + 1} UI controls to defaults")
+            
+            # Clear the corresponding marker from canvas if it exists
+            if hasattr(self, 'main_app') and self.main_app and hasattr(self.main_app, 'canvas'):
+                canvas = self.main_app.canvas
+                if hasattr(canvas, '_coord_markers') and canvas._coord_markers:
+                    # Find and remove the marker for this sample index
+                    markers_to_remove = []
+                    for i, marker in enumerate(canvas._coord_markers):
+                        if marker.get('index') == sample_idx + 1:  # Markers use 1-based indexing
+                            markers_to_remove.append(i)
+                            # Delete visual elements from canvas
+                            tag = marker.get('tag')
+                            if tag:
+                                canvas.delete(tag)
+                                print(f"DEBUG: Deleted canvas marker with tag '{tag}' for sample #{sample_idx + 1}")
+                    
+                    # Remove markers from the list (in reverse order to maintain indices)
+                    for i in reversed(markers_to_remove):
+                        canvas._coord_markers.pop(i)
+                        print(f"DEBUG: Removed marker #{i} from _coord_markers list")
+                    
+                    # Update canvas display
+                    canvas.update_display()
+            
+            print(f"DEBUG: Successfully reset sample #{sample_idx + 1}")
+            
+        except Exception as e:
+            print(f"ERROR: Failed to reset sample #{sample_idx + 1}: {e}")
+            messagebox.showerror(
+                "Reset Error",
+                f"Failed to reset sample #{sample_idx + 1}:\n\n{str(e)}"
+            )
     
     def refresh_sample_defaults_from_preferences(self):
         """Refresh sample controls with current preference defaults."""

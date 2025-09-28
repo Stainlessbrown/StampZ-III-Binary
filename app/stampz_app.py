@@ -1357,3 +1357,89 @@ class StampZApp:
         except Exception as e:
             print(f"Error exporting both measurements: {e}")
             return False
+    
+    def _add_analysis_to_library(self):
+        """Add color analysis results to a color library with user-friendly interface."""
+        try:
+            # Check if we have analysis data
+            if not hasattr(self.canvas, '_coord_markers') or not self.canvas._coord_markers:
+                messagebox.showwarning(
+                    "No Samples", 
+                    "No sample points found. Please place some sample markers and analyze colors first."
+                )
+                return
+            
+            # Get sample set name
+            sample_set_name = self.control_panel.sample_set_name.get().strip()
+            if not sample_set_name:
+                messagebox.showwarning(
+                    "No Sample Set", 
+                    "Please enter a sample set name in the Template field before adding to library."
+                )
+                return
+            
+            # Check if we have analysis results in database
+            try:
+                from utils.color_analysis_db import ColorAnalysisDB
+                
+                # Get measurements from database
+                db = ColorAnalysisDB(sample_set_name)
+                
+                if not self.current_file:
+                    messagebox.showwarning("No Image", "Please open an image first.")
+                    return
+                
+                current_image_name = os.path.basename(self.current_file)
+                
+                # Try to find measurements for current image
+                db_measurements = db.get_measurements_for_image(current_image_name)
+                if not db_measurements:
+                    # Try with sample identifier extraction
+                    from utils.color_analyzer import ColorAnalyzer
+                    analyzer = ColorAnalyzer()
+                    sample_identifier = analyzer._extract_sample_identifier_from_filename(self.current_file)
+                    db_measurements = db.get_measurements_for_image(sample_identifier)
+                
+                if not db_measurements:
+                    messagebox.showwarning(
+                        "No Analysis Data",
+                        f"No color analysis data found for sample set '{sample_set_name}'.\n\n"
+                        "Please run color analysis first before adding to library."
+                    )
+                    return
+                
+                # Open color library manager with analysis data
+                from gui.color_library_manager import ColorLibraryManager
+                
+                # Check if library manager already exists as a window
+                library_manager = ColorLibraryManager(parent=self.root)
+                
+                # Initialize the comparison tab with our analysis data
+                library_manager.init_comparison_tab(
+                    image_path=self.current_file,
+                    sample_data=db_measurements
+                )
+                
+                # Focus on the comparison tab where add-to-library functionality exists
+                messagebox.showinfo(
+                    "Library Manager Opened",
+                    f"Color Library Manager opened with analysis data from '{sample_set_name}'.\n\n"
+                    f"• Found {len(db_measurements)} color measurements\n"
+                    f"• Use the Compare tab to add colors to your library\n"
+                    f"• Colors can be added individually or as a group"
+                )
+                
+            except Exception as db_error:
+                print(f"Error accessing analysis database: {db_error}")
+                messagebox.showerror(
+                    "Database Error",
+                    f"Failed to access color analysis data:\n\n{str(db_error)}\n\n"
+                    "Please ensure color analysis has been completed for this sample set."
+                )
+                
+        except Exception as e:
+            print(f"Error in _add_analysis_to_library: {e}")
+            messagebox.showerror(
+                "Add to Library Error",
+                f"Failed to add analysis to library:\n\n{str(e)}"
+            )
