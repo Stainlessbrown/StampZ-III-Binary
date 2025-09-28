@@ -52,9 +52,6 @@ class ColorAnalysisDB:
         os.makedirs(color_data_dir, exist_ok=True)
         
         self.db_path = os.path.join(color_data_dir, f"{clean_name}.db")
-        print(f"DEBUG: Color analysis database path: {self.db_path}")
-        print(f"DEBUG: Database file exists: {os.path.exists(self.db_path)}")
-        print(f"DEBUG: Database directory writable: {os.access(color_data_dir, os.W_OK)}")
         self._init_db()
     
     def _clean_filename(self, name: str) -> str:

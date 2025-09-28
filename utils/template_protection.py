@@ -48,7 +48,7 @@ class TemplateProtectionManager:
         
         # Store original parameters from loaded coordinates
         self.original_parameters = []
-        for coord in coordinates[:5]:  # Limit to 5 samples
+        for coord in coordinates[:6]:  # Limit to 6 samples
             params = SampleParameters(
                 shape='circle' if coord.sample_type.value == 'circle' else 'rectangle',
                 width=float(coord.sample_size[0]),

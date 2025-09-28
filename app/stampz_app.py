@@ -1359,7 +1359,7 @@ class StampZApp:
             return False
     
     def _add_analysis_to_library(self):
-        """Add color analysis results to a color library with user-friendly interface."""
+        """Add color analysis results to a color library (similar to Compare window functionality)."""
         try:
             # Check if we have analysis data
             if not hasattr(self.canvas, '_coord_markers') or not self.canvas._coord_markers:
@@ -1369,77 +1369,231 @@ class StampZApp:
                 )
                 return
             
-            # Get sample set name
+            # Get sample set name for database lookup
             sample_set_name = self.control_panel.sample_set_name.get().strip()
             if not sample_set_name:
+                sample_set_name = "Current_Analysis"
+            
+            
+            # Try to get actual color analysis data from database
+            color_data = []
+            try:
+                # Use the same standardization as analysis - don't clean, let ColorAnalysisDB handle it
+                from utils.color_analysis_db import ColorAnalysisDB
+                db = ColorAnalysisDB(sample_set_name)
+                
+                if self.current_file:
+                    current_image_name = os.path.basename(self.current_file)
+                    
+                    # Try with current image name first
+                    db_measurements = db.get_measurements_for_image(current_image_name)
+                    
+                    # If not found, try with sample identifier extraction like analysis does
+                    if not db_measurements:
+                        from utils.color_analyzer import ColorAnalyzer
+                        analyzer = ColorAnalyzer()
+                        sample_identifier = analyzer._extract_sample_identifier_from_filename(self.current_file)
+                        if sample_identifier != current_image_name:
+                            db_measurements = db.get_measurements_for_image(sample_identifier)
+                    
+                    if db_measurements:
+                        color_data = db_measurements
+                else:
+                    pass  # No current file loaded
+                    
+            except Exception as db_error:
                 messagebox.showwarning(
-                    "No Sample Set", 
-                    "Please enter a sample set name in the Template field before adding to library."
+                    "No Analysis Data",
+                    f"No color analysis data found.\n\n"
+                    f"Please run 'Analyze' on your sample points first.\n\n"
+                    f"If you have already run analysis, the data may be in a different sample set name."
                 )
                 return
             
-            # Check if we have analysis results in database
-            try:
-                from utils.color_analysis_db import ColorAnalysisDB
-                
-                # Get measurements from database
-                db = ColorAnalysisDB(sample_set_name)
-                
-                if not self.current_file:
-                    messagebox.showwarning("No Image", "Please open an image first.")
-                    return
-                
-                current_image_name = os.path.basename(self.current_file)
-                
-                # Try to find measurements for current image
-                db_measurements = db.get_measurements_for_image(current_image_name)
-                if not db_measurements:
-                    # Try with sample identifier extraction
-                    from utils.color_analyzer import ColorAnalyzer
-                    analyzer = ColorAnalyzer()
-                    sample_identifier = analyzer._extract_sample_identifier_from_filename(self.current_file)
-                    db_measurements = db.get_measurements_for_image(sample_identifier)
-                
-                if not db_measurements:
-                    messagebox.showwarning(
-                        "No Analysis Data",
-                        f"No color analysis data found for sample set '{sample_set_name}'.\n\n"
-                        "Please run color analysis first before adding to library."
-                    )
-                    return
-                
-                # Open color library manager with analysis data
-                from gui.color_library_manager import ColorLibraryManager
-                
-                # Check if library manager already exists as a window
-                library_manager = ColorLibraryManager(parent=self.root)
-                
-                # Initialize the comparison tab with our analysis data
-                library_manager.init_comparison_tab(
-                    image_path=self.current_file,
-                    sample_data=db_measurements
+            if not color_data:
+                messagebox.showwarning(
+                    "No Analysis Data",
+                    f"No color measurements found for sample set '{sample_set_name}'.\n\n"
+                    f"Please run 'Analyze' on your sample points first."
                 )
-                
-                # Focus on the comparison tab where add-to-library functionality exists
-                messagebox.showinfo(
-                    "Library Manager Opened",
-                    f"Color Library Manager opened with analysis data from '{sample_set_name}'.\n\n"
-                    f"• Found {len(db_measurements)} color measurements\n"
-                    f"• Use the Compare tab to add colors to your library\n"
-                    f"• Colors can be added individually or as a group"
-                )
-                
-            except Exception as db_error:
-                print(f"Error accessing analysis database: {db_error}")
-                messagebox.showerror(
-                    "Database Error",
-                    f"Failed to access color analysis data:\n\n{str(db_error)}\n\n"
-                    "Please ensure color analysis has been completed for this sample set."
-                )
+                return
+            
+            # Show dialog to select which color to add and provide name/library
+            self._show_add_color_dialog(color_data, sample_set_name)
                 
         except Exception as e:
-            print(f"Error in _add_analysis_to_library: {e}")
             messagebox.showerror(
                 "Add to Library Error",
-                f"Failed to add analysis to library:\n\n{str(e)}"
+                f"Failed to add color to library:\n\n{str(e)}"
             )
+    
+    def _show_add_color_dialog(self, color_data, sample_set_name):
+        """Show dialog to select and add a color from analysis data to library."""
+        import tkinter as tk
+        from tkinter import ttk
+        from utils.color_library import ColorLibrary
+        
+        # Create dialog
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Add Color to Library")
+        dialog.geometry("500x600")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Center dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+        
+        # Main frame
+        main_frame = ttk.Frame(dialog, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Title
+        title_label = ttk.Label(main_frame, text="Add Color to Library", font=("Arial", 14, "bold"))
+        title_label.pack(pady=(0, 10))
+        
+        # Sample selection
+        ttk.Label(main_frame, text="Select color to add:", font=("Arial", 12, "bold")).pack(anchor="w", pady=(0, 5))
+        
+        # Frame for sample selection with scrollbar
+        samples_frame = ttk.Frame(main_frame)
+        samples_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        # Create canvas and scrollbar for samples
+        canvas = tk.Canvas(samples_frame, height=200)
+        scrollbar = ttk.Scrollbar(samples_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Variable to store selected color
+        selected_color_var = tk.StringVar()
+        
+        # Add radio buttons for each color
+        for i, measurement in enumerate(color_data):
+            rgb = (measurement.get('rgb_r', 0), measurement.get('rgb_g', 0), measurement.get('rgb_b', 0))
+            lab = (measurement.get('l_value', 0), measurement.get('a_value', 0), measurement.get('b_value', 0))
+            
+            # Create frame for this sample
+            sample_frame = ttk.Frame(scrollable_frame)
+            sample_frame.pack(fill=tk.X, pady=2)
+            
+            # Radio button
+            radio = ttk.Radiobutton(
+                sample_frame, 
+                text=f"Sample {i+1}", 
+                variable=selected_color_var, 
+                value=str(i)
+            )
+            radio.pack(side=tk.LEFT)
+            
+            # Color preview
+            color_canvas = tk.Canvas(sample_frame, width=30, height=20, highlightthickness=1, highlightbackground='gray')
+            color_canvas.pack(side=tk.LEFT, padx=(10, 5))
+            try:
+                hex_color = f"#{int(rgb[0]):02x}{int(rgb[1]):02x}{int(rgb[2]):02x}"
+                color_canvas.create_rectangle(0, 0, 30, 20, fill=hex_color, outline='')
+            except:
+                color_canvas.create_rectangle(0, 0, 30, 20, fill='gray', outline='')
+            
+            # Color values
+            values_text = f"RGB({int(rgb[0])}, {int(rgb[1])}, {int(rgb[2])}) | L*a*b*({lab[0]:.1f}, {lab[1]:.1f}, {lab[2]:.1f})"
+            ttk.Label(sample_frame, text=values_text, font=("Arial", 9)).pack(side=tk.LEFT, padx=(5, 0))
+        
+        # Select first color by default
+        if color_data:
+            selected_color_var.set("0")
+        
+        # Color name entry
+        ttk.Label(main_frame, text="Color name:", font=("Arial", 12, "bold")).pack(anchor="w", pady=(10, 5))
+        name_var = tk.StringVar()
+        name_entry = ttk.Entry(main_frame, textvariable=name_var, width=40)
+        name_entry.pack(fill=tk.X, pady=(0, 10))
+        
+        # Library selection
+        ttk.Label(main_frame, text="Select library:", font=("Arial", 12, "bold")).pack(anchor="w", pady=(0, 5))
+        
+        # Load available libraries (same logic as Compare window)
+        library_list = self._get_available_libraries()
+        
+        lib_var = tk.StringVar()
+        lib_combo = ttk.Combobox(main_frame, textvariable=lib_var, values=library_list, width=37)
+        lib_combo.pack(fill=tk.X, pady=(0, 15))
+        
+        def save_color():
+            selected_idx = selected_color_var.get()
+            name = name_var.get().strip()
+            library = lib_var.get()
+            
+            if not selected_idx.isdigit():
+                messagebox.showerror("Error", "Please select a color to add")
+                return
+            if not name:
+                messagebox.showerror("Error", "Please enter a color name")
+                return
+            if not library:
+                messagebox.showerror("Error", "Please select a library")
+                return
+            
+            try:
+                # Get selected measurement
+                measurement = color_data[int(selected_idx)]
+                rgb = (measurement.get('rgb_r', 0), measurement.get('rgb_g', 0), measurement.get('rgb_b', 0))
+                lab = (measurement.get('l_value', 0), measurement.get('a_value', 0), measurement.get('b_value', 0))
+                
+                
+                # Load the selected library and add color
+                color_lib = ColorLibrary(library)
+                success = color_lib.add_color(name=name, rgb=rgb, lab=lab)
+                
+                if success:
+                    messagebox.showinfo(
+                        "Success", 
+                        f"Color '{name}' added to library '{library}' successfully!"
+                    )
+                    dialog.destroy()
+                else:
+                    messagebox.showerror("Error", f"Failed to add color '{name}' to library '{library}'")
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to add color: {str(e)}")
+        
+        # Buttons
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        ttk.Button(button_frame, text="Save", command=save_color).pack(side=tk.RIGHT, padx=(5, 0))
+        ttk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT)
+        
+        # Focus the name entry
+        name_entry.focus_set()
+    
+    def _get_available_libraries(self):
+        """Get list of available color libraries."""
+        try:
+            from utils.path_utils import get_color_libraries_dir
+            library_dir = get_color_libraries_dir()
+            
+            if not os.path.exists(library_dir):
+                return []
+            
+            library_files = []
+            for f in os.listdir(library_dir):
+                if f.endswith("_library.db") and not f.lower().startswith("all_libraries"):
+                    library_name = f[:-11]  # Remove '_library.db' suffix
+                    library_files.append(library_name)
+            
+            return sorted(library_files)
+        except Exception as e:
+            return []

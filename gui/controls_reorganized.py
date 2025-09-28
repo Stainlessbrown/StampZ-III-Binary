@@ -490,18 +490,22 @@ class ReorganizedControlPanel(ttk.Frame):
                 print(f"DEBUG: Sample {idx+1} anchor changed to: {selected_value}")
             anchor_combo.bind('<<ComboboxSelected>>', on_anchor_select)
             
-            # Add individual reset button for this sample
+            # Add individual reset button for this sample - place on new line to avoid width issues
             def reset_single_sample(sample_idx=i):
                 """Reset a single sample to defaults and clear its marker."""
                 self._reset_single_sample(sample_idx)
             
+            # Create bottom row for reset button to avoid horizontal crowding
+            bottom_row = ttk.Frame(main_container)
+            bottom_row.pack(fill=tk.X, pady=(2, 0))
+            
             reset_btn = ttk.Button(
-                control_container,
-                text="Reset",
+                bottom_row,
+                text=f"Reset #{i+1}",
                 command=reset_single_sample,
-                width=6
+                width=10
             )
-            reset_btn.pack(side=tk.LEFT, padx=2)
+            reset_btn.pack(side=tk.RIGHT, padx=2)
             
             # Store all control variables
             self.sample_controls.append({
@@ -1152,7 +1156,7 @@ class ReorganizedControlPanel(ttk.Frame):
         print(f"DEBUG: Updating sample controls for {len(coordinates)} coordinates")
         
         # Update each sample control with the loaded coordinate data
-        for i, coord in enumerate(coordinates[:5]):  # Limit to 5 sample areas
+        for i, coord in enumerate(coordinates[:6]):  # Limit to 6 sample areas
             if i < len(self.sample_controls):
                 control = self.sample_controls[i]
                 

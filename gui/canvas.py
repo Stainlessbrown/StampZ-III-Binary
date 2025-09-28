@@ -582,10 +582,10 @@ class CropCanvas(tk.Canvas):
             
             print(f"DEBUG: Manual mode - using sample index {next_sample_index}")
             
-            # Check 5-sample limit in manual mode
-            if next_sample_index >= 5:
-                print("DEBUG: Manual mode - maximum 5 samples reached")
-                self.status_callback("Manual mode: Maximum 5 samples reached")
+            # Check 6-sample limit in manual mode
+            if next_sample_index >= 6:
+                print("DEBUG: Manual mode - maximum 6 samples reached")
+                self.status_callback("Manual mode: Maximum 6 samples reached")
                 return
             
             # In Manual Mode, use settings from the corresponding row
@@ -623,10 +623,10 @@ class CropCanvas(tk.Canvas):
         
         print(f"DEBUG: Template mode - using sample index {next_sample_index}")
         
-        # Get settings for this sample (up to 5 samples)
-        if next_sample_index >= 5:
+        # Get settings for this sample (up to 6 samples)
+        if next_sample_index >= 6:
             print("DEBUG: Maximum samples reached")
-            self.status_callback("Maximum 5 samples reached")
+            self.status_callback("Maximum 6 samples reached")
             return
         
         settings = main_app.control_panel.get_applied_settings(next_sample_index)

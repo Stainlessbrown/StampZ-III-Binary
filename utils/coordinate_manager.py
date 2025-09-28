@@ -137,8 +137,8 @@ class CoordinateManager:
     
     def add_coordinate(self, x: float, y: float):
         """Add a new coordinate point"""
-        if len(self.current_coordinates) >= 5:
-            messagebox.showwarning("Limit Reached", "Maximum 5 coordinates allowed per set")
+        if len(self.current_coordinates) >= 6:
+            messagebox.showwarning("Limit Reached", "Maximum 6 coordinates allowed per set")
             return
         
         try:
