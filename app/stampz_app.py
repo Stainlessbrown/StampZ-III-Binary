@@ -1597,3 +1597,110 @@ class StampZApp:
             return sorted(library_files)
         except Exception as e:
             return []
+    
+    def _apply_global_offset(self):
+        """Apply global position offset to all samples."""
+        if not hasattr(self, 'control_panel') or not self.control_panel:
+            return
+            
+        try:
+            # Get offset values from control panel
+            x_offset = self.control_panel.global_x_offset.get()
+            y_offset = self.control_panel.global_y_offset.get()
+            
+            if x_offset == 0 and y_offset == 0:
+                messagebox.showinfo("No Offset", "No offset specified. Adjust X and Y values before applying.")
+                return
+            
+            # Apply offset to all sample areas on canvas
+            offset_count = 0
+            if hasattr(self.canvas, '_coord_markers') and self.canvas._coord_markers:
+                for marker in self.canvas._coord_markers:
+                    if 'image_pos' in marker and not marker.get('is_preview', False):
+                        old_x, old_y = marker['image_pos']
+                        marker['image_pos'] = (old_x + x_offset, old_y + y_offset)
+                        offset_count += 1
+                
+                # Redraw canvas to show new positions
+                self.canvas._redraw_all_coordinate_markers()
+                
+                # Update status
+                self.control_panel.offset_status.set(f"Global offset applied: ({x_offset:+d}, {y_offset:+d})")
+                messagebox.showinfo("Offset Applied", 
+                    f"Applied offset ({x_offset:+d}, {y_offset:+d}) to {offset_count} sample areas")
+            else:
+                messagebox.showinfo("No Samples", "No sample areas found to apply offset to.")
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to apply global offset: {str(e)}")
+    
+    def _apply_individual_offset(self):
+        """Apply individual position offset to selected sample."""
+        if not hasattr(self, 'control_panel') or not self.control_panel:
+            return
+            
+        try:
+            # Get selected sample and offset values
+            selected_sample = self.control_panel.selected_sample.get()
+            x_offset = self.control_panel.individual_x_offset.get()
+            y_offset = self.control_panel.individual_y_offset.get()
+            
+            if x_offset == 0 and y_offset == 0:
+                messagebox.showinfo("No Offset", "No offset specified. Adjust X and Y values before applying.")
+                return
+            
+            # Apply offset to specific sample area
+            if hasattr(self.canvas, '_coord_markers') and self.canvas._coord_markers:
+                # Convert from 1-based to 0-based index
+                sample_index = selected_sample - 1
+                
+                if 0 <= sample_index < len(self.canvas._coord_markers):
+                    marker = self.canvas._coord_markers[sample_index]
+                    if 'image_pos' in marker and not marker.get('is_preview', False):
+                        old_x, old_y = marker['image_pos']
+                        marker['image_pos'] = (old_x + x_offset, old_y + y_offset)
+                        new_x, new_y = marker['image_pos']
+                        
+                        # Redraw canvas to show new position
+                        self.canvas._redraw_all_coordinate_markers()
+                        
+                        # Update status
+                        self.control_panel.offset_status.set(
+                            f"Sample {selected_sample} offset: ({x_offset:+d}, {y_offset:+d})")
+                        messagebox.showinfo("Offset Applied", 
+                            f"Applied offset ({x_offset:+d}, {y_offset:+d}) to sample {selected_sample}\n"
+                            f"Moved from ({old_x:.1f}, {old_y:.1f}) to ({new_x:.1f}, {new_y:.1f})")
+                    else:
+                        messagebox.showwarning("Invalid Sample", 
+                            f"Sample {selected_sample} does not have valid coordinates")
+                else:
+                    messagebox.showwarning("Sample Not Found", 
+                        f"Sample {selected_sample} not found. Available samples: 1-{len(self.canvas._coord_markers)}")
+            else:
+                messagebox.showinfo("No Samples", "No sample areas found to apply offset to.")
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to apply individual offset: {str(e)}")
+    
+    def _reset_all_offsets(self):
+        """Reset all position offsets."""
+        if not hasattr(self, 'control_panel') or not self.control_panel:
+            return
+            
+        try:
+            # Reset offset values in the UI
+            self.control_panel.global_x_offset.set(0)
+            self.control_panel.global_y_offset.set(0)
+            self.control_panel.individual_x_offset.set(0)
+            self.control_panel.individual_y_offset.set(0)
+            
+            # Update status
+            self.control_panel.offset_status.set("All offsets reset")
+            
+            messagebox.showinfo("Offsets Reset", 
+                "All offset values have been reset to 0.\n\n"
+                "Note: This does not move existing sample areas back to their original positions.\n"
+                "To revert sample positions, you may need to reload your template.")
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to reset offsets: {str(e)}")
