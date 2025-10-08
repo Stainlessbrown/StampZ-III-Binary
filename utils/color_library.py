@@ -612,14 +612,10 @@ CREATE TABLE IF NOT EXISTS library_colors (
             
             for field, value in kwargs.items():
                 if field == 'name':
-                    # Validate new name if it's being updated
-                    if not self._validate_color_name(value):
-                        raise ValueError(
-                            "Invalid color name. Rules:\n"
-                            "- Use underscores between words (no spaces)\n"
-                            "- Can use Title_Case\n"
-                            "- Numbers must be preceded by a capital letter (e.g., F137_crimson)"
-                        )
+                    # For editing, be more permissive with names - just check basic safety
+                    if not value or not value.strip():
+                        raise ValueError("Color name cannot be empty")
+                    # Skip strict validation for editing existing colors to be more user-friendly
                     update_fields.append(f"{field} = ?")
                     values.append(value)
                 elif field in ['description', 'category', 'source', 'notes']:
@@ -647,8 +643,9 @@ CREATE TABLE IF NOT EXISTS library_colors (
             
             with sqlite3.connect(self.db_path) as conn:
                 query = f"UPDATE library_colors SET {', '.join(update_fields)} WHERE id = ?"
-                conn.execute(query, values)
-                return True
+                cursor = conn.execute(query, values)
+                rows_affected = cursor.rowcount
+                return rows_affected > 0
                 
         except Exception as e:
             print(f"Error updating color: {e}")
