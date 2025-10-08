@@ -8,6 +8,14 @@ dist/
 *.icns
 *.iconset/
 
+# Bundled application archives (too large for git)
+*.zip
+*.tar.gz
+*.dmg
+*.pkg
+*.app
+*.exe
+
 # Python cache
 __pycache__/
 *.pyc
