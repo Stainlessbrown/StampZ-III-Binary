@@ -37,9 +37,9 @@ class DatabaseViewer:
         self.dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
         self.dialog.minsize(800, 500)
         
-        # Make dialog modal
-        self.dialog.transient(parent)
-        self.dialog.grab_set()
+        # Configure as independent window
+        self.dialog.wm_transient(None)  # Make window independent
+        self.dialog.attributes('-topmost', False)  # Allow window to go behind other windows
         
         # Initialize variables
         self.current_sample_set = None
