@@ -19,7 +19,7 @@ class ColorDisplay(tk.Frame):
         swatch_width = int(width * 0.75)  # Make swatch 3/4 of frame width
         text_width = 300
         
-        # Convert RGB to hex for display
+        # Convert RGB to hex for display (needed for Tkinter color display)
         hex_color = self._rgb_to_hex(color_rgb)
         
         # Main container frame to hold everything

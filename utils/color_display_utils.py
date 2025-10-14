@@ -10,7 +10,7 @@ from typing import Tuple, Optional
 def get_conditional_color_info(
     rgb: Tuple[float, float, float], 
     lab: Optional[Tuple[float, float, float]] = None,
-    show_hex: bool = True
+    show_hex: bool = False
 ) -> str:
     """Generate color information string based on user preferences.
     
@@ -69,7 +69,8 @@ def get_conditional_color_info(
 def get_conditional_color_values_text(
     rgb: Tuple[float, float, float], 
     lab: Optional[Tuple[float, float, float]] = None,
-    compact: bool = False
+    compact: bool = False,
+    show_hex: bool = False
 ) -> str:
     """Generate color values text in a more compact format for comparison views.
     

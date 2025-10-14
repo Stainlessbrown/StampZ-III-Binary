@@ -23,7 +23,7 @@ class DatabaseViewer:
         self.dialog.title("StampZ Database Viewer")
         
         # Set size and position
-        dialog_width = 1000
+        dialog_width = 2000
         dialog_height = 600
         
         # Get screen dimensions
@@ -145,21 +145,21 @@ class DatabaseViewer:
         
         # Configure column headings and widths
         column_configs = {
-            "set_id": ("Set ID", 60),
-            "image_name": ("Image", 150),
-            "measurement_date": ("Date/Time", 150),
+            "set_id": ("Set ID", 20),
+            "image_name": ("Image", 80),
+            "measurement_date": ("Date/Time", 130),
             "point": ("Point", 50),
-            "l_value": ("L*", 60),
-            "a_value": ("a*", 60),
-            "b_value": ("b*", 60),
-            "rgb_r": ("R", 50),
-            "rgb_g": ("G", 50),
-            "rgb_b": ("B", 50),
-            "x_pos": ("X", 60),
-            "y_pos": ("Y", 60),
-            "shape": ("Shape", 80),
-            "size": ("Size", 80),
-            "notes": ("Notes", 200)
+            "l_value": ("L*", 30),
+            "a_value": ("a*", 30),
+            "b_value": ("b*", 30),
+            "rgb_r": ("R", 30),
+            "rgb_g": ("G", 30),
+            "rgb_b": ("B", 30),
+            "x_pos": ("X", 30),
+            "y_pos": ("Y", 30),
+            "shape": ("Shape", 40),
+            "size": ("Size", 20),
+            "notes": ("Notes", 640)
         }
         
         for col, (heading, width) in column_configs.items():
