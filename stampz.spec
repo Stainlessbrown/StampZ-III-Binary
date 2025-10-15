@@ -105,7 +105,6 @@ except Exception:
 # Add additional hidden imports
 hiddenimports += [
     'initialize_env',  # Critical: Entry point environment setup
-    'launch_selector',  # Main application launch selector
     'cv2',  # OpenCV for image processing
     'gui.gauge_perforation_ui',  # Perforation gauge measurement dialog
     'gui.perforation_ui',  # Legacy perforation measurement dialog
@@ -200,10 +199,10 @@ if os.path.exists('plot3d/zoom_presets.json'):
     datas += [('plot3d/zoom_presets.json', 'plot3d')]
 
 # Explicitly add critical modules that PyInstaller might miss
-hiddenimports += ['initialize_env', 'launch_selector']
+hiddenimports += ['initialize_env']
 
 a = Analysis(
-    ['main.py', 'initialize_env.py', 'launch_selector.py', 'gui/gauge_perforation_ui.py', 'gui/perforation_ui.py'],  # Explicitly include these modules
+['main.py', 'initialize_env.py', 'gui/gauge_perforation_ui.py', 'gui/perforation_ui.py'],  # Explicitly include these modules
     pathex=['.'],
     binaries=binaries,
     datas=datas,
