@@ -190,18 +190,18 @@ jobs:
         3. Right-click StampZ.app → Open (first time only)
         4. Click "Open" in the security dialog
 
-## Security Note
-macOS will show a security warning the first time you run StampZ.
-This is normal for unsigned applications. Click "Open" to proceed.
+        ## Security Note
+        macOS will show a security warning the first time you run StampZ.
+        This is normal for unsigned applications. Click "Open" to proceed.
 
-## Features
-- Complete stamp analysis toolkit
-- Ternary plot visualization
-- Spectral analysis tools
-- Self-contained - no additional installations needed
+        ## Features
+        - Complete stamp analysis toolkit
+        - Ternary plot visualization
+        - Spectral analysis tools
+        - Self-contained - no additional installations needed
 
-Built for macOS 10.14+ (Intel and Apple Silicon)
-EOF
+        Built for macOS 10.14+ (Intel and Apple Silicon)
+        EOF
     
     - name: Create macOS archive
       run: |
