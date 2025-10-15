@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
 """StampZ-III - Main Application Entry Point
 A image analysis application optimized for philatelic images
-
-This entry point now shows a launch selector dialog allowing users to choose between:
-- Full StampZ-III Application (complete image analysis workflow)
-- Plot_3D Only Mode (advanced 3D analysis and visualization)
 """
 
 # Import initialize_env first to set up data preservation system
@@ -90,58 +86,15 @@ def launch_plot3d_only():
 
 
 def main():
-    """Main entry point - shows launch mode selector."""
+    """Main entry point - launches full StampZ application."""
     try:
-        # Show launch selector
-        from launch_selector import LaunchSelector
-        
-        selector = LaunchSelector()
-        selected_mode = selector.show()
-        
-        # Ensure the selector window is completely cleaned up
-        try:
-            if hasattr(selector, 'root'):
-                selector.root.quit()  # Stop the mainloop
-                selector.root.destroy()  # Destroy the window
-        except:
-            pass  # Ignore errors during cleanup
-        
-        if selected_mode == "full":
-            launch_full_stampz()
-            # Force complete process termination when main app closes
-            sys.exit(0)
-            
-        elif selected_mode == "plot3d":
-            launch_plot3d_only()
-            # Force complete process termination when Plot_3D closes
-            sys.exit(0)
-            
-        else:
-            # User cancelled or closed dialog
-            print("Launch cancelled by user")
-            sys.exit(0)
-            
+        launch_full_stampz()
     except Exception as e:
         print(f"Error during launch: {e}")
-        logging.error(f"Launch selector error: {e}")
-        # Fallback to full application if selector fails
-        print("Falling back to full StampZ-III application...")
-        launch_full_stampz()
-        # Force complete process termination after fallback
-        sys.exit(0)
-    
+        logging.error(f"Launch error: {e}")
     finally:
-        # Final cleanup to ensure no lingering Tk instances
-        try:
-            import tkinter as tk
-            # Get the default root and destroy it if it exists
-            root = tk._default_root
-            if root:
-                root.quit()
-                root.destroy()
-                tk._default_root = None
-        except:
-            pass
+        # Ensure complete process termination
+        sys.exit(0)
 
 
 if __name__ == "__main__":
