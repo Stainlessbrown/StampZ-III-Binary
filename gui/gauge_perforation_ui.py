@@ -98,9 +98,9 @@ class GaugePerforationDialog:
             pass
             
         self.dpi_var = tk.StringVar(value=default_dpi)
-        self.dpi_entry = ttk.Entry(self.dpi_frame, textvariable=self.dpi_var, width=8)
+        self.dpi_entry = ttk.Entry(self.dpi_frame, textvariable=self.dpi_var, width=8, state='readonly')
         self.dpi_entry.pack(side=tk.LEFT, padx=5)
-        ttk.Button(self.dpi_frame, text="Update", command=self._update_dpi).pack(side=tk.LEFT, padx=5)
+        ttk.Label(self.dpi_frame, text="(Set in Preferences)", font=("TkDefaultFont", 9), foreground="gray").pack(side=tk.LEFT, padx=5)
         
         # Color Scheme Selection removed - traditional white/black only
         
@@ -448,21 +448,18 @@ class GaugePerforationDialog:
             self._show_gauge()  # Refresh with new color scheme
     
     def _update_dpi(self):
-        """Update the gauge system DPI."""
+        """Update DPI from preferences."""
         try:
-            dpi = int(self.dpi_var.get())
-            if dpi < 72 or dpi > 2400:
-                raise ValueError("DPI must be between 72 and 2400")
-            
+            from utils.user_preferences import get_preferences_manager
+            prefs_manager = get_preferences_manager()
+            dpi = prefs_manager.get_default_dpi()
+            self.dpi_var.set(str(dpi))
             self.gauge_system = FinalPerforationGauge(dpi=dpi)
             
             if self.current_gauge_overlay is not None:
                 self._show_gauge()  # Refresh with new DPI
-                
-            self.status_var.set(f"DPI updated to {dpi}")
-            
-        except ValueError as e:
-            messagebox.showerror("Invalid DPI", f"Please enter a valid DPI value: {str(e)}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to update DPI from preferences: {str(e)}")
     
     def _center_gauge(self):
         """Center the gauge overlay on the image."""

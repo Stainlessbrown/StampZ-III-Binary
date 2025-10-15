@@ -37,7 +37,26 @@ class PrecisionMeasurementTool:
         self.root.geometry("1400x900")
         
         # Initialize measurement engine
-        self.measurement_engine = MeasurementEngine(image_path) if image_path else MeasurementEngine()
+        self.measurement_engine = MeasurementEngine()
+        
+        # Get current image (already leveled/cropped) and DPI from main app if available
+        if main_app and hasattr(main_app, 'canvas'):
+            if main_app.canvas.core.original_image:
+                # This will be the current image (leveled/cropped if those operations were done)
+                self.measurement_engine = MeasurementEngine()
+                self.measurement_engine.image = main_app.canvas.core.original_image
+                self.image_path = image_path if image_path else "Current Image"
+            
+            # Get DPI from preferences
+            try:
+                from utils.user_preferences import get_preferences_manager
+                prefs_manager = get_preferences_manager()
+                self.measurement_engine.dpi = prefs_manager.get_default_dpi()
+                self.measurement_engine.pixels_per_mm = self.measurement_engine.dpi / 25.4
+            except Exception as e:
+                # Fallback to default DPI
+                self.measurement_engine.dpi = 600
+                self.measurement_engine.pixels_per_mm = self.measurement_engine.dpi / 25.4
         
         # Measurement state
         self.measurements = []
@@ -181,7 +200,9 @@ class PrecisionMeasurementTool:
                          font=("Arial", 8), foreground=precision_color).pack()
                          
             # Warning for poor calibration
-            if "Default" in self.measurement_engine.calibration_source or self.measurement_engine.dpi < 50:
+            source_text = str(self.measurement_engine.calibration_source or "")
+            dpi_value = float(self.measurement_engine.dpi) if self.measurement_engine.dpi is not None else 0
+            if ("Default" in source_text) or (dpi_value < 50):
                 ttk.Label(cal_frame, text="⚠️ Manual calibration recommended",
                          font=("Arial", 8), foreground="#FF6600").pack()
         
@@ -199,20 +220,12 @@ class PrecisionMeasurementTool:
         # Direct DPI setting
         dpi_frame = ttk.Frame(cal_frame)
         dpi_frame.pack(fill="x", pady=2)
+        ttk.Label(dpi_frame, text="Current DPI:", font=("Arial", 8)).pack(anchor="w")
         
-        ttk.Label(dpi_frame, text="Set DPI directly:", font=("Arial", 8, "bold")).pack(anchor="w")
+        dpi_label = ttk.Label(dpi_frame, text=f"{float(self.measurement_engine.dpi):.1f}", font=("Arial", 10, "bold"))
+        dpi_label.pack(anchor="w", padx=5)
         
-        dpi_inputs = ttk.Frame(dpi_frame)
-        dpi_inputs.pack(fill="x", pady=2)
-        
-        ttk.Label(dpi_inputs, text="DPI:").grid(row=0, column=0, sticky="w")
-        self.dpi_var = tk.DoubleVar(value=self.measurement_engine.dpi if self.measurement_engine.dpi else 800)
-        dpi_entry = ttk.Entry(dpi_inputs, textvariable=self.dpi_var, width=8)
-        dpi_entry.grid(row=0, column=1, padx=2)
-        
-        ttk.Button(dpi_inputs, text="Set DPI", 
-                  command=self.set_dpi_directly).grid(row=0, column=2, padx=2)
-        
+        ttk.Label(dpi_frame, text="(Set in Preferences)", font=("TkDefaultFont", 9), foreground="gray").pack(anchor="w", pady=(0,5))
         ttk.Separator(cal_frame, orient='horizontal').pack(fill="x", pady=5)
         
         # Manual calibration
@@ -386,7 +399,12 @@ class PrecisionMeasurementTool:
         # Initial plot setup
         self.ax.set_title("Click to Load Image or Use Measurement Tools", fontsize=12)
         self.ax.set_aspect('equal')
-        self.ax.grid(True, alpha=0.3)
+        # Remove all axis elements
+        self.ax.set_axis_off()
+        
+        # If we have an image from main app, load it
+        if hasattr(self, 'image_path') and self.measurement_engine.image:
+            self.load_image_into_plot()
         
     def load_image_dialog(self):
         """Load image via file dialog"""
@@ -413,9 +431,15 @@ class PrecisionMeasurementTool:
             
         self.ax.clear()
         
-        # Display image
+        # Display image (use explicit extent and nearest interpolation for precise pixel alignment)
         image_array = np.array(self.measurement_engine.image)
-        self.ax.imshow(image_array, origin='upper', aspect='equal')
+        height, width = image_array.shape[:2]
+        self.ax.imshow(
+            image_array,
+            origin='upper',
+            extent=(0, width, height, 0),
+            interpolation='nearest'
+        )
         
         # Set title with image info
         if self.measurement_engine.dpi:
@@ -428,11 +452,15 @@ class PrecisionMeasurementTool:
         self.ax.set_title(title, fontsize=10)
         
         # Auto-fit the image with some padding
-        height, width = image_array.shape[:2]
         padding = max(width, height) * 0.1  # 10% padding
         
         self.ax.set_xlim(-padding, width + padding)
         self.ax.set_ylim(height + padding, -padding)  # Inverted Y for image coordinates
+        
+        # Remove axes/ticks completely for a clean image-only view
+        self.ax.axis('off')
+        self.ax.set_xticks([])
+        self.ax.set_yticks([])
         
         # Redraw existing measurements
         self.redraw_all_measurements()

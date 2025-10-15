@@ -100,6 +100,43 @@ class PreferencesDialog:
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
         
+        # Button bar at the top for easier access on small screens
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, side=tk.TOP, pady=(0, 10))
+        
+        # Create buttons with proper spacing and visibility
+        reset_btn = ttk.Button(
+            button_frame, 
+            text="Reset to Defaults", 
+            command=self._reset_to_defaults
+        )
+        reset_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Create a frame for right-aligned buttons
+        right_buttons = ttk.Frame(button_frame)
+        right_buttons.pack(side=tk.RIGHT, padx=5)
+        
+        cancel_btn = ttk.Button(
+            right_buttons, 
+            text="Cancel", 
+            command=self._on_cancel
+        )
+        cancel_btn.pack(side=tk.RIGHT, padx=(5, 0))
+        
+        apply_btn = ttk.Button(
+            right_buttons, 
+            text="Apply", 
+            command=self._on_apply
+        )
+        apply_btn.pack(side=tk.RIGHT, padx=5)
+        
+        ok_btn = ttk.Button(
+            right_buttons, 
+            text="OK", 
+            command=self._on_ok
+        )
+        ok_btn.pack(side=tk.RIGHT, padx=5)
+        
         # Content area (notebook) - this gets the expandable space
         content_frame = ttk.Frame(main_frame)
         content_frame.pack(fill=tk.BOTH, expand=True)
@@ -129,43 +166,6 @@ class PreferencesDialog:
         # Future tabs can be added here
         # self._create_general_tab(notebook)
         # self._create_appearance_tab(notebook)
-        
-        # Button frame - fixed at bottom with proper spacing
-        button_frame = ttk.Frame(main_frame)
-        button_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=(10, 0))
-        
-        # Create buttons with proper spacing and visibility
-        reset_btn = ttk.Button(
-            button_frame, 
-            text="Reset to Defaults", 
-            command=self._reset_to_defaults
-        )
-        reset_btn.pack(side=tk.LEFT, padx=5, pady=10)
-        
-        # Create a frame for right-aligned buttons
-        right_buttons = ttk.Frame(button_frame)
-        right_buttons.pack(side=tk.RIGHT, padx=5, pady=10)
-        
-        cancel_btn = ttk.Button(
-            right_buttons, 
-            text="Cancel", 
-            command=self._on_cancel
-        )
-        cancel_btn.pack(side=tk.RIGHT, padx=(5, 0))
-        
-        apply_btn = ttk.Button(
-            right_buttons, 
-            text="Apply", 
-            command=self._on_apply
-        )
-        apply_btn.pack(side=tk.RIGHT, padx=5)
-        
-        ok_btn = ttk.Button(
-            right_buttons, 
-            text="OK", 
-            command=self._on_ok
-        )
-        ok_btn.pack(side=tk.RIGHT, padx=5)
     
     def _create_export_tab(self, notebook):
         """Create the export preferences tab."""
@@ -174,7 +174,7 @@ class PreferencesDialog:
         
         # Export directory section
         dir_frame = ttk.LabelFrame(export_frame, text="Export Directory", padding="10")
-        dir_frame.pack(fill=tk.X, pady=(0, 10))
+        dir_frame.pack(fill=tk.X, pady=(0, 5))
         
         # Current directory display
         ttk.Label(dir_frame, text="Current directory:").pack(anchor=tk.W)

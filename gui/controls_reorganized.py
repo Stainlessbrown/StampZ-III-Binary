@@ -40,7 +40,7 @@ class ReorganizedControlPanel(ttk.Frame):
         **kwargs
     ):
         # Set fixed width to prevent expansion but allow all controls to be visible
-        super().__init__(master, width=400, **kwargs)
+        super().__init__(master, width=500, **kwargs)
         self.pack_propagate(False)  # Prevent children from changing our size
         
         # Store callbacks
@@ -330,7 +330,7 @@ class ReorganizedControlPanel(ttk.Frame):
         
         # Sample mode selection
         mode_frame = ttk.Frame(self.sample_frame)
-        mode_frame.pack(fill=tk.X, padx=5, pady=2)
+        mode_frame.pack(fill=tk.X, padx=5, pady=1)
         
         ttk.Label(mode_frame, text="Mode:").pack(side=tk.LEFT)
         ttk.Radiobutton(mode_frame, text="Template", variable=self.sample_mode, value="template",
@@ -340,7 +340,7 @@ class ReorganizedControlPanel(ttk.Frame):
         
         # Template frame with Load button integrated
         template_frame = ttk.Frame(self.sample_frame)
-        template_frame.pack(fill=tk.X, padx=5, pady=2)
+        template_frame.pack(fill=tk.X, padx=5, pady=1)
         ttk.Label(template_frame, text="Template:", font=("Arial", 10, "bold")).pack(side=tk.LEFT)
         
         # Template name entry
@@ -371,19 +371,29 @@ class ReorganizedControlPanel(ttk.Frame):
         
         # Analysis name
         analysis_frame = ttk.Frame(self.sample_frame)
-        analysis_frame.pack(fill=tk.X, padx=5, pady=2)
+        analysis_frame.pack(fill=tk.X, padx=5, pady=1)
         ttk.Label(analysis_frame, text="Analysis:", font=("Arial", 10, "bold")).pack(side=tk.LEFT)
         self.analysis_entry = ttk.Entry(analysis_frame, textvariable=self.analysis_name, width=15)
         self.analysis_entry.pack(side=tk.LEFT, padx=5)
         ttk.Button(analysis_frame, text="Auto", command=self._auto_generate_analysis_name, 
                   width=4).pack(side=tk.LEFT, padx=2)
         
-        # Create expanded container for sample controls (no scrolling)
-        sample_controls_container = ttk.Frame(self.sample_frame)
-        sample_controls_container.pack(fill=tk.BOTH, expand=True, padx=5, pady=2)
-        
-        # Use the container directly as the scrollable frame
-        self.sample_scrollable_frame = sample_controls_container
+        # Create a canvas with scrollbar for sample controls
+        canvas = tk.Canvas(self.sample_frame, height=400)  # Set desired height here
+        scrollbar = ttk.Scrollbar(self.sample_frame, orient="vertical", command=canvas.yview)
+        self.sample_scrollable_frame = ttk.Frame(canvas)
+
+        # Configure canvas
+        self.sample_scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        canvas.create_window((0, 0), window=self.sample_scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        # Pack the canvas and scrollbar
+        canvas.pack(side="left", fill="both", expand=True, padx=(5,1), pady=1)
+        scrollbar.pack(side="right", fill="y", padx=(0,5))
         
         # Create compact controls for each sample area in the scrollable frame
         self.sample_controls = []
@@ -392,7 +402,7 @@ class ReorganizedControlPanel(ttk.Frame):
             frame.pack(fill=tk.X, padx=1, pady=0)
             
             # Sample number label
-            ttk.Label(frame, text=f"#{i+1}").pack(side=tk.LEFT, padx=2)
+            ttk.Label(frame, text=f"#{i+1}").pack(side=tk.LEFT, padx=1)
             
             # Create main container with bottom button row
             main_container = ttk.Frame(frame)
@@ -400,7 +410,7 @@ class ReorganizedControlPanel(ttk.Frame):
             
             # Top row for controls
             top_row = ttk.Frame(main_container)
-            top_row.pack(fill=tk.X, expand=True, pady=(0, 2))
+            top_row.pack(fill=tk.X, expand=True, pady=(0, 1))
             
             # Create outer frame for centering
             outer_frame = ttk.Frame(top_row)
@@ -505,7 +515,7 @@ class ReorganizedControlPanel(ttk.Frame):
                 command=reset_single_sample,
                 width=10
             )
-            reset_btn.pack(side=tk.RIGHT, padx=2)
+            reset_btn.pack(side=tk.RIGHT, padx=1)
             
             # Store all control variables
             self.sample_controls.append({
@@ -519,7 +529,7 @@ class ReorganizedControlPanel(ttk.Frame):
         
         # Sample set buttons inside the scrollable area
         button_frame = ttk.Frame(self.sample_scrollable_frame)
-        button_frame.pack(fill=tk.X, padx=5, pady=10)
+        button_frame.pack(fill=tk.X, padx=5, pady=5)
         
         # Center-align the main buttons
         button_container = ttk.Frame(button_frame)
@@ -542,7 +552,7 @@ class ReorganizedControlPanel(ttk.Frame):
         
         # Add color analysis button in a separate row
         analysis_frame = ttk.Frame(button_frame)
-        analysis_frame.pack(fill=tk.X, pady=(5, 0))
+        analysis_frame.pack(fill=tk.X, pady=(2, 0))
         
         # Create 2x2 button grid for all 4 functions
         button_grid = ttk.Frame(analysis_frame)
@@ -609,7 +619,7 @@ class ReorganizedControlPanel(ttk.Frame):
         
         # Fine-tune positioning frame
         self.fine_tune_frame = ttk.LabelFrame(button_frame, text="Fine-Tune Positioning")
-        self.fine_tune_frame.pack(fill=tk.X, pady=(10, 0))
+        self.fine_tune_frame.pack(fill=tk.X, pady=(5, 0))
         
         # Add flag to prevent multiple simultaneous operations
         self._offset_operation_in_progress = False

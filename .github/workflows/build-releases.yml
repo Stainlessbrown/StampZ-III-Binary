@@ -182,13 +182,13 @@ jobs:
     - name: Create macOS documentation
       run: |
         cat > dist/StampZ/README.txt << 'EOF'
-# StampZ for macOS
+        # StampZ for macOS
 
-## Quick Start
-1. Extract this archive
-2. Drag StampZ.app to Applications folder (optional)
-3. Right-click StampZ.app → Open (first time only)
-4. Click "Open" in the security dialog
+        ## Quick Start
+        1. Extract this archive
+        2. Drag StampZ.app to Applications folder (optional)
+        3. Right-click StampZ.app → Open (first time only)
+        4. Click "Open" in the security dialog
 
 ## Security Note
 macOS will show a security warning the first time you run StampZ.

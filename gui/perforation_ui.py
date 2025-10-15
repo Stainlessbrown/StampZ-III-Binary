@@ -84,12 +84,10 @@ class PerforationMeasurementDialog:
             pass  # Use fallback if preferences not available
             
         self.dpi_var = tk.StringVar(value=default_dpi)
-        self.dpi_entry = ttk.Entry(self.dpi_frame, textvariable=self.dpi_var, width=8)
+        self.dpi_entry = ttk.Entry(self.dpi_frame, textvariable=self.dpi_var, width=8, state='readonly')
         self.dpi_entry.pack(side=tk.LEFT, padx=5)
-        ttk.Button(self.dpi_frame, text="Set", command=self._update_dpi).pack(side=tk.LEFT, padx=5)
         
-        # Add button to save as default
-        ttk.Button(self.dpi_frame, text="Save as Default", command=self._save_dpi_as_default).pack(side=tk.LEFT, padx=5)
+        ttk.Label(self.dpi_frame, text="(Set in Preferences)", font=("TkDefaultFont", 9), foreground="gray").pack(side=tk.LEFT, padx=5)
         
         # Background color selection
         self.bg_color_frame = ttk.Frame(self.control_frame)
@@ -247,16 +245,15 @@ class PerforationMeasurementDialog:
             print(f"Error displaying image: {e}")  # Log but don't show error dialog
     
     def _update_dpi(self):
-        """Update the DPI setting for measurements."""
+        """Update DPI from preferences."""
         try:
-            dpi = int(self.dpi_var.get())
-            if dpi < 72 or dpi > 2400:
-                messagebox.showwarning("Invalid DPI", "DPI must be between 72 and 2400")
-                return
+            from utils.user_preferences import get_preferences_manager
+            prefs_manager = get_preferences_manager()
+            dpi = prefs_manager.get_default_dpi()
+            self.dpi_var.set(str(dpi))
             self.engine.set_image_dpi(dpi)
-            self.progress_var.set(f"DPI set to {dpi}")
-        except ValueError:
-            messagebox.showerror("Invalid DPI", "Please enter a valid number for DPI")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to update DPI from preferences: {str(e)}")
     
     def _save_dpi_as_default(self):
         """Save the current DPI setting as the default in preferences."""
