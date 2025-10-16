@@ -15,6 +15,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.color_library import ColorLibrary, LibraryColor
+from utils.hue_sorting import sort_colors_philatelic, get_hue_group
 from gui.color_comparison_manager import ColorComparisonManager
 from gui.color_display import ColorDisplay
 
@@ -119,7 +120,7 @@ class ColorLibraryManager:
         self.add_color_btn = ttk.Button(library_row, text="Add Color", command=self._add_color_dialog)
         self.add_color_btn.pack(side=tk.RIGHT, padx=(5, 0))
         
-        # Search and pagination row
+        # Search and sorting row
         search_row = ttk.Frame(controls_frame)
         search_row.pack(fill=tk.X, pady=(0, 5))
         
@@ -130,6 +131,23 @@ class ColorLibraryManager:
         self.search_entry.pack(side=tk.LEFT, padx=(0, 5))
         self.search_entry.bind('<KeyRelease>', self._on_search_changed)
         ttk.Button(search_row, text="Clear", command=self._clear_search).pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Sorting options
+        ttk.Label(search_row, text="Sort by:").pack(side=tk.LEFT, padx=(10, 5))
+        
+        # Load saved sort preference
+        try:
+            from utils.user_preferences import get_preferences_manager
+            prefs_manager = get_preferences_manager()
+            saved_sort = prefs_manager.get('color_library_sort_method', 'Alphabetical')
+        except Exception:
+            saved_sort = "Alphabetical"
+        
+        self.sort_var = tk.StringVar(value=saved_sort)
+        self.sort_combo = ttk.Combobox(search_row, textvariable=self.sort_var, width=15, state="readonly")
+        self.sort_combo['values'] = ("Alphabetical", "Hue (Philatelic)", "Category")
+        self.sort_combo.pack(side=tk.LEFT, padx=(0, 10))
+        self.sort_combo.bind("<<ComboboxSelected>>", self._on_sort_changed)
         
         # Pagination controls
         self.page_info_label = ttk.Label(search_row, text="")
@@ -347,9 +365,44 @@ class ColorLibraryManager:
         if not self.library:
             return
         
-        # Get and sort all colors
+        # Get all colors
         all_colors = self.library.get_all_colors()
-        all_colors.sort(key=lambda x: (x.category, x.name))
+        
+        # Apply sorting based on user selection
+        sort_method = self.sort_var.get() if hasattr(self, 'sort_var') else "Alphabetical"
+        
+        if sort_method == "Hue (Philatelic)":
+            # Sort by philatelic hue order: Black -> Gray -> White -> Hue-sorted chromatic
+            try:
+                # Convert to RGB tuples for hue sorting
+                rgb_tuples = [(int(color.rgb[0]), int(color.rgb[1]), int(color.rgb[2])) for color in all_colors]
+                sorted_rgb = sort_colors_philatelic(rgb_tuples)
+                
+                # Create mapping from RGB back to color objects
+                rgb_to_color = {}
+                for color in all_colors:
+                    rgb_key = (int(color.rgb[0]), int(color.rgb[1]), int(color.rgb[2]))
+                    if rgb_key not in rgb_to_color:
+                        rgb_to_color[rgb_key] = []
+                    rgb_to_color[rgb_key].append(color)
+                
+                # Rebuild color list in philatelic order
+                all_colors = []
+                for rgb in sorted_rgb:
+                    if rgb in rgb_to_color:
+                        # If multiple colors have same RGB, sort them alphabetically
+                        colors_for_rgb = rgb_to_color[rgb]
+                        colors_for_rgb.sort(key=lambda x: x.name)
+                        all_colors.extend(colors_for_rgb)
+                        del rgb_to_color[rgb]  # Remove to avoid duplicates
+                        
+            except Exception as e:
+                print(f"Error applying hue sorting, falling back to alphabetical: {e}")
+                all_colors.sort(key=lambda x: (x.category, x.name))
+        elif sort_method == "Category":
+            all_colors.sort(key=lambda x: (x.category, x.name))
+        else:  # Alphabetical
+            all_colors.sort(key=lambda x: (x.category, x.name))
         
         # Apply search filter if active
         if hasattr(self, 'search_term') and self.search_term:
@@ -521,6 +574,20 @@ class ColorLibraryManager:
         """Clear the search and show all colors."""
         self.search_var.set("")
         self.search_term = ""
+        self.current_page = 0
+        self._update_colors_display(reset_pagination=True)
+    
+    def _on_sort_changed(self, event=None):
+        """Handle sort method change."""
+        # Save sort preference
+        try:
+            from utils.user_preferences import get_preferences_manager
+            prefs_manager = get_preferences_manager()
+            prefs_manager.set('color_library_sort_method', self.sort_var.get())
+        except Exception as e:
+            print(f"Warning: Could not save sort preference: {e}")
+        
+        # Reset to first page when sorting changes
         self.current_page = 0
         self._update_colors_display(reset_pagination=True)
     

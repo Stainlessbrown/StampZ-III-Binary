@@ -1879,15 +1879,74 @@ class ColorComparisonManager(tk.Frame):
                     for match in lib_matches:
                         match.library_name = lib.library_name
                     all_matches.extend(lib_matches)
-                all_matches.sort(key=lambda x: x.delta_e_2000)
-                matches = all_matches[:5]
+                # Sort matches - try hue sorting first, fallback to Delta E
+                try:
+                    from utils.hue_sorting import sort_colors_philatelic
+                    # Extract RGB values for hue sorting
+                    match_rgb = [(int(m.library_color.rgb[0]), int(m.library_color.rgb[1]), int(m.library_color.rgb[2])) for m in all_matches]
+                    sorted_rgb = sort_colors_philatelic(match_rgb)
+                    
+                    # Create mapping from RGB back to matches
+                    rgb_to_matches = {}
+                    for match in all_matches:
+                        rgb_key = (int(match.library_color.rgb[0]), int(match.library_color.rgb[1]), int(match.library_color.rgb[2]))
+                        if rgb_key not in rgb_to_matches:
+                            rgb_to_matches[rgb_key] = []
+                        rgb_to_matches[rgb_key].append(match)
+                    
+                    # Rebuild matches list in hue order, then by Delta E within each RGB group
+                    sorted_matches = []
+                    for rgb in sorted_rgb:
+                        if rgb in rgb_to_matches:
+                            matches_for_rgb = rgb_to_matches[rgb]
+                            matches_for_rgb.sort(key=lambda x: x.delta_e_2000)  # Sort by Delta E within same color
+                            sorted_matches.extend(matches_for_rgb)
+                            del rgb_to_matches[rgb]  # Avoid duplicates
+                    
+                    matches = sorted_matches[:5]
+                except Exception as e:
+                    print(f"Warning: Hue sorting failed, using Delta E sorting: {e}")
+                    all_matches.sort(key=lambda x: x.delta_e_2000)
+                    matches = all_matches[:5]
             else:
                 # Compare with single library
                 result = self.library.compare_sample_to_library(
                     sample_lab=avg_lab,
                     threshold=self.delta_e_threshold
                 )
-                matches = result.get('matches', [])[:5] if result else []
+                all_matches = result.get('matches', []) if result else []
+                
+                # Apply hue sorting to single library results too
+                try:
+                    from utils.hue_sorting import sort_colors_philatelic
+                    if all_matches:
+                        # Extract RGB values for hue sorting
+                        match_rgb = [(int(m.library_color.rgb[0]), int(m.library_color.rgb[1]), int(m.library_color.rgb[2])) for m in all_matches]
+                        sorted_rgb = sort_colors_philatelic(match_rgb)
+                        
+                        # Create mapping from RGB back to matches
+                        rgb_to_matches = {}
+                        for match in all_matches:
+                            rgb_key = (int(match.library_color.rgb[0]), int(match.library_color.rgb[1]), int(match.library_color.rgb[2]))
+                            if rgb_key not in rgb_to_matches:
+                                rgb_to_matches[rgb_key] = []
+                            rgb_to_matches[rgb_key].append(match)
+                        
+                        # Rebuild matches list in hue order, then by Delta E within each RGB group
+                        sorted_matches = []
+                        for rgb in sorted_rgb:
+                            if rgb in rgb_to_matches:
+                                matches_for_rgb = rgb_to_matches[rgb]
+                                matches_for_rgb.sort(key=lambda x: x.delta_e_2000)  # Sort by Delta E within same color
+                                sorted_matches.extend(matches_for_rgb)
+                                del rgb_to_matches[rgb]  # Avoid duplicates
+                        
+                        matches = sorted_matches[:5]
+                    else:
+                        matches = []
+                except Exception as e:
+                    print(f"Warning: Hue sorting failed for single library, using Delta E sorting: {e}")
+                    matches = all_matches[:5]
             
             if not matches:
                 ttk.Label(self.matches_frame,
