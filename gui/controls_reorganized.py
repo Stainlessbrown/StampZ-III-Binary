@@ -564,7 +564,7 @@ class ReorganizedControlPanel(ttk.Frame):
         
         analyze_btn = ttk.Button(
             row1,
-            text="🔬 Analyze",
+            text=" Analyze",
             command=self._analyze_colors,
             width=12
         )
@@ -572,7 +572,7 @@ class ReorganizedControlPanel(ttk.Frame):
         
         spreadsheet_btn = ttk.Button(
             row1,
-            text="📊 View Data",
+            text="View Data",
             command=self._view_spreadsheet,
             width=12
         )
@@ -584,7 +584,7 @@ class ReorganizedControlPanel(ttk.Frame):
         
         compare_btn = ttk.Button(
             row2,
-            text="🔍 Compare",
+            text="Review/Compare",
             command=self._compare_to_libraries,
             width=12
         )
@@ -592,7 +592,7 @@ class ReorganizedControlPanel(ttk.Frame):
         
         manage_btn = ttk.Button(
             row2,
-            text="📚 Libraries",
+            text="Libraries",
             command=self._open_color_library_manager,
             width=12
         )
@@ -607,7 +607,7 @@ class ReorganizedControlPanel(ttk.Frame):
         
         add_to_lib_btn = ttk.Button(
             row3_buttons,
-            text="📖 Add to Library",
+            text="Add to Library",
             command=self._add_analysis_to_library,
             width=25
         )

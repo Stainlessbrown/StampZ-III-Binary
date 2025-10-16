@@ -339,9 +339,9 @@ class DatabaseViewer:
                         measurement.get('image_name', ''),       # image_name column 
                         measurement.get('measurement_date', ''), # measurement_date column
                         point_display,                           # point column - show "AVERAGE" for 999/averaged
-                        f"{measurement.get('l_value', 0):.2f}",  # l_value column
-                        f"{measurement.get('a_value', 0):.2f}",  # a_value column
-                        f"{measurement.get('b_value', 0):.2f}",  # b_value column
+                        f"{measurement.get('l_value', 0):.3f}",  # l_value column
+                        f"{measurement.get('a_value', 0):.3f}",  # a_value column
+                        f"{measurement.get('b_value', 0):.3f}",  # b_value column
                         f"{measurement.get('rgb_r', 0):.2f}",    # rgb_r column
                         f"{measurement.get('rgb_g', 0):.2f}",    # rgb_g column
                         f"{measurement.get('rgb_b', 0):.2f}",    # rgb_b column
@@ -386,9 +386,9 @@ class DatabaseViewer:
                             color[1],  # Name
                             color[11],  # date_added
                             "",  # No point number
-                            f"{float(color[3]):.2f}",  # lab_l
-                            f"{float(color[4]):.2f}",  # lab_a
-                            f"{float(color[5]):.2f}",  # lab_b
+                            f"{float(color[3]):.3f}",  # lab_l
+                            f"{float(color[4]):.3f}",  # lab_a
+                            f"{float(color[5]):.3f}",  # lab_b
                             f"{float(color[6]):.2f}",  # rgb_r
                             f"{float(color[7]):.2f}",  # rgb_g
                             f"{float(color[8]):.2f}",  # rgb_b

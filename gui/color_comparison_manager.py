@@ -448,30 +448,19 @@ class ColorComparisonManager(tk.Frame):
         # Add some vertical space
         ttk.Frame(values_frame, height=15).pack()
         
-        # Add the button at the bottom right of values_frame
-        add_button = ttk.Button(values_frame, text="Add color to library", 
+        # Add buttons frame for the two buttons
+        buttons_frame = ttk.Frame(values_frame)
+        buttons_frame.pack(anchor='se', pady=(0, 5))
+
+        # Add color to library button
+        add_button = ttk.Button(buttons_frame, text="Add color to library", 
                               command=lambda: self._add_color_to_library(avg_rgb, avg_lab))
-        add_button.pack(anchor='se', pady=(0, 5))
-        
-        # Check preference for auto-save and manual button display
-        from utils.user_preferences import get_preferences_manager
-        prefs_manager = get_preferences_manager()
-        auto_save_enabled = prefs_manager.get_auto_save_averages()
-        
-        print(f"DEBUG: ColorComparisonManager - auto_save_enabled: {auto_save_enabled}")
-        
-        if auto_save_enabled:
-            # Auto-save the averages automatically
-            print(f"DEBUG: ColorComparisonManager - Auto-saving averages to database")
-            self._save_average_to_database(avg_rgb, avg_lab, enabled_samples)
-            print(f"DEBUG: ColorComparisonManager - Auto-save completed, NOT showing manual button")
-        else:
-            # Show manual save button when auto-save is disabled
-            print(f"DEBUG: ColorComparisonManager - Auto-save disabled, showing manual button")
-            save_button = ttk.Button(values_frame, text="Save Average to Database", 
-                                   command=lambda: self._save_average_to_database(avg_rgb, avg_lab, enabled_samples))
-            save_button.pack(anchor='se')
-            print(f"DEBUG: ColorComparisonManager - Manual button created and packed")
+        add_button.pack(side=tk.LEFT, padx=(0, 5))
+
+        # Add Save Results button
+        save_button = ttk.Button(buttons_frame, text="Save Results",
+                              command=lambda: self._show_save_results_dialog(avg_rgb, avg_lab, enabled_samples))
+        save_button.pack(side=tk.LEFT)
     
     def _add_color_to_library(self, rgb_values, lab_values):
         """Handle adding the current average color to a library."""
@@ -581,13 +570,83 @@ class ColorComparisonManager(tk.Frame):
         # Focus the name entry
         name_entry.focus_set()
     
-    def _save_average_to_database(self, avg_rgb, avg_lab, enabled_samples):
+    def _save_individual_to_database(self, samples, db_name):
+        """Save individual sample measurements to database.
+        
+        Args:
+            samples: List of sample points to save
+            db_name: Name of database to save to (without .db extension)
+        """
+        try:
+            if not samples:
+                messagebox.showerror("Error", "No samples available to save")
+                return
+
+            # Get filename from the label
+            filename = self.filename_label.cget("text")
+            if filename == "No file loaded":
+                messagebox.showerror("Error", "No file loaded")
+                return
+
+            image_name = os.path.splitext(filename)[0]
+
+            # Create database connection
+            from utils.color_analysis_db import ColorAnalysisDB
+            db = ColorAnalysisDB(db_name)
+
+            # Create a new measurement set
+            set_id = db.create_measurement_set(image_name, "Individual measurements from Compare mode")
+            if set_id is None:
+                raise Exception("Failed to create measurement set")
+
+            # Save each sample measurement
+            success = True
+            for i, sample in enumerate(samples, 1):
+                # Convert RGB to Lab if library is available
+                lab_values = self.library.rgb_to_lab(sample['rgb']) if self.library else (0, 0, 0)
+
+                if not db.save_color_measurement(
+                    set_id=set_id,
+                    coordinate_point=i,
+                    x_pos=sample['position'][0],
+                    y_pos=sample['position'][1],
+                    l_value=lab_values[0],
+                    a_value=lab_values[1],
+                    b_value=lab_values[2],
+                    rgb_r=sample['rgb'][0],
+                    rgb_g=sample['rgb'][1],
+                    rgb_b=sample['rgb'][2],
+                    sample_type=sample['type'],
+                    sample_size=f"{sample['size'][0]}x{sample['size'][1]}",
+                    sample_anchor=sample['anchor'],
+                    notes=f"Individual measurement {i}"
+                ):
+                    success = False
+                    break
+
+            if not success:
+                raise Exception("Failed to save individual measurements to database")
+
+        except Exception as e:
+            print(f"Error saving individual measurements: {e}")
+            raise
+
+            if not success:
+                raise Exception("Failed to save individual measurements to database")
+
+        except Exception as e:
+            print(f"Error saving individual measurements: {e}")
+            raise
+
+    def _save_average_to_database(self, avg_rgb, avg_lab, enabled_samples, db_name=None):
         """Save the averaged color data to the database for export.
         
         Args:
             avg_rgb: Averaged RGB values
             avg_lab: Averaged Lab values
             enabled_samples: List of enabled sample points used for averaging
+            db_name: Optional custom database name to save to. If not provided, 
+                    will use the default from template/mode.
         """
         print(f"DEBUG: _save_average_to_database called")
         print(f"DEBUG: avg_rgb={avg_rgb}, avg_lab={avg_lab}")
@@ -612,14 +671,19 @@ class ColorComparisonManager(tk.Frame):
             image_name = os.path.splitext(filename)[0]
             print(f"DEBUG: Extracted image_name: '{image_name}'")
             
-            # Find which database contains individual measurements for this image
-            sample_set_name = self._find_database_for_image(image_name)
-            if not sample_set_name:
-                # Fall back to Compare_* naming if no existing database found
-                sample_set_name = f"Compare_{image_name}"
-                print(f"DEBUG: No existing database found, using fallback: '{sample_set_name}'")
+            # Use provided db_name or find existing database
+            if db_name:
+                sample_set_name = db_name
+                print(f"DEBUG: Using provided database name: '{sample_set_name}'")
             else:
-                print(f"DEBUG: Found existing database: '{sample_set_name}' for image '{image_name}'")
+                # Find which database contains individual measurements for this image
+                sample_set_name = self._find_database_for_image(image_name)
+                if not sample_set_name:
+                    # Fall back to Compare_* naming if no existing database found
+                    sample_set_name = f"Compare_{image_name}"
+                    print(f"DEBUG: No existing database found, using fallback: '{sample_set_name}'")
+                else:
+                    print(f"DEBUG: Found existing database: '{sample_set_name}' for image '{image_name}'")
             
             # Convert enabled samples to the format expected by ColorAnalyzer
             sample_measurements = []
@@ -873,6 +937,176 @@ class ColorComparisonManager(tk.Frame):
             print(f"Error getting sample sets for export: {e}")
             return []
     
+    def _show_save_results_dialog(self, avg_rgb, avg_lab, enabled_samples):
+        """Show dialog to select or create a database to save results.
+
+        Args:
+            avg_rgb: The average RGB values
+            avg_lab: The average LAB values
+            enabled_samples: List of enabled sample points used for averaging
+        """
+        try:
+            from tkinter import Toplevel, ttk, Frame, Label
+            from utils.path_utils import get_color_analysis_dir
+            import os
+
+            # Create and setup dialog
+            dialog = Toplevel(self)
+            dialog.title("Save Analysis Results")
+            dialog.transient(self)
+            dialog.grab_set()
+
+            dialog_width = 480
+            dialog_height = 320
+
+            # Center dialog
+            root = self.winfo_toplevel()
+            x = root.winfo_x() + (root.winfo_width() - dialog_width) // 2
+            y = root.winfo_y() + (root.winfo_height() - dialog_height) // 2
+            dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
+            dialog.resizable(False, False)
+
+            # Content frame with padding
+            content_frame = ttk.Frame(dialog, padding="20 10")
+            content_frame.pack(fill="both", expand=True)
+
+            # Header
+            Label(content_frame, text="Save Analysis Results",
+                 font=("Arial", 14, "bold")).pack(pady=(0, 10))
+
+            # Get existing databases
+            color_analysis_dir = get_color_analysis_dir()
+            regular_dbs = [f[:-3] for f in os.listdir(color_analysis_dir)
+                         if f.endswith('.db') and not f.endswith('_library.db')
+                         and not f.endswith('_Average.db')]
+            average_dbs = [f[:-3] for f in os.listdir(color_analysis_dir)
+                         if f.endswith('_Average.db')]
+            
+            # Current image name (without extension)
+            current_image = os.path.splitext(self.filename_label.cget("text"))[0]
+
+            # Individual samples frame
+            individual_frame = ttk.LabelFrame(content_frame, text="Individual Measurements", padding="10 5")
+            individual_frame.pack(fill="x", pady=(0, 10))
+
+            # Checkbox for individual samples
+            individual_var = tk.BooleanVar(value=True)
+            ttk.Checkbutton(individual_frame, text="Save individual samples",
+                          variable=individual_var).pack(anchor="w")
+
+            # Individual database selection
+            individual_db_var = tk.StringVar(value=current_image)
+            individual_db = ttk.Combobox(individual_frame,
+                                       textvariable=individual_db_var,
+                                       values=regular_dbs,
+                                       width=40)
+            individual_db.pack(fill="x", pady=(5, 0))
+
+            # Average frame
+            average_frame = ttk.LabelFrame(content_frame, text="Averaged Measurement", padding="10 5")
+            average_frame.pack(fill="x", pady=(0, 10))
+
+            # Checkbox for average
+            average_var = tk.BooleanVar(value=True)
+            ttk.Checkbutton(average_frame, text="Save averaged result",
+                          variable=average_var).pack(anchor="w")
+
+            # Average database selection (auto-adds _Average suffix)
+            average_db_base = current_image.replace('_Average', '')  # Remove if exists
+            average_db_var = tk.StringVar(value=average_db_base)
+            average_db = ttk.Combobox(average_frame,
+                                    textvariable=average_db_var,
+                                    values=[db.replace('_Average', '') for db in average_dbs],
+                                    width=40)
+            average_db.pack(fill="x", pady=(5, 0))
+
+            # Preview label for average db name
+            preview_label = ttk.Label(average_frame, text="Will be saved as: {}_Average.db".format(average_db_base))
+            preview_label.pack(anchor="w", pady=(5, 0))
+
+            def update_preview(*args):
+                name = average_db_var.get().strip()
+                if name:
+                    preview_label.config(text="Will be saved as: {}_Average.db".format(name))
+
+            average_db_var.trace('w', update_preview)
+
+            def on_save():
+                if not individual_var.get() and not average_var.get():
+                    messagebox.showwarning("No Selection",
+                                         "Please select at least one type of data to save.")
+                    return
+
+                success = True
+                error_msg = ""
+
+                # Save individual samples if selected
+                if individual_var.get():
+                    individual_name = individual_db_var.get().strip()
+                    if not individual_name:
+                        messagebox.showwarning("Invalid Name",
+                                             "Please enter a name for individual measurements.")
+                        return
+                    if individual_name.endswith('_Average'):
+                        messagebox.showwarning("Invalid Name",
+                                             "Individual measurements cannot use _Average suffix.")
+                        return
+                    
+                    # Limit to 6 samples
+                    samples_to_save = enabled_samples[:6] if len(enabled_samples) > 6 else enabled_samples
+                    
+                    try:
+                        self._save_individual_to_database(samples_to_save, individual_name)
+                    except Exception as e:
+                        success = False
+                        error_msg += f"Failed to save individual measurements: {str(e)}\n"
+
+                # Save average if selected
+                if average_var.get():
+                    average_name = average_db_var.get().strip()
+                    if not average_name:
+                        messagebox.showwarning("Invalid Name",
+                                             "Please enter a name for averaged measurement.")
+                        return
+                    
+                    try:
+                        self._save_average_to_database(avg_rgb, avg_lab,
+                                                      enabled_samples,
+                                                      f"{average_name}_Average")
+                    except Exception as e:
+                        success = False
+                        error_msg += f"Failed to save averaged measurement: {str(e)}\n"
+
+                if success:
+                    dialog.destroy()
+                else:
+                    messagebox.showerror("Save Error", error_msg)
+
+            def on_cancel():
+                dialog.destroy()
+
+            # Button frame
+            button_frame = ttk.Frame(content_frame)
+            button_frame.pack(fill="x", pady=(20, 0))
+
+            # Save button
+            save_button = ttk.Button(button_frame,
+                                   text="Save",
+                                   command=on_save,
+                                   style="Accent.TButton")
+            save_button.pack(side=tk.RIGHT, padx=(5, 0))
+
+            # Cancel button
+            cancel_button = ttk.Button(button_frame,
+                                     text="Cancel",
+                                     command=on_cancel)
+            cancel_button.pack(side=tk.RIGHT, padx=5)
+
+        except Exception as e:
+            print(f"Error showing save results dialog: {e}")
+            messagebox.showerror("Error",
+                               f"Failed to show save dialog:\n\n{str(e)}")
+
     def _show_export_type_selection_dialog(self, available_sets):
         """Show dialog to select export type (individual, averaged, or both)."""
         try:

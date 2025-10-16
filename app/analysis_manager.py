@@ -149,8 +149,8 @@ class AnalysisManager:
         dialog = tk.Toplevel(self.root)
         dialog.title("Color Analysis Complete")
         
-        dialog_width = 480
-        dialog_height = 280
+        dialog_width = 600
+        dialog_height = 600
         
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
@@ -174,46 +174,77 @@ class AnalysisManager:
         summary_frame = ttk.Frame(dialog)
         summary_frame.pack(fill="x", padx=20, pady=(0, 20))
         
+        # Build measurements summary
+        measurements_text = []
+        for i, m in enumerate(measurements, 1):
+            lab = (m.lab[0] if hasattr(m, 'lab') else 0,
+                   m.lab[1] if hasattr(m, 'lab') else 0,
+                   m.lab[2] if hasattr(m, 'lab') else 0)
+            rgb = (m.rgb[0] if hasattr(m, 'rgb') else 0,
+                   m.rgb[1] if hasattr(m, 'rgb') else 0,
+                   m.rgb[2] if hasattr(m, 'rgb') else 0)
+            measurements_text.append(
+                f"Sample {i}:\n"
+                f"  L*a*b: ({lab[0]:.1f}, {lab[1]:.1f}, {lab[2]:.1f})\n"
+                f"  RGB: ({rgb[0]:.0f}, {rgb[1]:.0f}, {rgb[2]:.0f})"
+            )
+
         summary_text = (
             f"Successfully analyzed {len(measurements)} color samples from set '{sample_set_name}'.\n"
             f"Color data has been saved to the database.\n\n"
-            f"Individual measurements: {len(measurements)} samples\n\n"
-            f"Next steps:\n"
-            f"• Use the Compare tab to review and compare colors\n"
-            f"• Export data using the Compare window's export button\n"
-            f"• View spreadsheet or export for Plot3D analysis"
+            "Individual Measurements:\n"
+            f"{chr(10).join(measurements_text)}"
         )
         
-        ttk.Label(
-            summary_frame,
-            text=summary_text,
-            wraplength=440,
-            justify="left",
-            font=("Arial", 10)
-        ).pack()
+        # Add scrolling for measurements text
+        text_frame = ttk.Frame(dialog)
+        text_frame.pack(fill="both", expand=True, padx=20, pady=(0, 15))
+
+        text_widget = tk.Text(text_frame, height=16, wrap="word", font=("Arial", 14))
+        scrollbar = ttk.Scrollbar(text_frame, orient="vertical", command=text_widget.yview)
+        text_widget.configure(yscrollcommand=scrollbar.set)
+
+        text_widget.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        text_widget.insert("1.0", summary_text)
+        text_widget.configure(state="disabled")
         
-        # Action buttons frame
+        # Action frame with buttons
         action_frame = ttk.Frame(dialog)
         action_frame.pack(fill="x", padx=20, pady=(0, 15))
         
+        # Review/Compare button with accent style
+        review_button = ttk.Button(
+            action_frame,
+            text="✨ Review/Compare",
+            command=lambda: [
+                dialog.destroy(), 
+                self.app.root.update(),  # Allow dialog to close
+                self.compare_sample_to_library()  # Open Compare window
+            ],
+            style="Accent.TButton"
+        )
+        review_button.pack(side="left", padx=(0, 10))
+
         # View spreadsheet button
         ttk.Button(
             action_frame,
             text="📊 View Spreadsheet",
             command=lambda: [dialog.destroy(), self.view_spreadsheet()]
         ).pack(side="left", padx=(0, 10))
-        
+
         # Export for Plot3D button
         ttk.Button(
             action_frame,
             text="📈 Export for Plot3D",
             command=lambda: [dialog.destroy(), self.export_plot3d_flexible()]
         ).pack(side="left", padx=(0, 10))
-        
-        # Button frame
+
+        # Close button frame
         button_frame = ttk.Frame(dialog)
         button_frame.pack(fill="x", padx=20, pady=(0, 20))
-        
+
         ttk.Button(
             button_frame,
             text="Close",

@@ -40,7 +40,7 @@ def get_conditional_color_info(
         
         # Add L*a*b* info if enabled and available
         if show_lab and lab is not None:
-            color_info_parts.append(f"L*a*b*: {lab[0]:.1f}, {lab[1]:.1f}, {lab[2]:.1f}")
+            color_info_parts.append(f"L*a*b*: {lab[0]:.3f}, {lab[1]:.3f}, {lab[2]:.3f}")
         
         # Add RGB info if enabled
         if show_rgb:
@@ -58,7 +58,7 @@ def get_conditional_color_info(
         # Fallback to showing all values
         fallback_parts = []
         if lab is not None:
-            fallback_parts.append(f"L*a*b*: {lab[0]:.1f}, {lab[1]:.1f}, {lab[2]:.1f}")
+            fallback_parts.append(f"L*a*b*: {lab[0]:.3f}, {lab[1]:.3f}, {lab[2]:.3f}")
         fallback_parts.append(f"RGB: {rgb[0]:.0f}, {rgb[1]:.0f}, {rgb[2]:.0f}")
         if show_hex:
             hex_code = f"#{int(rgb[0]):02X}{int(rgb[1]):02X}{int(rgb[2]):02X}"
@@ -99,7 +99,7 @@ def get_conditional_color_values_text(
             # Single-line compact format for comparison views
             parts = []
             if show_lab and lab is not None:
-                parts.append(f"L*: {lab[0]:>6.1f}  a*: {lab[1]:>6.1f}  b*: {lab[2]:>6.1f}")
+                parts.append(f"L*: {lab[0]:>8.3f}  a*: {lab[1]:>8.3f}  b*: {lab[2]:>8.3f}")
             if show_rgb:
                 parts.append(f"R: {int(rgb[0]):>3}  G: {int(rgb[1]):>3}  B: {int(rgb[2]):>3}")
             return "\n".join(parts)
@@ -113,7 +113,7 @@ def get_conditional_color_values_text(
         if compact:
             fallback_parts = []
             if lab is not None:
-                fallback_parts.append(f"L*: {lab[0]:>6.1f}  a*: {lab[1]:>6.1f}  b*: {lab[2]:>6.1f}")
+                fallback_parts.append(f"L*: {lab[0]:>8.3f}  a*: {lab[1]:>8.3f}  b*: {lab[2]:>8.3f}")
             fallback_parts.append(f"R: {int(rgb[0]):>3}  G: {int(rgb[1]):>3}  B: {int(rgb[2]):>3}")
             return "\n".join(fallback_parts)
         else:

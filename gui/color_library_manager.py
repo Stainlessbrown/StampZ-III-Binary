@@ -80,7 +80,7 @@ class ColorLibraryManager:
         
         # Add tabs to notebook
         self.notebook.add(self.library_frame, text="Library")
-        self.notebook.add(self.comparison_frame, text="Compare")
+        self.notebook.add(self.comparison_frame, text="Review/Compare")
         self.notebook.add(self.settings_frame, text="Settings")
         
         # Ensure we have a library
@@ -1053,7 +1053,7 @@ class ColorLibraryManager:
         self.root.update_idletasks()
         
         # Select the comparison tab (index starts at 0)
-        self.notebook.select(self.notebook.index("Compare"))  # Select the tab by name for reliability
+        self.notebook.select(self.notebook.index("Review/Compare"))  # Select the tab by name for reliability
         
         # Give UI a moment to stabilize
         self.root.after(100, lambda: self._complete_comparison_init(image_path, sample_data))
