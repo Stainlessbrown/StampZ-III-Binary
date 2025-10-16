@@ -2,9 +2,11 @@
 """Database viewer for StampZ color analysis data."""
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 import os
 import sqlite3
+import csv
+import shutil
 from typing import Optional, List, Dict
 from datetime import datetime
 
@@ -107,6 +109,9 @@ class DatabaseViewer:
         
         # Buttons
         ttk.Button(controls_frame, text="Refresh", command=self._refresh_data).pack(side=tk.LEFT, padx=5)
+        ttk.Button(controls_frame, text="Export CSV", command=self._export_to_csv).pack(side=tk.LEFT, padx=5)
+        ttk.Button(controls_frame, text="Import CSV", command=self._import_from_csv).pack(side=tk.LEFT, padx=5)
+        ttk.Button(controls_frame, text="Manage Backups", command=self._manage_backups).pack(side=tk.LEFT, padx=5)
         ttk.Button(controls_frame, text="Delete Selected", command=self._delete_selected).pack(side=tk.LEFT, padx=5)
         ttk.Button(controls_frame, text="Clear All", command=self._clear_all_data).pack(side=tk.LEFT, padx=5)
         ttk.Button(controls_frame, text="Delete Current", command=self._delete_sample_set).pack(side=tk.LEFT, padx=5)
@@ -617,3 +622,783 @@ class DatabaseViewer:
                 
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to delete colors: {str(e)}")
+    
+    def _export_to_csv(self):
+        """Export current database view to CSV file."""
+        if not self.current_sample_set:
+            messagebox.showinfo("No Database Selected", "Please select a database first")
+            return
+        
+        try:
+            # Get suggested filename
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            default_filename = f"{self.current_sample_set}_{timestamp}.csv"
+            
+            # Ask user for save location
+            filepath = filedialog.asksaveasfilename(
+                title="Export Database to CSV",
+                defaultextension=".csv",
+                filetypes=[
+                    ('CSV files', '*.csv'),
+                    ('All files', '*.*')
+                ],
+                initialfile=default_filename
+            )
+            
+            if not filepath:
+                return
+            
+            # Export based on data source
+            if self.data_source.get() == "color_analysis":
+                success = self._export_color_analysis_to_csv(filepath)
+            else:  # color_libraries
+                success = self._export_color_library_to_csv(filepath)
+            
+            if success:
+                messagebox.showinfo(
+                    "Export Successful",
+                    f"Database exported successfully!\n\n"
+                    f"File: {os.path.basename(filepath)}\n\n"
+                    f"You can now edit this file in a spreadsheet application \n"
+                    f"and reimport it using the 'Import CSV' button."
+                )
+            else:
+                messagebox.showerror("Export Failed", "Failed to export database to CSV")
+                
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Failed to export database:\n\n{str(e)}")
+    
+    def _export_color_analysis_to_csv(self, filepath: str) -> bool:
+        """Export color analysis database to CSV."""
+        try:
+            from utils.color_analysis_db import ColorAnalysisDB
+            db = ColorAnalysisDB(self.current_sample_set)
+            measurements = db.get_all_measurements()
+            
+            if not measurements:
+                messagebox.showinfo("No Data", "No measurements found to export")
+                return False
+            
+            # Define CSV headers based on the data structure
+            headers = [
+                'id', 'set_id', 'image_name', 'measurement_date', 'coordinate_point',
+                'l_value', 'a_value', 'b_value', 'rgb_r', 'rgb_g', 'rgb_b',
+                'x_position', 'y_position', 'sample_type', 'sample_size', 'notes', 'is_averaged'
+            ]
+            
+            with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(headers)
+                
+                for measurement in measurements:
+                    row = [
+                        measurement.get('id', ''),
+                        measurement.get('set_id', ''),
+                        measurement.get('image_name', ''),
+                        measurement.get('measurement_date', ''),
+                        measurement.get('coordinate_point', ''),
+                        measurement.get('l_value', ''),
+                        measurement.get('a_value', ''),
+                        measurement.get('b_value', ''),
+                        measurement.get('rgb_r', ''),
+                        measurement.get('rgb_g', ''),
+                        measurement.get('rgb_b', ''),
+                        measurement.get('x_position', ''),
+                        measurement.get('y_position', ''),
+                        measurement.get('sample_type', ''),
+                        measurement.get('sample_size', ''),
+                        measurement.get('notes', ''),
+                        measurement.get('is_averaged', '')
+                    ]
+                    writer.writerow(row)
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error exporting color analysis to CSV: {e}")
+            return False
+    
+    def _export_color_library_to_csv(self, filepath: str) -> bool:
+        """Export color library database to CSV."""
+        try:
+            from utils.color_library import ColorLibrary
+            library = ColorLibrary(self.current_sample_set)
+            colors = library.get_all_colors()
+            
+            if not colors:
+                messagebox.showinfo("No Data", "No colors found to export")
+                return False
+            
+            # Use the same format as ColorLibrary.export_library method
+            headers = ['name', 'description', 'lab_l', 'lab_a', 'lab_b', 'category', 'source', 'notes']
+            
+            with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(headers)
+                
+                for color in colors:
+                    row = [
+                        color.name,
+                        color.description,
+                        color.lab[0],  # L*
+                        color.lab[1],  # a*
+                        color.lab[2],  # b*
+                        color.category,
+                        color.source,
+                        color.notes or ''
+                    ]
+                    writer.writerow(row)
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error exporting color library to CSV: {e}")
+            return False
+    
+    def _import_from_csv(self):
+        """Import CSV data back into the database with validation and safety checks."""
+        if not self.current_sample_set:
+            messagebox.showinfo("No Database Selected", "Please select a database first")
+            return
+        
+        try:
+            # Ask user to select CSV file
+            filepath = filedialog.askopenfilename(
+                title="Import CSV to Database",
+                filetypes=[
+                    ('CSV files', '*.csv'),
+                    ('All files', '*.*')
+                ]
+            )
+            
+            if not filepath:
+                return
+            
+            # Show import options dialog
+            import_options = self._show_import_options_dialog()
+            if not import_options:
+                return
+            
+            # Create backup before import if requested
+            backup_path = None
+            if import_options['create_backup']:
+                backup_path = self._create_database_backup()
+                if not backup_path:
+                    messagebox.showerror("Backup Failed", "Could not create backup. Import cancelled.")
+                    return
+            
+            # Import based on data source
+            if self.data_source.get() == "color_analysis":
+                success = self._import_color_analysis_from_csv(filepath, import_options)
+            else:  # color_libraries
+                success = self._import_color_library_from_csv(filepath, import_options)
+            
+            if success:
+                self._refresh_data()
+                backup_msg = f"\n\nBackup created: {os.path.basename(backup_path)}" if backup_path else ""
+                messagebox.showinfo(
+                    "Import Successful",
+                    f"CSV data imported successfully!{backup_msg}\n\n"
+                    f"Database has been updated with the imported data."
+                )
+            else:
+                messagebox.showerror("Import Failed", "Failed to import CSV data")
+                
+        except Exception as e:
+            messagebox.showerror("Import Error", f"Failed to import CSV data:\n\n{str(e)}")
+    
+    def _show_import_options_dialog(self) -> Optional[Dict]:
+        """Show dialog for import options."""
+        dialog = tk.Toplevel(self.dialog)
+        dialog.title("Import Options")
+        dialog.geometry("400x300")
+        dialog.transient(self.dialog)
+        dialog.grab_set()
+        
+        # Center the dialog
+        dialog.geometry("+{}+{}".format(
+            self.dialog.winfo_rootx() + 50,
+            self.dialog.winfo_rooty() + 50
+        ))
+        
+        # Variables for options
+        create_backup = tk.BooleanVar(value=True)
+        replace_mode = tk.StringVar(value="replace")
+        validate_data = tk.BooleanVar(value=True)
+        
+        result = {}
+        
+        # Main frame
+        main_frame = ttk.Frame(dialog, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Title
+        ttk.Label(main_frame, text="Import CSV Options", font=("Arial", 12, "bold")).pack(pady=(0, 10))
+        
+        # Backup option
+        backup_frame = ttk.LabelFrame(main_frame, text="Safety", padding="5")
+        backup_frame.pack(fill=tk.X, pady=5)
+        ttk.Checkbutton(backup_frame, text="Create backup before import (recommended)", 
+                       variable=create_backup).pack(anchor=tk.W)
+        
+        # Replace mode
+        mode_frame = ttk.LabelFrame(main_frame, text="Import Mode", padding="5")
+        mode_frame.pack(fill=tk.X, pady=5)
+        ttk.Radiobutton(mode_frame, text="Replace existing data", variable=replace_mode, 
+                       value="replace").pack(anchor=tk.W)
+        ttk.Radiobutton(mode_frame, text="Append to existing data", variable=replace_mode, 
+                       value="append").pack(anchor=tk.W)
+        
+        # Validation option
+        validation_frame = ttk.LabelFrame(main_frame, text="Validation", padding="5")
+        validation_frame.pack(fill=tk.X, pady=5)
+        ttk.Checkbutton(validation_frame, text="Validate data before import", 
+                       variable=validate_data).pack(anchor=tk.W)
+        
+        # Info text
+        info_text = (
+            "• Replace mode will clear existing data first\n"
+            "• Append mode will add to existing data\n"
+            "• Validation checks for data format and ranges"
+        )
+        ttk.Label(main_frame, text=info_text, font=("Arial", 9), foreground="gray").pack(pady=10)
+        
+        # Buttons
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        def on_import():
+            result.update({
+                'create_backup': create_backup.get(),
+                'replace_mode': replace_mode.get(),
+                'validate_data': validate_data.get()
+            })
+            dialog.destroy()
+        
+        def on_cancel():
+            dialog.destroy()
+        
+        ttk.Button(button_frame, text="Import", command=on_import).pack(side=tk.RIGHT, padx=(5, 0))
+        ttk.Button(button_frame, text="Cancel", command=on_cancel).pack(side=tk.RIGHT)
+        
+        # Wait for dialog to close
+        dialog.wait_window()
+        
+        return result if result else None
+    
+    def _create_database_backup(self) -> Optional[str]:
+        """Create a backup of the current database."""
+        try:
+            if self.data_source.get() == "color_analysis":
+                from utils.path_utils import get_color_analysis_dir
+                source_dir = get_color_analysis_dir()
+                source_file = os.path.join(source_dir, f"{self.current_sample_set}.db")
+            else:  # color_libraries
+                from utils.path_utils import get_color_libraries_dir
+                source_dir = get_color_libraries_dir()
+                # Try different naming conventions
+                source_file = None
+                if os.path.exists(os.path.join(source_dir, f"{self.current_sample_set}_library.db")):
+                    source_file = os.path.join(source_dir, f"{self.current_sample_set}_library.db")
+                elif os.path.exists(os.path.join(source_dir, f"{self.current_sample_set}.db")):
+                    source_file = os.path.join(source_dir, f"{self.current_sample_set}.db")
+                
+                if not source_file:
+                    raise Exception(f"Database file not found: {self.current_sample_set}")
+            
+            if not os.path.exists(source_file):
+                raise Exception(f"Database file not found: {source_file}")
+            
+            # Create backup filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_filename = f"{os.path.basename(source_file)}.backup_{timestamp}"
+            backup_path = os.path.join(source_dir, backup_filename)
+            
+            # Copy the file
+            shutil.copy2(source_file, backup_path)
+            
+            print(f"Created backup: {backup_path}")
+            return backup_path
+            
+        except Exception as e:
+            print(f"Error creating backup: {e}")
+            return None
+    
+    def _import_color_analysis_from_csv(self, filepath: str, options: Dict) -> bool:
+        """Import color analysis data from CSV."""
+        try:
+            # Validate CSV format first
+            if options['validate_data'] and not self._validate_color_analysis_csv(filepath):
+                return False
+            
+            from utils.color_analysis_db import ColorAnalysisDB
+            db = ColorAnalysisDB(self.current_sample_set)
+            
+            # Clear existing data if replace mode
+            if options['replace_mode'] == 'replace':
+                if not db.clear_all_measurements():
+                    raise Exception("Failed to clear existing measurements")
+            
+            # Read and import CSV data
+            with open(filepath, 'r', encoding='utf-8') as csvfile:
+                reader = csv.DictReader(csvfile)
+                
+                imported_count = 0
+                # Track measurement sets to create them as needed
+                created_sets = {}
+                
+                for row in reader:
+                    # Skip empty rows
+                    if not any(row.values()):
+                        continue
+                    
+                    try:
+                        # Handle set_id - create measurement set if needed
+                        image_name = row.get('image_name', 'Imported_Image')
+                        set_id = row.get('set_id')
+                        
+                        if set_id:
+                            set_id = int(set_id)
+                            # Create measurement set if not exists (keyed by image_name)
+                            if image_name not in created_sets:
+                                existing_set_id = db.create_measurement_set(image_name, "Imported from CSV")
+                                created_sets[image_name] = existing_set_id
+                            # Use the actual set_id from the created/existing set
+                            actual_set_id = created_sets[image_name]
+                        else:
+                            # No set_id in CSV, create one
+                            if image_name not in created_sets:
+                                actual_set_id = db.create_measurement_set(image_name, "Imported from CSV")
+                                created_sets[image_name] = actual_set_id
+                            else:
+                                actual_set_id = created_sets[image_name]
+                        
+                        # Import measurement (without image_name parameter)
+                        success = db.save_color_measurement(
+                            set_id=actual_set_id,
+                            coordinate_point=int(row['coordinate_point']) if row.get('coordinate_point') else 1,
+                            x_pos=float(row['x_position']) if row.get('x_position') else 0,
+                            y_pos=float(row['y_position']) if row.get('y_position') else 0,
+                            l_value=float(row['l_value']),
+                            a_value=float(row['a_value']),
+                            b_value=float(row['b_value']),
+                            rgb_r=float(row['rgb_r']),
+                            rgb_g=float(row['rgb_g']),
+                            rgb_b=float(row['rgb_b']),
+                            sample_type=row.get('sample_type', 'circle'),
+                            sample_size=row.get('sample_size', '10x10'),
+                            sample_anchor=row.get('sample_anchor', 'center'),
+                            notes=row.get('notes', '')
+                        )
+                        
+                        if success:
+                            imported_count += 1
+                            print(f"Successfully imported row {imported_count}: {image_name}, point {row.get('coordinate_point')}")
+                        else:
+                            print(f"Failed to save measurement for row: {row}")
+                    except (ValueError, TypeError) as e:
+                        print(f"Error importing row: {e}")
+                        print(f"Row data: {row}")
+                        print(f"Problematic values - set_id: {row.get('set_id')}, coord_point: {row.get('coordinate_point')}")
+                        continue
+                    except Exception as e:
+                        print(f"Unexpected error importing row: {e}")
+                        print(f"Row data: {row}")
+                        continue
+            
+            print(f"Import complete: {imported_count} measurements imported successfully")
+            if imported_count == 0:
+                print("No measurements were imported. Check the CSV format and data.")
+            return imported_count > 0
+            
+        except Exception as e:
+            print(f"Error importing color analysis from CSV: {e}")
+            return False
+    
+    def _import_color_library_from_csv(self, filepath: str, options: Dict) -> bool:
+        """Import color library data from CSV."""
+        try:
+            # Validate CSV format first
+            if options['validate_data'] and not self._validate_color_library_csv(filepath):
+                return False
+            
+            from utils.color_library import ColorLibrary
+            library = ColorLibrary(self.current_sample_set)
+            
+            # For color libraries, we use the existing import_library method
+            # which handles replace vs append logic
+            replace_existing = (options['replace_mode'] == 'replace')
+            
+            imported_count = library.import_library(
+                filename=filepath,
+                replace_existing=replace_existing
+            )
+            
+            return imported_count > 0
+            
+        except Exception as e:
+            print(f"Error importing color library from CSV: {e}")
+            return False
+    
+    def _validate_color_analysis_csv(self, filepath: str) -> bool:
+        """Validate color analysis CSV format."""
+        try:
+            required_headers = ['l_value', 'a_value', 'b_value', 'rgb_r', 'rgb_g', 'rgb_b']
+            recommended_headers = ['image_name', 'coordinate_point', 'x_position', 'y_position']
+            
+            with open(filepath, 'r', encoding='utf-8') as csvfile:
+                reader = csv.DictReader(csvfile)
+                headers = reader.fieldnames
+                
+                print(f"CSV headers found: {headers}")
+                
+                # Check for required headers
+                missing_headers = [h for h in required_headers if h not in headers]
+                if missing_headers:
+                    messagebox.showerror(
+                        "Invalid CSV Format",
+                        f"Missing required columns:\n\n{', '.join(missing_headers)}\n\n"
+                        f"Required columns: {', '.join(required_headers)}"
+                    )
+                    return False
+                
+                # Warn about missing recommended headers
+                missing_recommended = [h for h in recommended_headers if h not in headers]
+                if missing_recommended:
+                    if not messagebox.askyesno(
+                        "Missing Recommended Columns",
+                        f"The following recommended columns are missing:\n\n{', '.join(missing_recommended)}\n\n"
+                        f"This may result in incomplete data import. Continue anyway?"
+                    ):
+                        return False
+                
+                # Validate a few rows for data format
+                row_count = 0
+                for row in reader:
+                    if row_count >= 5:  # Check first 5 rows
+                        break
+                    
+                    try:
+                        # Try to convert numeric values
+                        float(row['l_value'])
+                        float(row['a_value']) 
+                        float(row['b_value'])
+                        float(row['rgb_r'])
+                        float(row['rgb_g'])
+                        float(row['rgb_b'])
+                        
+                        # Validate optional numeric fields if present
+                        if row.get('x_position'):
+                            float(row['x_position'])
+                        if row.get('y_position'):
+                            float(row['y_position'])
+                        if row.get('coordinate_point'):
+                            int(row['coordinate_point'])
+                        
+                        row_count += 1
+                    except (ValueError, KeyError) as e:
+                        messagebox.showerror(
+                            "Invalid Data Format",
+                            f"Invalid numeric data in row {row_count + 2}:\n\n{str(e)}"
+                        )
+                        return False
+            
+            print(f"CSV validation passed for {row_count} sample rows")
+            return True
+            
+        except Exception as e:
+            messagebox.showerror("Validation Error", f"Failed to validate CSV:\n\n{str(e)}")
+            return False
+    
+    def _validate_color_library_csv(self, filepath: str) -> bool:
+        """Validate color library CSV format."""
+        try:
+            required_headers = ['name', 'lab_l', 'lab_a', 'lab_b']
+            
+            with open(filepath, 'r', encoding='utf-8') as csvfile:
+                reader = csv.DictReader(csvfile)
+                headers = reader.fieldnames
+                
+                # Check for required headers
+                missing_headers = [h for h in required_headers if h not in headers]
+                if missing_headers:
+                    messagebox.showerror(
+                        "Invalid CSV Format",
+                        f"Missing required columns:\n\n{', '.join(missing_headers)}\n\n"
+                        f"Required columns: {', '.join(required_headers)}"
+                    )
+                    return False
+                
+                # Validate a few rows
+                row_count = 0
+                for row in reader:
+                    if row_count >= 5:  # Check first 5 rows
+                        break
+                    
+                    try:
+                        # Check name is not empty
+                        if not row['name'].strip():
+                            raise ValueError("Empty color name")
+                        
+                        # Try to convert Lab values
+                        float(row['lab_l'])
+                        float(row['lab_a']) 
+                        float(row['lab_b'])
+                        row_count += 1
+                    except (ValueError, KeyError) as e:
+                        messagebox.showerror(
+                            "Invalid Data Format",
+                            f"Invalid data in row {row_count + 2}:\n\n{str(e)}"
+                        )
+                        return False
+            
+            return True
+            
+        except Exception as e:
+            messagebox.showerror("Validation Error", f"Failed to validate CSV:\n\n{str(e)}")
+            return False
+    
+    def _manage_backups(self):
+        """Show backup management dialog to view and delete backup files."""
+        try:
+            # Get backup files for current database
+            backup_files = self._get_backup_files()
+            
+            if not backup_files:
+                messagebox.showinfo(
+                    "No Backups Found",
+                    "No backup files found for the current database."
+                )
+                return
+            
+            # Create backup management dialog
+            dialog = tk.Toplevel(self.dialog)
+            dialog.title("Backup Management")
+            dialog.geometry("600x400")
+            dialog.transient(self.dialog)
+            dialog.grab_set()
+            
+            # Center the dialog
+            dialog.geometry("+{}+{}".format(
+                self.dialog.winfo_rootx() + 100,
+                self.dialog.winfo_rooty() + 100
+            ))
+            
+            # Main frame
+            main_frame = ttk.Frame(dialog, padding="10")
+            main_frame.pack(fill=tk.BOTH, expand=True)
+            
+            # Title
+            title_text = f"Backup files for: {self.current_sample_set}"
+            ttk.Label(main_frame, text=title_text, font=("Arial", 12, "bold")).pack(pady=(0, 10))
+            
+            # Info label
+            info_text = (
+                "Backup files are created automatically before CSV imports.\n"
+                "You can safely delete old backups to save disk space."
+            )
+            ttk.Label(main_frame, text=info_text, font=("Arial", 9)).pack(pady=(0, 10))
+            
+            # Listbox frame with scrollbar
+            list_frame = ttk.Frame(main_frame)
+            list_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+            
+            # Listbox for backup files
+            backup_listbox = tk.Listbox(list_frame, selectmode=tk.MULTIPLE, font=("Arial", 10))
+            backup_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            
+            # Scrollbar
+            scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=backup_listbox.yview)
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            backup_listbox.config(yscrollcommand=scrollbar.set)
+            
+            # Populate listbox with backup files (newest first)
+            backup_files.sort(key=lambda x: x['timestamp'], reverse=True)
+            for backup in backup_files:
+                display_text = f"{backup['filename']} ({backup['size']}) - {backup['date']}"
+                backup_listbox.insert(tk.END, display_text)
+            
+            # Button frame
+            button_frame = ttk.Frame(main_frame)
+            button_frame.pack(fill=tk.X)
+            
+            def delete_selected_backups():
+                selected_indices = backup_listbox.curselection()
+                if not selected_indices:
+                    messagebox.showinfo("No Selection", "Please select backup files to delete.")
+                    return
+                
+                selected_files = [backup_files[i] for i in selected_indices]
+                file_list = "\n".join([f"• {f['filename']}" for f in selected_files])
+                
+                if messagebox.askyesno(
+                    "Confirm Delete",
+                    f"Delete {len(selected_files)} backup file(s)?\n\n{file_list}\n\n"
+                    "This action cannot be undone."
+                ):
+                    deleted_count = 0
+                    for backup_file in selected_files:
+                        try:
+                            os.remove(backup_file['full_path'])
+                            deleted_count += 1
+                            print(f"Deleted backup: {backup_file['filename']}")
+                        except Exception as e:
+                            print(f"Error deleting {backup_file['filename']}: {e}")
+                    
+                    if deleted_count > 0:
+                        messagebox.showinfo(
+                            "Delete Complete",
+                            f"Successfully deleted {deleted_count} backup file(s)."
+                        )
+                        dialog.destroy()
+                    else:
+                        messagebox.showerror("Delete Failed", "No backup files were deleted.")
+            
+            def delete_all_backups():
+                if messagebox.askyesno(
+                    "Confirm Delete All",
+                    f"Delete ALL {len(backup_files)} backup files for {self.current_sample_set}?\n\n"
+                    "This action cannot be undone."
+                ):
+                    deleted_count = 0
+                    for backup_file in backup_files:
+                        try:
+                            os.remove(backup_file['full_path'])
+                            deleted_count += 1
+                        except Exception as e:
+                            print(f"Error deleting {backup_file['filename']}: {e}")
+                    
+                    messagebox.showinfo(
+                        "Delete Complete",
+                        f"Successfully deleted {deleted_count} backup file(s)."
+                    )
+                    dialog.destroy()
+            
+            def restore_backup():
+                selected_indices = backup_listbox.curselection()
+                if len(selected_indices) != 1:
+                    messagebox.showinfo("Selection Error", "Please select exactly one backup file to restore.")
+                    return
+                
+                backup_file = backup_files[selected_indices[0]]
+                
+                if messagebox.askyesno(
+                    "Confirm Restore",
+                    f"Restore backup: {backup_file['filename']}?\n\n"
+                    "This will replace the current database with the backup.\n"
+                    "Current data will be lost unless you create a backup first."
+                ):
+                    try:
+                        # Get current database path
+                        current_db_path = self._get_current_database_path()
+                        if not current_db_path:
+                            messagebox.showerror("Error", "Could not determine current database path.")
+                            return
+                        
+                        # Copy backup over current database
+                        shutil.copy2(backup_file['full_path'], current_db_path)
+                        
+                        # Refresh the display
+                        self._refresh_data()
+                        
+                        messagebox.showinfo(
+                            "Restore Complete",
+                            f"Successfully restored backup: {backup_file['filename']}\n\n"
+                            "The database has been updated."
+                        )
+                        dialog.destroy()
+                        
+                    except Exception as e:
+                        messagebox.showerror(
+                            "Restore Failed",
+                            f"Failed to restore backup:\n\n{str(e)}"
+                        )
+            
+            # Buttons
+            ttk.Button(button_frame, text="Delete Selected", command=delete_selected_backups).pack(side=tk.LEFT, padx=5)
+            ttk.Button(button_frame, text="Delete All", command=delete_all_backups).pack(side=tk.LEFT, padx=5)
+            ttk.Button(button_frame, text="Restore Selected", command=restore_backup).pack(side=tk.LEFT, padx=5)
+            ttk.Button(button_frame, text="Close", command=dialog.destroy).pack(side=tk.RIGHT, padx=5)
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to manage backups:\n\n{str(e)}")
+    
+    def _get_backup_files(self) -> List[Dict]:
+        """Get list of backup files for current database."""
+        try:
+            backup_files = []
+            
+            if self.data_source.get() == "color_analysis":
+                from utils.path_utils import get_color_analysis_dir
+                data_dir = get_color_analysis_dir()
+                db_filename = f"{self.current_sample_set}.db"
+            else:  # color_libraries
+                from utils.path_utils import get_color_libraries_dir
+                data_dir = get_color_libraries_dir()
+                # Try different naming conventions
+                if os.path.exists(os.path.join(data_dir, f"{self.current_sample_set}_library.db")):
+                    db_filename = f"{self.current_sample_set}_library.db"
+                else:
+                    db_filename = f"{self.current_sample_set}.db"
+            
+            if not os.path.exists(data_dir):
+                return backup_files
+            
+            # Find backup files
+            backup_pattern = f"{db_filename}.backup_"
+            for filename in os.listdir(data_dir):
+                if filename.startswith(backup_pattern):
+                    full_path = os.path.join(data_dir, filename)
+                    
+                    # Extract timestamp from filename
+                    timestamp_str = filename[len(backup_pattern):]
+                    try:
+                        timestamp = datetime.strptime(timestamp_str, "%Y%m%d_%H%M%S")
+                        date_str = timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                    except ValueError:
+                        # Fallback to file modification time
+                        timestamp = datetime.fromtimestamp(os.path.getmtime(full_path))
+                        date_str = timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                    
+                    # Get file size
+                    size_bytes = os.path.getsize(full_path)
+                    if size_bytes < 1024:
+                        size_str = f"{size_bytes} B"
+                    elif size_bytes < 1024 * 1024:
+                        size_str = f"{size_bytes / 1024:.1f} KB"
+                    else:
+                        size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
+                    
+                    backup_files.append({
+                        'filename': filename,
+                        'full_path': full_path,
+                        'timestamp': timestamp,
+                        'date': date_str,
+                        'size': size_str
+                    })
+            
+            return backup_files
+            
+        except Exception as e:
+            print(f"Error getting backup files: {e}")
+            return []
+    
+    def _get_current_database_path(self) -> Optional[str]:
+        """Get the path to the current database file."""
+        try:
+            if self.data_source.get() == "color_analysis":
+                from utils.path_utils import get_color_analysis_dir
+                data_dir = get_color_analysis_dir()
+                return os.path.join(data_dir, f"{self.current_sample_set}.db")
+            else:  # color_libraries
+                from utils.path_utils import get_color_libraries_dir
+                data_dir = get_color_libraries_dir()
+                # Try different naming conventions
+                if os.path.exists(os.path.join(data_dir, f"{self.current_sample_set}_library.db")):
+                    return os.path.join(data_dir, f"{self.current_sample_set}_library.db")
+                else:
+                    return os.path.join(data_dir, f"{self.current_sample_set}.db")
+                    
+        except Exception as e:
+            print(f"Error getting current database path: {e}")
+            return None

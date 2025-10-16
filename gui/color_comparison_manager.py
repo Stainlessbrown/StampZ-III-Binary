@@ -138,13 +138,25 @@ class ColorComparisonManager(tk.Frame):
         selection_frame = ttk.Frame(bottom_frame)
         selection_frame.grid(row=0, column=1, sticky='ew', padx=self.current_sizes['padding'], pady=5)
         
-        # Library dropdown
+        # Library selection UI (multi-select)
         ttk.Label(selection_frame, text="Compare with:").pack(side=tk.LEFT)
-        self.library_var = tk.StringVar(value="Select Library")
-        self.library_combo = ttk.Combobox(selection_frame, textvariable=self.library_var, width=30)
-        self.library_combo.pack(side=tk.LEFT, padx=self.current_sizes['padding'])
-        self.library_combo.bind('<<ComboboxSelected>>', self._on_library_selected)
-        
+
+        # Frame for listbox + scrollbar
+        listbox_frame = ttk.Frame(selection_frame)
+        listbox_frame.pack(side=tk.LEFT, padx=self.current_sizes['padding'])
+
+        # Multi-select list of libraries (first item will be 'All Libraries')
+        self.library_listbox = tk.Listbox(listbox_frame, selectmode=tk.MULTIPLE, height=5, width=30, exportselection=False)
+        self.library_listbox.pack(side=tk.LEFT)
+
+        # Scrollbar for the listbox
+        scrollbar = ttk.Scrollbar(listbox_frame, orient="vertical", command=self.library_listbox.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.library_listbox.config(yscrollcommand=scrollbar.set)
+
+        # Bind selection event
+        self.library_listbox.bind('<<ListboxSelect>>', self._on_library_selected)
+
         # Compare button
         self.compare_button = ttk.Button(selection_frame, text="Compare", command=self._compare_color)
         self.compare_button.pack(side=tk.LEFT, padx=self.current_sizes['padding'])
@@ -492,7 +504,7 @@ class ColorComparisonManager(tk.Frame):
         
         # Load available libraries similar to Sample mode
         self._load_available_libraries()
-        library_list = self.library_combo['values'][1:]  # Exclude 'All Libraries' option
+        library_list = getattr(self, 'available_libraries', [])
         
         lib_var = tk.StringVar()
         lib_combo = ttk.Combobox(lib_frame, textvariable=lib_var, values=library_list, width=27)
@@ -1700,37 +1712,48 @@ class ColorComparisonManager(tk.Frame):
             library_list = sorted(list(library_files))
             print(f"DEBUG: Found {len(library_list)} total libraries: {library_list}")
             
-            # Add 'All Libraries' option at the top
-            self.library_combo['values'] = ['All Libraries'] + library_list
-            print(f"DEBUG: Set combo values to: {self.library_combo['values']}")
+            # Store available libraries and populate listbox (first item is 'All Libraries')
+            self.available_libraries = library_list
             
-            # Set default library from preferences
+            # Clear and insert items
+            if hasattr(self, 'library_listbox'):
+                self.library_listbox.delete(0, tk.END)
+                self.library_listbox.insert(tk.END, 'All Libraries')
+                for name in library_list:
+                    self.library_listbox.insert(tk.END, name)
+                print(f"DEBUG: Populated library listbox with: ['All Libraries'] + {library_list}")
+            
+            # Set default selection from preferences
             try:
                 from utils.user_preferences import get_preferences_manager
                 prefs_manager = get_preferences_manager()
                 default_library = prefs_manager.get_default_color_library()
                 
-                # Check if default library exists in our list
-                if default_library in library_list:
-                    self.library_var.set(default_library)
-                    # Automatically load the default library
+                if default_library in library_list and hasattr(self, 'library_listbox'):
+                    # Select the default library (offset by 1 due to 'All Libraries' at index 0)
+                    index = library_list.index(default_library) + 1
+                    self.library_listbox.selection_clear(0, tk.END)
+                    self.library_listbox.selection_set(index)
                     self._on_library_selected()
                     print(f"DEBUG: Set default library to: {default_library}")
-                elif library_list:  # Fallback to first library if default not found
-                    self.library_var.set(library_list[0])
+                elif library_list and hasattr(self, 'library_listbox'):
+                    # Default to selecting All Libraries when multiple exist
+                    self.library_listbox.selection_clear(0, tk.END)
+                    if len(library_list) > 1:
+                        self.library_listbox.selection_set(0)  # All Libraries
+                    else:
+                        self.library_listbox.selection_set(1)  # First/only library
                     self._on_library_selected()
-                    print(f"DEBUG: Default library not found, using: {library_list[0]}")
+                    print(f"DEBUG: Default selection applied")
                 else:
-                    self.library_var.set("Select Library")
                     print("DEBUG: No libraries available")
             except Exception as e:
                 print(f"DEBUG: Error setting default library: {e}")
                 # Fallback behavior
-                if library_list:
-                    self.library_var.set(library_list[0])
+                if library_list and hasattr(self, 'library_listbox'):
+                    self.library_listbox.selection_clear(0, tk.END)
+                    self.library_listbox.selection_set(1)
                     self._on_library_selected()
-                else:
-                    self.library_var.set("Select Library")
             
         except Exception as e:
             print(f"Error loading libraries: {str(e)}")
@@ -1768,54 +1791,44 @@ class ColorComparisonManager(tk.Frame):
         return directories
     
     def _on_library_selected(self, event=None):
-        """Handle library selection change."""
-        library_name = self.library_var.get()
-        if not library_name or library_name == "Select Library":
-            return
-        
+        """Handle library selection change (supports multi-select)."""
         try:
-            print(f"Loading library: {library_name}")
-            
-            if library_name == "All Libraries":
-                # Get list of all library files from all directories
-                library_files = set()
-                library_dirs = self._get_library_directories()
-                
-                for library_dir in library_dirs:
-                    if os.path.exists(library_dir):
-                        for f in os.listdir(library_dir):
-                            if f.endswith("_library.db") and not f.lower().startswith("all_libraries"):
-                                library_name_clean = f[:-11]
-                                library_files.add(library_name_clean)
-                
-                library_list = sorted(list(library_files))
-                print(f"Found libraries for 'All Libraries': {library_list}")
-                
-                if library_list:
-                    # Load the first library as primary
-                    self.library = ColorLibrary(library_list[0])
-                    
-                    # Load all libraries for comparison
-                    self.all_libraries = [ColorLibrary(lib) for lib in library_list]
-                    print(f"Loaded {len(self.all_libraries)} libraries for comparison")
-                else:
-                    print("No libraries found for 'All Libraries' option")
-                    self.library = None
-                    self.all_libraries = []
+            # Get selected names from listbox
+            if not hasattr(self, 'library_listbox'):
+                return
+            selected_indices = self.library_listbox.curselection()
+            if not selected_indices:
+                return
+
+            # If 'All Libraries' (index 0) is selected, or nothing else selected, use all available
+            use_all = 0 in selected_indices
+            if use_all:
+                selected_names = list(getattr(self, 'available_libraries', []))
             else:
-                self.library = ColorLibrary(library_name)
-                self.all_libraries = None
-            
+                # Map indices to names (offset by 1 due to 'All Libraries' at index 0)
+                selected_names = [self.library_listbox.get(i) for i in selected_indices]
+
+            print(f"Loading libraries: {selected_names if selected_names else 'None'}")
+
+            if selected_names:
+                # Primary library for conversions (first selection)
+                self.library = ColorLibrary(selected_names[0])
+                # All selected libraries for comparison (if more than one)
+                self.all_libraries = [ColorLibrary(n) for n in selected_names]
+            else:
+                self.library = None
+                self.all_libraries = []
+
             # Update display if we have samples
             if self.sample_points:
                 self._display_sample_points()
                 self._update_average_display()
-            
+
         except Exception as e:
             print(f"Error selecting library: {str(e)}")
             messagebox.showerror(
                 "Library Error",
-                f"Failed to load library '{library_name}':\n\n{str(e)}"
+                f"Failed to load selected library/libraries:\n\n{str(e)}"
             )
     
     def _compare_color(self):
@@ -1839,34 +1852,35 @@ class ColorComparisonManager(tk.Frame):
         avg_rgb = (total_r/count, total_g/count, total_b/count)
         avg_lab = self.library.rgb_to_lab(avg_rgb)
         
-        # Compare with library
-        library_name = self.library_var.get()
-        print(f"Comparing with {library_name}")
+        # Compare with selected libraries
+        selected_desc = None
+        if hasattr(self, 'library_listbox'):
+            sel = self.library_listbox.curselection()
+            if sel:
+                names = [self.library_listbox.get(i) for i in sel]
+                selected_desc = ", ".join(names)
+        print(f"Comparing with: {selected_desc or 'No selection'}")
         
         # Clear previous matches
         for widget in self.matches_frame.winfo_children():
             widget.destroy()
         
         try:
-            if library_name == "All Libraries" and hasattr(self, 'all_libraries'):
-                # Combine results from all libraries
+            if hasattr(self, 'all_libraries') and self.all_libraries and len(self.all_libraries) > 1:
+                # Combine results from selected libraries
                 all_matches = []
                 for lib in self.all_libraries:
-                    # Get matches from this library with library name included
                     lib_matches = lib.find_closest_matches(
                         sample_lab=avg_lab,
                         max_delta_e=self.delta_e_threshold,
-                        max_results=5,  # Get more from each library
+                        max_results=5,
                         include_library_name=True
                     )
-                    # Set the library name for each match
                     for match in lib_matches:
                         match.library_name = lib.library_name
                     all_matches.extend(lib_matches)
-                
-                # Sort combined matches by delta_e
                 all_matches.sort(key=lambda x: x.delta_e_2000)
-                matches = all_matches[:5]  # Take top 5
+                matches = all_matches[:5]
             else:
                 # Compare with single library
                 result = self.library.compare_sample_to_library(

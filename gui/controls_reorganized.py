@@ -379,7 +379,7 @@ class ReorganizedControlPanel(ttk.Frame):
                   width=4).pack(side=tk.LEFT, padx=2)
         
         # Create a canvas with scrollbar for sample controls
-        canvas = tk.Canvas(self.sample_frame, height=400)  # Set desired height here
+        canvas = tk.Canvas(self.sample_frame, height=600)  # Set desired height here
         scrollbar = ttk.Scrollbar(self.sample_frame, orient="vertical", command=canvas.yview)
         self.sample_scrollable_frame = ttk.Frame(canvas)
 
