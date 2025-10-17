@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Trigger build - 2025-01-17
 """StampZ-III - Main Application Entry Point
 A image analysis application optimized for philatelic images
 """
