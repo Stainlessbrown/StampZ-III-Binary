@@ -33,7 +33,7 @@ class ColorComparisonManager(tk.Frame):
     
     # Fixed aspect ratios
     SWATCH_ASPECT_RATIO = 450/60    # Width to height ratio for normal swatches (adjusted to 60px height)
-    AVG_SWATCH_ASPECT_RATIO = 450/375  # Width to height ratio for average swatch
+    AVG_SWATCH_ASPECT_RATIO = 500/600  # Width to height ratio for average swatch
     
     # Minimum padding (will scale up with window size)
     MIN_PADDING = 10
@@ -601,11 +601,11 @@ class ColorComparisonManager(tk.Frame):
         sample_frame = ttk.LabelFrame(main_layout, text="Sample Color")
         sample_frame.grid(row=0, column=1, sticky='nsew', padx=(10, 0))
         
-        # Create sample swatch
+        # Create sample swatch - much larger to fill available space
         sample_canvas = tk.Canvas(
             sample_frame,
-            width=300,
-            height=360,  # Make it tall and prominent
+            width=450,
+            height=600,  # Much larger for better visualization
             highlightthickness=1,
             highlightbackground='gray'
         )
@@ -613,7 +613,7 @@ class ColorComparisonManager(tk.Frame):
         
         # Draw sample color
         sample_canvas.create_rectangle(
-            0, 0, 300, 360,
+            0, 0, 450, 600,
             fill=f"#{int(sample_rgb[0]):02x}{int(sample_rgb[1]):02x}{int(sample_rgb[2]):02x}",
             outline=''
         )
