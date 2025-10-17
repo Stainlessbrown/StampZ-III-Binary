@@ -583,7 +583,7 @@ class ColorComparisonManager(tk.Frame):
             header_frame,
             text=f"Comparing: RGB({int(sample_rgb[0])}, {int(sample_rgb[1])}, {int(sample_rgb[2])}) | "
                  f"L*a*b*({sample_lab[0]:.1f}, {sample_lab[1]:.1f}, {sample_lab[2]:.1f})",
-            font=("Arial", 11, "bold")
+            font=("Arial", 12, "bold")
         )
         sample_label.pack()
         
@@ -596,11 +596,11 @@ class ColorComparisonManager(tk.Frame):
         match_frame = ttk.Frame(parent)
         match_frame.pack(fill=tk.X, pady=5, padx=5)
         
-        # Color swatch
+        # Color swatch - larger size for better visibility
         swatch_canvas = tk.Canvas(
             match_frame,
-            width=60,
-            height=40,
+            width=600,
+            height=100,
             highlightthickness=1,
             highlightbackground='gray'
         )
@@ -608,7 +608,7 @@ class ColorComparisonManager(tk.Frame):
         
         color_rgb = match.library_color.rgb
         swatch_canvas.create_rectangle(
-            0, 0, 60, 40,
+            0, 0, 600, 100,
             fill=f"#{int(color_rgb[0]):02x}{int(color_rgb[1]):02x}{int(color_rgb[2]):02x}",
             outline=''
         )
@@ -625,7 +625,7 @@ class ColorComparisonManager(tk.Frame):
         name_label = ttk.Label(
             info_frame,
             text=f"{index}. {name_text}",
-            font=("Arial", 11, "bold")
+            font=("Arial", 12, "bold")
         )
         name_label.pack(anchor='w')
         
@@ -639,7 +639,7 @@ class ColorComparisonManager(tk.Frame):
         values_label = ttk.Label(
             info_frame,
             text=values_text,
-            font=("Arial", 10)
+            font=("Arial", 12)
         )
         values_label.pack(anchor='w')
     
