@@ -2092,11 +2092,14 @@ class AnalysisManager:
                 library_manager = ColorLibraryManager(parent=self.root)
                 if not library_manager.library:
                     library_manager.library = ColorLibrary('basic_colors')
-                library_manager._create_comparison_tab()
-                library_manager.comparison_manager.set_analyzed_data(
+                
+                # Send data to Results tab first
+                library_manager.results_manager.set_analyzed_data(
                     image_path=self.app.current_file,
                     sample_data=sample_data
                 )
+                
+                # Select Results tab (index 1)
                 library_manager.notebook.select(1)
                 library_manager.root.update()
                 library_manager.root.lift()

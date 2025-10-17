@@ -76,12 +76,14 @@ class ColorLibraryManager:
         
         # Create frames for each tab
         self.library_frame = ttk.Frame(self.notebook)
-        self.comparison_frame = ttk.Frame(self.notebook)
+        self.results_frame = ttk.Frame(self.notebook)
+        self.compare_frame = ttk.Frame(self.notebook)
         self.settings_frame = ttk.Frame(self.notebook)
         
         # Add tabs to notebook
         self.notebook.add(self.library_frame, text="Library")
-        self.notebook.add(self.comparison_frame, text="Review/Compare")
+        self.notebook.add(self.results_frame, text="Results")
+        self.notebook.add(self.compare_frame, text="Compare")
         self.notebook.add(self.settings_frame, text="Settings")
         
         # Ensure we have a library
@@ -90,6 +92,8 @@ class ColorLibraryManager:
         
         # Create tab contents
         self._create_library_tab()
+        self._create_results_tab()
+        self._create_compare_tab()
         self._create_settings_tab()
         
         # Load initial library
@@ -238,27 +242,50 @@ class ColorLibraryManager:
         
         # No need for additional configuration as ScrollManager handles all scrolling
     
-    def _create_comparison_tab(self):
-        """Create the color comparison tab."""
+    def _create_results_tab(self):
+        """Create the Results tab using SampleResultsManager."""
+        # Create SampleResultsManager for the Results tab
+        from .sample_results_manager import SampleResultsManager
+        self.results_manager = SampleResultsManager(self.results_frame)
+        
+        # Set library if available
+        if hasattr(self, 'library') and self.library:
+            self.results_manager.library = self.library
+    
+    
+    def _create_compare_tab(self):
+        """Create the Compare tab with actual comparison functionality."""
         # Ensure we have a library initialized first
         if not hasattr(self, 'library') or not self.library:
             self.library = ColorLibrary(self.current_library_name)
         
-        # Create comparison manager with the correct parent
-        self.comparison_manager = ColorComparisonManager(self.comparison_frame)
+        # Create comparison manager directly in the tab
+        from gui.color_comparison_manager import ColorComparisonManager
+        self.comparison_manager = ColorComparisonManager(self.compare_frame)
         
         # Set library
         self.comparison_manager.library = self.library
         
-        # Update library binding
+        # Update library binding to keep comparison manager in sync
         self._original_load_library = self._load_library
         def wrapped_load_library(library_name: str):
             self._original_load_library(library_name)
+            # Update comparison manager library
             if hasattr(self, 'comparison_manager'):
                 self.comparison_manager.library = self.library
-                if hasattr(self.comparison_manager, '_update_library_display'):
-                    self.comparison_manager._update_library_display()
+            # Update results manager library
+            if hasattr(self, 'results_manager'):
+                self.results_manager.library = self.library
         self._load_library = wrapped_load_library
+    
+    # Old window methods removed - functionality now integrated into tabs
+    
+    def _create_comparison_tab(self):
+        """Compatibility method for old calls - switches to Results tab."""
+        print("DEBUG: _create_comparison_tab called - switching to Results tab")
+        # This method is kept for compatibility with existing code that might call it
+        # The old Review/Compare button should now show Results (upper frame content)
+        self.notebook.select(self.results_frame)
         
     
     def _create_settings_tab(self):
