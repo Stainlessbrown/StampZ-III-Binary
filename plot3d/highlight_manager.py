@@ -110,16 +110,35 @@ class HighlightManager:
             self.window_info_label.grid(row=3, column=0, sticky='w', padx=5, pady=2)
             self.window_info_label.grid_remove()  # Initially hidden
             
+            # Row number entry section
+            row_frame = tk.Frame(controls_frame)
+            row_frame.grid(row=4, column=0, sticky='ew', padx=5, pady=5)
+            row_frame.grid_columnconfigure(1, weight=1)
+            
+            row_label = tk.Label(row_frame, text="Row #(s):", font=('Arial', 9))
+            row_label.grid(row=0, column=0, sticky='e', padx=(0, 5))
+            
+            self.row_entry = tk.Entry(row_frame, width=12, font=('Arial', 9))
+            self.row_entry.grid(row=0, column=1, sticky='w', padx=(0, 5))
+            
+            self.highlight_button = tk.Button(
+                row_frame,
+                text="Find by Row",
+                command=self._highlight_data,
+                font=('Arial', 8)
+            )
+            self.highlight_button.grid(row=0, column=2, sticky='w', padx=(5, 0))
+            
             # Info display
             self.info_label = tk.Label(
                 controls_frame,
-                text="Enable Point Selection, optionally open 2D window for precise clicking",
+                text="Enter row number(s) separated by commas, or enable point selection to click",
                 font=('Arial', 9),
                 foreground='gray',
                 justify='left',
                 wraplength=340
             )
-            self.info_label.grid(row=4, column=0, sticky='ew', padx=5, pady=5)
+            self.info_label.grid(row=5, column=0, sticky='ew', padx=5, pady=5)
             
         except Exception as e:
             print(f"Error creating controls: {str(e)}")
@@ -1136,7 +1155,157 @@ class HighlightManager:
             # Fallback to simple conversion with bounds checking
             return max(0, min(user_row - 2, len(self.data_df) - 1))
 
-    # Old _highlight_data method removed - replaced with click-to-highlight functionality
+    def _highlight_data(self):
+        """Highlight points based on row numbers entered in the text box"""
+        try:
+            row_input = self.row_entry.get().strip()
+            if not row_input:
+                self.info_label.config(
+                    text="Please enter row number(s) to highlight",
+                    foreground='red'
+                )
+                return
+            
+            # Clear any existing highlights
+            self._clear_highlight(keep_info=False)
+            
+            # Parse the row input - support comma-separated values
+            row_numbers = []
+            for part in row_input.split(','):
+                part = part.strip()
+                if '-' in part and part.count('-') == 1:
+                    # Range of rows (e.g., "5-10")
+                    try:
+                        start, end = map(int, part.split('-'))
+                        row_numbers.extend(range(start, end + 1))
+                    except ValueError:
+                        print(f"Invalid range format: {part}")
+                        continue
+                else:
+                    # Single row number
+                    try:
+                        row_numbers.append(int(part))
+                    except ValueError:
+                        print(f"Invalid row number: {part}")
+                        continue
+            
+            if not row_numbers:
+                self.info_label.config(
+                    text="No valid row numbers found",
+                    foreground='red'
+                )
+                return
+            
+            # Find and highlight the specified rows
+            highlighted_count = 0
+            highlighted_rows = []
+            
+            for user_row in row_numbers:
+                try:
+                    # Convert spreadsheet row to DataFrame index
+                    df_index = self.find_df_index(user_row)
+                    
+                    # Validate the index
+                    if not (0 <= df_index < len(self.data_df)):
+                        print(f"Row {user_row} corresponds to invalid DataFrame index {df_index}")
+                        continue
+                    
+                    # Get the data for this point
+                    row_data = self.data_df.iloc[df_index]
+                    
+                    # Check if the data has valid coordinates
+                    if pd.isna(row_data.get('Xnorm', np.nan)) or pd.isna(row_data.get('Ynorm', np.nan)) or pd.isna(row_data.get('Znorm', np.nan)):
+                        print(f"Row {user_row} (index {df_index}) has invalid coordinates, skipping")
+                        continue
+                    
+                    # Highlight this point
+                    self._highlight_single_point(df_index, user_row)
+                    highlighted_count += 1
+                    highlighted_rows.append(user_row)
+                    
+                except Exception as e:
+                    print(f"Error highlighting row {user_row}: {e}")
+                    continue
+            
+            # Update info display
+            if highlighted_count > 0:
+                if highlighted_count == 1:
+                    self.info_label.config(
+                        text=f"✅ Highlighted point at row {highlighted_rows[0]}",
+                        foreground='darkgreen'
+                    )
+                else:
+                    row_list = ', '.join(map(str, highlighted_rows[:5]))
+                    if len(highlighted_rows) > 5:
+                        row_list += f" (+{len(highlighted_rows)-5} more)"
+                    self.info_label.config(
+                        text=f"✅ Highlighted {highlighted_count} points at rows: {row_list}",
+                        foreground='darkgreen'
+                    )
+                
+                # Refresh the canvas to show highlights
+                self.canvas.draw()
+            else:
+                self.info_label.config(
+                    text="❌ No valid points found to highlight",
+                    foreground='red'
+                )
+                
+        except Exception as e:
+            print(f"Error in _highlight_data: {e}")
+            import traceback
+            traceback.print_exc()
+            self.info_label.config(
+                text=f"❌ Error highlighting data: {str(e)}",
+                foreground='red'
+            )
+    
+    def _highlight_single_point(self, df_index, spreadsheet_row):
+        """Highlight a single point by DataFrame index"""
+        try:
+            # Get the data for this point
+            row_data = self.data_df.iloc[df_index]
+            
+            # Get coordinates
+            x = row_data['Xnorm']
+            y = row_data['Ynorm'] 
+            z = row_data['Znorm']
+            
+            # Create highlight scatter point (outline only for better visibility)
+            highlight_scatter = self.ax.scatter(
+                [x], [y], [z],
+                facecolors='none',
+                edgecolors='red',
+                s=200,  # Larger size for visibility
+                marker='o',
+                linewidths=2
+            )
+            self.highlight_scatters.append(highlight_scatter)
+            
+            # Add text label with offset for better readability
+            data_id = row_data.get('DataID', f'Point_{df_index}')
+            label_text = f"Row {spreadsheet_row}\n{data_id}"
+            
+            # Calculate offset coordinates for better visibility
+            text_x = x + 0.03
+            text_y = y + 0.03
+            text_z = z + 0.01
+            
+            text_label = self.ax.text(
+                text_x, text_y, text_z,
+                label_text,
+                fontsize=10,
+                color='darkred',
+                weight='bold',
+                ha='left',
+                va='bottom'
+            )
+            self.highlight_texts.append(text_label)
+            
+            print(f"DEBUG: Highlighted point at row {spreadsheet_row} (index {df_index}): {data_id}")
+            
+        except Exception as e:
+            print(f"Error highlighting single point at index {df_index}: {e}")
             
     def _debug_row_mapping(self):
         """Debug function to test and verify row mapping"""
@@ -1323,10 +1492,10 @@ class HighlightManager:
             # Store the fact that we highlighted this specific point
             print(f"DEBUG: Highlighted DataID {data_id} (DataFrame index: {idx}, Scatter index: {scatter_idx})")
             # Add DataID label
-            # Calculate offset coordinates for the text
-            text_x = x + 0.05
-            text_y = y + 0.05
-            text_z = z
+            # Calculate offset coordinates for the text (reduced for better screen fit)
+            text_x = x + 0.03
+            text_y = y + 0.03
+            text_z = z + 0.01
             
             # Use text3D for proper 3D annotation
             print(f"DEBUG: Creating text3D at ({text_x}, {text_y}, {text_z})")
