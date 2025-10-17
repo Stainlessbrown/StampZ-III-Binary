@@ -563,19 +563,29 @@ class ColorComparisonManager(tk.Frame):
             )
     
     def _display_matches(self, matches, sample_rgb, sample_lab):
-        """Display color matches in the matches frame."""
-        # Create scrollable frame for matches
-        from .scroll_manager import ScrollManager
-        
+        """Display color matches in the matches frame with sample swatch."""
         # Clear existing content
         for widget in self.matches_frame.winfo_children():
             widget.destroy()
         
-        # Create scroll manager
-        scroll_manager = ScrollManager(self.matches_frame)
+        # Create main layout frame
+        main_layout = ttk.Frame(self.matches_frame)
+        main_layout.pack(fill=tk.BOTH, expand=True)
+        
+        # Configure columns: matches on left (75%), sample swatch on right (25%)
+        main_layout.grid_columnconfigure(0, weight=3)  # Matches column
+        main_layout.grid_columnconfigure(1, weight=1)  # Sample swatch column
+        main_layout.grid_rowconfigure(0, weight=1)
+        
+        # Left side: Scrollable matches
+        from .scroll_manager import ScrollManager
+        matches_scroll_frame = ttk.Frame(main_layout)
+        matches_scroll_frame.grid(row=0, column=0, sticky='nsew', padx=(0, 10))
+        
+        scroll_manager = ScrollManager(matches_scroll_frame)
         matches_content = scroll_manager.content_frame
         
-        # Header with sample information
+        # Header with sample information in matches area
         header_frame = ttk.Frame(matches_content)
         header_frame.pack(fill=tk.X, pady=(0, 10))
         
@@ -587,11 +597,49 @@ class ColorComparisonManager(tk.Frame):
         )
         sample_label.pack()
         
-        # Display matches
+        # Right side: Sample color swatch
+        sample_frame = ttk.LabelFrame(main_layout, text="Sample Color")
+        sample_frame.grid(row=0, column=1, sticky='nsew', padx=(10, 0))
+        
+        # Create sample swatch
+        sample_canvas = tk.Canvas(
+            sample_frame,
+            width=300,
+            height=360,  # Make it tall and prominent
+            highlightthickness=1,
+            highlightbackground='gray'
+        )
+        sample_canvas.pack(pady=10, padx=10)
+        
+        # Draw sample color
+        sample_canvas.create_rectangle(
+            0, 0, 300, 360,
+            fill=f"#{int(sample_rgb[0]):02x}{int(sample_rgb[1]):02x}{int(sample_rgb[2]):02x}",
+            outline=''
+        )
+        
+        # Add sample color info below swatch
+        sample_info_frame = ttk.Frame(sample_frame)
+        sample_info_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+        
+        sample_info_text = (
+            f"RGB: ({int(sample_rgb[0])}, {int(sample_rgb[1])}, {int(sample_rgb[2])})\n"
+            f"L*a*b*: ({sample_lab[0]:.1f}, {sample_lab[1]:.1f}, {sample_lab[2]:.1f})"
+        )
+        
+        sample_info_label = ttk.Label(
+            sample_info_frame,
+            text=sample_info_text,
+            font=("Arial", 12),
+            justify=tk.CENTER
+        )
+        sample_info_label.pack()
+        
+        # Display matches in left column
         for i, match in enumerate(matches, 1):
-            self._create_match_display(matches_content, match, i)
+            self._create_match_display(matches_content, match, i, sample_rgb)
     
-    def _create_match_display(self, parent, match, index):
+    def _create_match_display(self, parent, match, index, sample_rgb=None):
         """Create display for a single color match."""
         match_frame = ttk.Frame(parent)
         match_frame.pack(fill=tk.X, pady=5, padx=5)
