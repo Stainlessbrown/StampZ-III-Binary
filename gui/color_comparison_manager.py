@@ -481,13 +481,26 @@ class ColorComparisonManager(tk.Frame):
     
     def _compare_color(self):
         """Compare sample colors to the selected library."""
+        print(f"DEBUG: _compare_color called")
+        print(f"DEBUG: self.library = {self.library}")
+        print(f"DEBUG: self.sample_points count = {len(self.sample_points) if hasattr(self, 'sample_points') and self.sample_points else 0}")
+        
         if not self.library:
+            print("DEBUG: No library selected")
             messagebox.showerror("Error", "Please select a library first")
             return
         
         # Get enabled samples
+        if not hasattr(self, 'sample_points') or not self.sample_points:
+            print("DEBUG: No sample_points available")
+            messagebox.showinfo("No Data", "No samples available for comparison. Please go to Results tab first to load sample data.")
+            return
+            
         enabled_samples = [s for s in self.sample_points if s['enabled'].get()]
+        print(f"DEBUG: enabled_samples count = {len(enabled_samples)}")
+        
         if not enabled_samples:
+            print("DEBUG: No enabled samples")
             messagebox.showinfo("No Data", "No samples available for comparison.")
             return
         

@@ -2093,8 +2093,14 @@ class AnalysisManager:
                 if not library_manager.library:
                     library_manager.library = ColorLibrary('basic_colors')
                 
-                # Send data to Results tab first
+                # Send data to both Results and Compare tabs
                 library_manager.results_manager.set_analyzed_data(
+                    image_path=self.app.current_file,
+                    sample_data=sample_data
+                )
+                
+                # Also send data to Compare tab so it's ready when user switches to it
+                library_manager.comparison_manager.set_analyzed_data(
                     image_path=self.app.current_file,
                     sample_data=sample_data
                 )
