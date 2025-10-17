@@ -149,6 +149,50 @@ class ColorLibraryManager:
         self.sort_combo.pack(side=tk.LEFT, padx=(0, 10))
         self.sort_combo.bind("<<ComboboxSelected>>", self._on_sort_changed)
         
+        # Multi-select hue range filtering
+        ttk.Label(search_row, text="Filter by Hue:").pack(side=tk.LEFT, padx=(10, 5))
+        
+        # Create frame for multi-select hue listbox
+        hue_frame = ttk.Frame(search_row)
+        hue_frame.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Instruction label
+        instruction_label = ttk.Label(hue_frame, text="(Ctrl+Click for multiple)", font=("Arial", 8))
+        instruction_label.pack()
+        
+        # Multi-select listbox for hue ranges
+        self.hue_listbox = tk.Listbox(hue_frame, selectmode=tk.MULTIPLE, height=4, width=20, exportselection=False)
+        self.hue_listbox.pack(side=tk.LEFT)
+        
+        # Scrollbar for hue listbox
+        hue_scrollbar = ttk.Scrollbar(hue_frame, orient="vertical", command=self.hue_listbox.yview)
+        hue_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.hue_listbox.config(yscrollcommand=hue_scrollbar.set)
+        
+        # Populate hue listbox
+        from utils.hue_sorting import get_available_hue_names
+        hue_options = ['All Colors'] + get_available_hue_names()
+        
+        for option in hue_options:
+            self.hue_listbox.insert(tk.END, option)
+        
+        # Load saved hue filter preferences (multiple selections)
+        try:
+            prefs_manager = get_preferences_manager()
+            saved_hue_filters = prefs_manager.get('color_library_hue_filters', ['All Colors'])
+            if not isinstance(saved_hue_filters, list):
+                saved_hue_filters = ['All Colors']
+        except Exception:
+            saved_hue_filters = ['All Colors']
+        
+        # Set initial selections
+        for i, option in enumerate(hue_options):
+            if option in saved_hue_filters:
+                self.hue_listbox.selection_set(i)
+        
+        # Bind selection event
+        self.hue_listbox.bind('<<ListboxSelect>>', self._on_hue_filter_changed)
+        
         # Pagination controls
         self.page_info_label = ttk.Label(search_row, text="")
         self.page_info_label.pack(side=tk.RIGHT, padx=(5, 0))
@@ -406,12 +450,54 @@ class ColorLibraryManager:
         
         # Apply search filter if active
         if hasattr(self, 'search_term') and self.search_term:
-            self.filtered_colors = [color for color in all_colors if 
-                                  self.search_term.lower() in color.name.lower() or
-                                  (color.notes and self.search_term.lower() in color.notes.lower()) or
-                                  self.search_term.lower() in color.category.lower()]
+            search_filtered = [color for color in all_colors if 
+                              self.search_term.lower() in color.name.lower() or
+                              (color.notes and self.search_term.lower() in color.notes.lower()) or
+                              self.search_term.lower() in color.category.lower()]
         else:
-            self.filtered_colors = all_colors
+            search_filtered = all_colors
+        
+        # Apply hue filter(s) if active
+        selected_hue_filters = []
+        if hasattr(self, 'hue_listbox'):
+            selected_indices = self.hue_listbox.curselection()
+            selected_hue_filters = [self.hue_listbox.get(i) for i in selected_indices]
+        
+        if selected_hue_filters and 'All Colors' not in selected_hue_filters:
+            try:
+                from utils.hue_sorting import filter_by_friendly_name
+                # Convert LibraryColor objects to RGB tuples for filtering
+                color_rgb_tuples = [(int(color.rgb[0]), int(color.rgb[1]), int(color.rgb[2])) for color in search_filtered]
+                
+                # Combine results from all selected hue filters
+                all_filtered_rgb = set()  # Use set to avoid duplicates
+                for hue_filter in selected_hue_filters:
+                    try:
+                        filtered_rgb = filter_by_friendly_name(color_rgb_tuples, hue_filter)
+                        all_filtered_rgb.update(filtered_rgb)
+                    except Exception as e:
+                        print(f"Warning: Failed to filter by '{hue_filter}': {e}")
+                
+                # Create mapping from RGB back to color objects
+                rgb_to_colors = {}
+                for color in search_filtered:
+                    rgb_key = (int(color.rgb[0]), int(color.rgb[1]), int(color.rgb[2]))
+                    if rgb_key not in rgb_to_colors:
+                        rgb_to_colors[rgb_key] = []
+                    rgb_to_colors[rgb_key].append(color)
+                
+                # Rebuild color list with only hue-filtered colors
+                self.filtered_colors = []
+                for rgb in all_filtered_rgb:
+                    if rgb in rgb_to_colors:
+                        self.filtered_colors.extend(rgb_to_colors[rgb])
+                        # Don't delete from mapping since we might have duplicates across filters
+                        
+            except Exception as e:
+                print(f"Warning: Hue filtering failed, showing all colors: {e}")
+                self.filtered_colors = search_filtered
+        else:
+            self.filtered_colors = search_filtered
         
         # Reset pagination if requested
         if reset_pagination:
@@ -588,6 +674,24 @@ class ColorLibraryManager:
             print(f"Warning: Could not save sort preference: {e}")
         
         # Reset to first page when sorting changes
+        self.current_page = 0
+        self._update_colors_display(reset_pagination=True)
+    
+    def _on_hue_filter_changed(self, event=None):
+        """Handle hue filter change (multiple selections)."""
+        # Get selected hue ranges
+        selected_indices = self.hue_listbox.curselection()
+        selected_hue_filters = [self.hue_listbox.get(i) for i in selected_indices]
+        
+        # Save hue filter preferences (multiple selections)
+        try:
+            from utils.user_preferences import get_preferences_manager
+            prefs_manager = get_preferences_manager()
+            prefs_manager.set('color_library_hue_filters', selected_hue_filters)
+        except Exception as e:
+            print(f"Warning: Could not save hue filter preferences: {e}")
+        
+        # Reset to first page when filter changes
         self.current_page = 0
         self._update_colors_display(reset_pagination=True)
     
