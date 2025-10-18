@@ -111,7 +111,7 @@ class TernaryPlotWindow:
             " - Realtime DB: Current session data\n\n"
             "Navigation:\n"
             " - Use toolbar: Pan, Zoom, Home, Back/Forward\n"
-            " - Click points to highlight and show details\n\n"
+            " - Right Click points to highlight and show details\n\n"
             "Columns used:\n"
             " - L*, a*, b*, DataID, Marker, Color\n\n"
             "Notes:\n"
