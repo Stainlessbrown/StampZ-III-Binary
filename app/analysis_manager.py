@@ -6,13 +6,14 @@ color library operations, and data export functionality.
 """
 
 import os
+import sys
 import time
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
 import logging
 import pandas as pd
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict, Optional
 from PIL import Image
 import numpy as np
 from pathlib import Path
@@ -83,6 +84,15 @@ class AnalysisManager:
             )
             return
         
+        # Ask user which type of analysis to perform
+        analysis_type = self._get_analysis_type()
+        if analysis_type is None:
+            return
+        
+        if analysis_type == "rgb_cmy":
+            self._analyze_rgb_cmy_colors()
+            return
+        
         sample_set_name = self.app.control_panel.sample_set_name.get().strip()
         if not sample_set_name:
             messagebox.showwarning(
@@ -143,6 +153,357 @@ class AnalysisManager:
                 "Analysis Error", 
                 f"Failed to analyze color samples:\\n\\n{str(e)}"
             )
+    
+    def _get_analysis_type(self) -> Optional[str]:
+        """Ask user to choose between regular color analysis and RGB-CMY analysis."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Select Analysis Type")
+        dialog.geometry("400x250")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Center dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (400 // 2)
+        y = (dialog.winfo_screenheight() // 2) - (250 // 2)
+        dialog.geometry(f"400x250+{x}+{y}")
+        
+        result = None
+        
+        def on_regular():
+            nonlocal result
+            result = "regular"
+            dialog.destroy()
+        
+        def on_rgb_cmy():
+            nonlocal result
+            result = "rgb_cmy"
+            dialog.destroy()
+        
+        def on_cancel():
+            nonlocal result
+            result = None
+            dialog.destroy()
+        
+        # Main frame
+        main_frame = ttk.Frame(dialog, padding=20)
+        main_frame.pack(fill="both", expand=True)
+        
+        # Title
+        ttk.Label(
+            main_frame,
+            text="Choose Analysis Type",
+            font=("Arial", 14, "bold")
+        ).pack(pady=(0, 20))
+        
+        # Options
+        ttk.Label(
+            main_frame,
+            text="Select the type of color analysis to perform:"
+        ).pack(pady=(0, 15))
+        
+        # Regular analysis button
+        regular_btn = ttk.Button(
+            main_frame,
+            text="🎨 Regular Color Analysis",
+            command=on_regular
+        )
+        regular_btn.pack(fill="x", pady=5)
+        ttk.Label(
+            main_frame,
+            text="Standard L*a*b* color analysis",
+            font=("Arial", 9),
+            foreground="gray"
+        ).pack(pady=(0, 10))
+        
+        # RGB-CMY analysis button  
+        rgb_cmy_btn = ttk.Button(
+            main_frame,
+            text="📊 RGB-CMY Channel Analysis",
+            command=on_rgb_cmy
+        )
+        rgb_cmy_btn.pack(fill="x", pady=5)
+        ttk.Label(
+            main_frame,
+            text="RGB and CMY channel analysis with statistics",
+            font=("Arial", 9),
+            foreground="gray"
+        ).pack(pady=(0, 15))
+        
+        # Cancel button
+        ttk.Button(
+            main_frame,
+            text="Cancel",
+            command=on_cancel
+        ).pack(pady=10)
+        
+        # Wait for dialog to close
+        dialog.wait_window()
+        return result
+    
+    def _analyze_rgb_cmy_colors(self):
+        """Perform RGB-CMY channel analysis using existing sample markers."""
+        sample_set_name = self.app.control_panel.sample_set_name.get().strip()
+        if not sample_set_name:
+            messagebox.showwarning(
+                "No Sample Set Name", 
+                "Please enter a sample set name in the Template field before analyzing."
+            )
+            return
+        
+        try:
+            from utils.rgb_cmy_color_analyzer import RGBCMYColorAnalyzer
+            
+            # Create RGB-CMY analyzer
+            analyzer = RGBCMYColorAnalyzer()
+            
+            if not self.app.current_file:
+                messagebox.showerror("Error", "No image loaded. Please open an image first.")
+                return
+            
+            # Determine actual sample set name (handle prefixes)
+            actual_sample_set = sample_set_name
+            if '_' in sample_set_name:
+                parts = sample_set_name.split('_')
+                if len(parts) >= 2:
+                    potential_sample_set = '_'.join(parts[1:])
+                    
+                    try:
+                        from utils.coordinate_db import CoordinateDB
+                        coord_db = CoordinateDB()
+                        available_sets = coord_db.get_all_set_names()
+                        
+                        if potential_sample_set in available_sets:
+                            actual_sample_set = potential_sample_set
+                    except:
+                        pass
+            
+            print(f"DEBUG: Starting RGB-CMY analysis with:")
+            print(f"  - image_path: {self.app.current_file}")
+            print(f"  - sample_set_name: {actual_sample_set}")
+            print(f"  - number of markers: {len(self.app.canvas._coord_markers)}")
+            
+            # Run RGB-CMY analysis
+            results = analyzer.analyze_image_rgb_cmy_from_canvas(
+                self.app.current_file, actual_sample_set, self.app.canvas._coord_markers
+            )
+            
+            if results:
+                self._show_rgb_cmy_analysis_complete_dialog(results, actual_sample_set)
+            else:
+                messagebox.showwarning(
+                    "RGB-CMY Analysis Failed", 
+                    "No RGB-CMY data could be analyzed. Please check your sample markers."
+                )
+                
+        except Exception as e:
+            import traceback
+            messagebox.showerror(
+                "RGB-CMY Analysis Error", 
+                f"Failed to analyze RGB-CMY channels:\\n\\n{str(e)}"
+            )
+    
+    def _show_rgb_cmy_analysis_complete_dialog(self, analysis_results: Dict, sample_set_name: str):
+        """Show RGB-CMY analysis complete dialog with export options."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("RGB-CMY Analysis Complete")
+        
+        dialog_width = 700
+        dialog_height = 600
+        
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        
+        x = screen_width - dialog_width - 50
+        y = (screen_height - dialog_height) // 2
+        
+        dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
+        
+        # Header
+        header_frame = ttk.Frame(dialog)
+        header_frame.pack(fill="x", padx=20, pady=(20, 10))
+        
+        ttk.Label(
+            header_frame,
+            text="✅ RGB-CMY Analysis Complete",
+            font=("Arial", 14, "bold")
+        ).pack()
+        
+        # Results display
+        results_frame = ttk.Frame(dialog)
+        results_frame.pack(fill="both", expand=True, padx=20, pady=(0, 20))
+        
+        # Build results summary
+        results = analysis_results['results']
+        summary_text = (
+            f"Successfully analyzed {len(results)} samples from set '{sample_set_name}'.\n\n"
+            "RGB-CMY Channel Analysis Results:\n"
+            f"{'Sample':<15} {'R':<6} {'G':<6} {'B':<6} | {'C':<6} {'Y':<6} {'M':<6}\n"
+            f"{'-' * 60}\n"
+        )
+        
+        for result in results:
+            summary_text += (
+                f"{result['sample_name']:<15} "
+                f"{result['R_mean']:<6.1f} "
+                f"{result['G_mean']:<6.1f} "
+                f"{result['B_mean']:<6.1f} | "
+                f"{result['C_mean']:<6.1f} "
+                f"{result['Y_mean']:<6.1f} "
+                f"{result['M_mean']:<6.1f}\n"
+            )
+        
+        # Add statistics if multiple samples
+        if len(results) > 1:
+            import numpy as np
+            avg_r = np.mean([r['R_mean'] for r in results])
+            avg_g = np.mean([r['G_mean'] for r in results])
+            avg_b = np.mean([r['B_mean'] for r in results])
+            avg_c = np.mean([r['C_mean'] for r in results])
+            avg_y = np.mean([r['Y_mean'] for r in results])
+            avg_m = np.mean([r['M_mean'] for r in results])
+            
+            summary_text += f"\n{'AVERAGES':<15} {avg_r:<6.1f} {avg_g:<6.1f} {avg_b:<6.1f} | {avg_c:<6.1f} {avg_y:<6.1f} {avg_m:<6.1f}"
+        
+        # Text widget with scrollbar
+        text_frame = ttk.Frame(results_frame)
+        text_frame.pack(fill="both", expand=True)
+        
+        text_widget = tk.Text(
+            text_frame,
+            wrap=tk.WORD,
+            font=("Courier", 10)
+        )
+        scrollbar = ttk.Scrollbar(text_frame, orient="vertical", command=text_widget.yview)
+        text_widget.configure(yscrollcommand=scrollbar.set)
+        
+        text_widget.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        text_widget.insert(tk.END, summary_text)
+        text_widget.configure(state="disabled")
+        
+        # Export button
+        export_frame = ttk.Frame(dialog)
+        export_frame.pack(fill="x", padx=20, pady=(0, 20))
+        
+        def export_results():
+            """Export RGB-CMY results to template with auto-generated filename."""
+            try:
+                from utils.rgb_cmy_template_manager import get_template_manager
+                
+                template_manager = get_template_manager()
+                available_formats = template_manager.get_available_formats()
+                
+                # Show format selection dialog
+                format_dialog = tk.Toplevel(dialog)
+                format_dialog.title("Select Export Format")
+                format_dialog.geometry("300x200")
+                format_dialog.transient(dialog)
+                format_dialog.grab_set()
+                
+                # Center format dialog
+                format_dialog.update_idletasks()
+                x = (format_dialog.winfo_screenwidth() // 2) - (300 // 2)
+                y = (format_dialog.winfo_screenheight() // 2) - (200 // 2)
+                format_dialog.geometry(f"300x200+{x}+{y}")
+                
+                selected_format = None
+                
+                def select_format(fmt):
+                    nonlocal selected_format
+                    selected_format = fmt
+                    format_dialog.destroy()
+                
+                # Format selection UI
+                format_frame = ttk.Frame(format_dialog, padding=20)
+                format_frame.pack(fill="both", expand=True)
+                
+                ttk.Label(
+                    format_frame,
+                    text="Select Export Format:",
+                    font=("Arial", 12, "bold")
+                ).pack(pady=(0, 15))
+                
+                # Format buttons
+                for fmt in available_formats:
+                    if fmt == 'xlsx':
+                        text = "📊 Excel (.xlsx) - Recommended"
+                    elif fmt == 'ods':
+                        text = "📋 OpenDocument (.ods)"
+                    else:
+                        text = "📄 CSV (.csv) - Basic format"
+                    
+                    btn = ttk.Button(
+                        format_frame,
+                        text=text,
+                        command=lambda f=fmt: select_format(f)
+                    )
+                    btn.pack(fill="x", pady=2)
+                
+                # Cancel button
+                ttk.Button(
+                    format_frame,
+                    text="Cancel",
+                    command=format_dialog.destroy
+                ).pack(pady=10)
+                
+                # Wait for format selection
+                format_dialog.wait_window()
+                
+                if selected_format:
+                    # Export with auto-generated filename
+                    analyzer = analysis_results['analyzer']
+                    
+                    success, output_path = template_manager.export_with_auto_filename(
+                        analyzer,
+                        analysis_results['image_path'],
+                        sample_set_name,
+                        selected_format
+                    )
+                    
+                    if success:
+                        # Show the generated filename
+                        filename_only = os.path.basename(output_path)
+                        messagebox.showinfo(
+                            "Export Successful",
+                            f"RGB-CMY analysis results exported to:\n\n"
+                            f"File: {filename_only}\n"
+                            f"Location: {os.path.dirname(output_path)}\n\n"
+                            f"Full path: {output_path}"
+                        )
+                        
+                        # Ask if user wants to open the containing folder
+                        if messagebox.askyesno(
+                            "Open Folder?",
+                            "Would you like to open the folder containing the exported file?"
+                        ):
+                            try:
+                                if os.name == 'nt':  # Windows
+                                    os.startfile(os.path.dirname(output_path))
+                                elif sys.platform == 'darwin':  # macOS
+                                    os.system(f'open "{os.path.dirname(output_path)}"')
+                                else:  # Linux
+                                    os.system(f'xdg-open "{os.path.dirname(output_path)}"')
+                            except Exception as folder_error:
+                                logger.warning(f"Could not open folder: {folder_error}")
+                    else:
+                        messagebox.showerror("Export Failed", "Could not export results.")
+                        
+            except Exception as e:
+                messagebox.showerror("Export Error", f"Failed to export results: {str(e)}")
+        
+        ttk.Button(
+            export_frame,
+            text="📤 Export Results to Template",
+            command=export_results
+        ).pack(side="left")
+        
+        ttk.Button(
+            export_frame,
+            text="Close",
+            command=dialog.destroy
+        ).pack(side="right")
     
     def _show_analysis_complete_dialog(self, measurements, sample_set_name):
         """Show simple analysis complete dialog without export options."""
