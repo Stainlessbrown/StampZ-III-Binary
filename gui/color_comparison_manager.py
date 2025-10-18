@@ -647,7 +647,7 @@ class ColorComparisonManager(tk.Frame):
         # Color swatch - larger size for better visibility
         swatch_canvas = tk.Canvas(
             match_frame,
-            width=600,
+            width=550,
             height=100,
             highlightthickness=1,
             highlightbackground='gray'
