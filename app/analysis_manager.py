@@ -568,6 +568,17 @@ class AnalysisManager:
             command=export_results
         ).pack(side="left")
         
+        # Add Save to Database button
+        def save_to_database():
+            """Save RGB-CMY results to database."""
+            self._save_rgb_cmy_to_database(analysis_results, sample_set_name, dialog)
+        
+        ttk.Button(
+            button_frame,
+            text="💾 Save to Database",
+            command=save_to_database
+        ).pack(side="left", padx=(10, 0))
+        
         ttk.Button(
             button_frame,
             text="Close",
@@ -689,6 +700,367 @@ class AnalysisManager:
         dialog.focus_force()
         
         self.root.wait_window(dialog)
+    
+    def _save_rgb_cmy_to_database(self, analysis_results, sample_set_name, parent_dialog):
+        """Save RGB-CMY analysis results to database with save dialog."""
+        try:
+            results = analysis_results['results']
+            if not results:
+                messagebox.showwarning("No Results", "No RGB-CMY results to save.")
+                return
+            
+            # Create save dialog
+            dialog = tk.Toplevel(parent_dialog)
+            dialog.title("Save RGB-CMY Results")
+            dialog.geometry("550x650")
+            dialog.transient(parent_dialog)
+            dialog.grab_set()
+            
+            # Main content frame
+            content_frame = ttk.Frame(dialog, padding="20")
+            content_frame.pack(fill=tk.BOTH, expand=True)
+            
+            # Title
+            ttk.Label(content_frame, text="Save RGB-CMY Channel Analysis Results", 
+                     font=("Arial", 14, "bold")).pack(pady=(0, 10))
+            
+            # Summary information
+            summary_text = (
+                f"Analysis contains {len(results)} RGB-CMY channel samples\n"
+                f"Each sample has RGB and CMY channel statistics\n"
+                f"Sample set: {sample_set_name}\n"
+                f"Data to save: Individual sample results and/or averaged channel statistics"
+            )
+            ttk.Label(content_frame, text=summary_text, justify=tk.LEFT).pack(pady=(0, 15))
+            
+            # Database selection frame
+            db_frame = ttk.LabelFrame(content_frame, text="Database Selection", padding="10")
+            db_frame.pack(fill=tk.X, pady=(0, 15))
+            
+            # Get existing non-library databases
+            existing_databases = self._get_existing_databases_for_rgb_cmy()
+            
+            # Radio button for database selection
+            db_choice = tk.StringVar(value="existing" if existing_databases else "new")
+            
+            # Existing database option
+            existing_frame = ttk.Frame(db_frame)
+            existing_frame.pack(fill=tk.X, pady=(0, 10))
+            
+            existing_radio = ttk.Radiobutton(existing_frame, text="Use existing database:", 
+                                           variable=db_choice, value="existing")
+            existing_radio.pack(anchor='w')
+            
+            db_var = tk.StringVar()
+            if existing_databases:
+                db_var.set(existing_databases[0])
+            
+            existing_combo = ttk.Combobox(existing_frame, textvariable=db_var, 
+                                        values=existing_databases, state="readonly", width=50)
+            existing_combo.pack(fill=tk.X, padx=(20, 0), pady=(5, 0))
+            
+            if not existing_databases:
+                existing_radio.config(state='disabled')
+                existing_combo.config(state='disabled')
+                ttk.Label(existing_frame, text="(No existing databases found)", 
+                         foreground='gray').pack(anchor='w', padx=(20, 0))
+            
+            # New database option
+            new_frame = ttk.Frame(db_frame)
+            new_frame.pack(fill=tk.X, pady=(10, 0))
+            
+            new_radio = ttk.Radiobutton(new_frame, text="Create new database:", 
+                                       variable=db_choice, value="new")
+            new_radio.pack(anchor='w')
+            
+            new_db_var = tk.StringVar()
+            # Generate default database name
+            image_name = "unknown_image"
+            if analysis_results.get('image_path'):
+                image_name = os.path.splitext(os.path.basename(analysis_results['image_path']))[0]
+            
+            from datetime import datetime
+            date_str = datetime.now().strftime('%Y%m%d')
+            default_name = f"{image_name}_{sample_set_name}_RGBCMY_{date_str}"
+            new_db_var.set(default_name)
+                
+            new_db_entry = ttk.Entry(new_frame, textvariable=new_db_var, width=50)
+            new_db_entry.pack(fill=tk.X, padx=(20, 0), pady=(5, 0))
+            
+            # Save options frame
+            options_frame = ttk.LabelFrame(content_frame, text="Save Options", padding="10")
+            options_frame.pack(fill=tk.X, pady=(15, 0))
+            
+            # Checkboxes for what to save
+            save_individual = tk.BooleanVar(value=True)
+            save_average = tk.BooleanVar(value=True)
+            
+            save_individual_cb = ttk.Checkbutton(options_frame, text="Save individual sample channel data", 
+                                               variable=save_individual)
+            save_individual_cb.pack(anchor='w', pady=(0, 5))
+            
+            save_average_cb = ttk.Checkbutton(options_frame, text="Save averaged channel statistics", 
+                                            variable=save_average)
+            save_average_cb.pack(anchor='w', pady=(0, 10))
+            
+            # Info about database naming
+            info_text = (
+                "• Individual sample data: {database_name}_RGBCMY.db\n"
+                "• Averaged statistics: {database_name}_RGBCMY_AVG_averages.db"
+            )
+            ttk.Label(options_frame, text=info_text, font=("Arial", 9), 
+                     foreground="gray", justify=tk.LEFT).pack(anchor='w')
+            
+            def save_results():
+                self._execute_rgb_cmy_save_from_analysis(dialog, db_choice, db_var, new_db_var, 
+                                                        save_individual, save_average, results, 
+                                                        sample_set_name, analysis_results)
+            
+            # Buttons frame
+            button_frame = ttk.Frame(content_frame)
+            button_frame.pack(fill=tk.X, pady=(15, 0))
+            
+            ttk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT)
+            ttk.Button(button_frame, text="Save", command=save_results).pack(side=tk.RIGHT, padx=(0, 10))
+            
+        except Exception as e:
+            messagebox.showerror("Save Error", f"Failed to open save dialog: {str(e)}")
+    
+    def _get_existing_databases_for_rgb_cmy(self):
+        """Get list of existing non-library databases for RGB-CMY."""
+        try:
+            from utils.path_utils import get_color_analysis_dir
+            analysis_dir = get_color_analysis_dir()
+            
+            if not os.path.exists(analysis_dir):
+                return []
+            
+            # Get all .db files in the analysis directory
+            db_files = [f for f in os.listdir(analysis_dir) if f.endswith('.db')]
+            
+            # Filter out library databases and system databases
+            non_library_dbs = []
+            for db_file in db_files:
+                db_name = os.path.splitext(db_file)[0]
+                # Skip library databases, average databases, and system databases
+                if not (db_name.endswith('_library') or 
+                       db_name.endswith('_averages') or
+                       db_name.endswith('_AVG') or
+                       db_name.endswith('_RGBCMY') or
+                       db_name.endswith('_RGBCMY_AVG') or
+                       db_name.startswith('system_') or
+                       db_name in ['coordinates', 'coordinate_sets']):
+                    non_library_dbs.append(db_name)
+            
+            return sorted(non_library_dbs)
+            
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error getting existing databases: {e}")
+            return []
+    
+    def _execute_rgb_cmy_save_from_analysis(self, dialog, db_choice, db_var, new_db_var, 
+                                           save_individual, save_average, results, 
+                                           sample_set_name, analysis_results):
+        """Execute the RGB-CMY save operation from analysis results."""
+        # Check that at least one save option is selected
+        if not save_individual.get() and not save_average.get():
+            messagebox.showerror("Error", "Please select at least one save option")
+            return
+        
+        # Determine which database to use
+        final_db_name = ""
+        if db_choice.get() == "existing" and self._get_existing_databases_for_rgb_cmy():
+            final_db_name = db_var.get().strip()
+        else:
+            final_db_name = new_db_var.get().strip()
+        
+        if not final_db_name:
+            messagebox.showerror("Error", "Please select or enter a database name")
+            return
+        
+        try:
+            # Initialize success flags
+            success_individual = True
+            success_average = True
+            saved_files = []
+            
+            # Get image name for database records
+            image_name = "rgbcmy_analysis"
+            if analysis_results.get('image_path'):
+                image_name = os.path.splitext(os.path.basename(analysis_results['image_path']))[0]
+            
+            # Save individual sample data if requested
+            if save_individual.get():
+                success_individual = self._save_individual_rgb_cmy_from_analysis(final_db_name, image_name, saved_files, results, sample_set_name)
+            
+            # Save averaged data if requested
+            if save_average.get():
+                success_average = self._save_averaged_rgb_cmy_from_analysis(final_db_name, image_name, saved_files, results, sample_set_name)
+            
+            # Check if all requested operations succeeded
+            all_requested_succeeded = True
+            if save_individual.get() and not success_individual:
+                all_requested_succeeded = False
+            if save_average.get() and not success_average:
+                all_requested_succeeded = False
+            
+            if all_requested_succeeded and saved_files:
+                # Build success message
+                success_msg = "RGB-CMY results saved successfully!\n\n"
+                
+                if save_individual.get() and success_individual:
+                    success_msg += f"✓ {len(results)} individual sample measurements saved\n"
+                if save_average.get() and success_average:
+                    success_msg += f"✓ Channel-averaged statistics saved\n"
+                
+                success_msg += "\nSaved to:\n"
+                for file in saved_files:
+                    success_msg += f"• {file}\n"
+                
+                messagebox.showinfo("Success", success_msg)
+                dialog.destroy()
+            else:
+                # Build error message for failures
+                error_msg = "Some save operations failed:\n\n"
+                
+                if save_individual.get() and not success_individual:
+                    error_msg += "✗ Individual sample data failed to save\n"
+                if save_average.get() and not success_average:
+                    error_msg += "✗ Averaged statistics failed to save\n"
+                
+                if saved_files:
+                    error_msg += "\nPartially saved to:\n"
+                    for file in saved_files:
+                        error_msg += f"• {file}\n"
+                
+                messagebox.showerror("Save Error", error_msg)
+                
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            messagebox.showerror("Error", f"Failed to save RGB-CMY results: {str(e)}")
+            logger.error(f"RGB-CMY save error: {e}")
+    
+    def _save_individual_rgb_cmy_from_analysis(self, db_name, image_name, saved_files, results, sample_set_name):
+        """Save individual RGB-CMY sample data to database."""
+        try:
+            from utils.color_analysis_db import ColorAnalysisDB
+            
+            # Use _RGBCMY suffix for RGB-CMY data
+            rgb_cmy_db_name = f"{db_name}_RGBCMY"
+            individual_db = ColorAnalysisDB(rgb_cmy_db_name)
+            
+            # Create measurement set
+            set_id = individual_db.create_measurement_set(image_name, f"RGB-CMY channel analysis from {sample_set_name}")
+            
+            if not set_id:
+                return False
+            
+            # Save each sample result as a measurement
+            for i, result in enumerate(results, 1):
+                # Create comprehensive notes with RGB and CMY data
+                notes = (
+                    f"RGB-CMY sample analysis: {result['sample_name']} | "
+                    f"RGB: R={result['R_mean']:.1f}±{result.get('R_std', 0):.2f}, "
+                    f"G={result['G_mean']:.1f}±{result.get('G_std', 0):.2f}, "
+                    f"B={result['B_mean']:.1f}±{result.get('B_std', 0):.2f} | "
+                    f"CMY: C={result['C_mean']:.1f}±{result.get('C_std', 0):.2f}, "
+                    f"M={result['M_mean']:.1f}±{result.get('M_std', 0):.2f}, "
+                    f"Y={result['Y_mean']:.1f}±{result.get('Y_std', 0):.2f}"
+                )
+                
+                # For RGB-CMY data, we'll store RGB values in the standard fields
+                saved = individual_db.save_color_measurement(
+                    set_id=set_id,
+                    coordinate_point=i,
+                    x_pos=0.0,  # RGB-CMY analysis doesn't have spatial coordinates
+                    y_pos=0.0,
+                    l_value=result['R_mean'],  # Store R in L field
+                    a_value=result['G_mean'],  # Store G in a field  
+                    b_value=result['B_mean'],  # Store B in b field
+                    rgb_r=result['R_mean'],
+                    rgb_g=result['G_mean'], 
+                    rgb_b=result['B_mean'],
+                    sample_type="rgb_cmy_sample",
+                    sample_size=f"{result.get('sample_size', 'unknown')}",
+                    sample_anchor="rgb_cmy",
+                    notes=notes
+                )
+                
+                if not saved:
+                    return False
+            
+            saved_files.append(f"{rgb_cmy_db_name}.db")
+            return True
+            
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error saving individual RGB-CMY data: {e}")
+            return False
+    
+    def _save_averaged_rgb_cmy_from_analysis(self, db_name, image_name, saved_files, results, sample_set_name):
+        """Save averaged RGB-CMY statistics to database."""
+        try:
+            from utils.color_analyzer import ColorAnalyzer
+            import numpy as np
+            
+            # Calculate averages across all sample results
+            avg_r = np.mean([r['R_mean'] for r in results])
+            avg_g = np.mean([r['G_mean'] for r in results])
+            avg_b = np.mean([r['B_mean'] for r in results])
+            avg_c = np.mean([r['C_mean'] for r in results])
+            avg_m = np.mean([r['M_mean'] for r in results])
+            avg_y = np.mean([r['Y_mean'] for r in results])
+            
+            # Convert to format expected by averaged measurement saver
+            sample_measurements = []
+            for i, result in enumerate(results, 1):
+                measurement = {
+                    'id': f"sample_{i}",
+                    'l_value': result['R_mean'],  # Store RGB in Lab fields for compatibility
+                    'a_value': result['G_mean'],
+                    'b_value': result['B_mean'], 
+                    'rgb_r': result['R_mean'],
+                    'rgb_g': result['G_mean'],
+                    'rgb_b': result['B_mean'],
+                    'x_position': 0.0,
+                    'y_position': 0.0,
+                    'sample_type': 'rgb_cmy_sample',
+                    'sample_width': 1,
+                    'sample_height': 1,
+                    'anchor': 'rgb_cmy'
+                }
+                sample_measurements.append(measurement)
+            
+            analyzer = ColorAnalyzer()
+            avg_db_name = f"{db_name}_RGBCMY_AVG"
+            
+            notes = (
+                f"RGB-CMY channel averages from {len(results)} samples in {sample_set_name} | "
+                f"Avg RGB: R={avg_r:.1f}, G={avg_g:.1f}, B={avg_b:.1f} | "
+                f"Avg CMY: C={avg_c:.1f}, M={avg_m:.1f}, Y={avg_y:.1f}"
+            )
+            
+            success = analyzer.save_averaged_measurement_from_samples(
+                sample_measurements=sample_measurements,
+                sample_set_name=avg_db_name,
+                image_name=image_name,
+                notes=notes
+            )
+            
+            if success:
+                saved_files.append(f"{avg_db_name}_averages.db")
+            
+            return success
+            
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error saving averaged RGB-CMY data: {e}")
+            return False
     
     def _export_individual_to_logger(self, measurements, sample_set_name, dialog):
         """Export individual measurements to unified data logger."""
