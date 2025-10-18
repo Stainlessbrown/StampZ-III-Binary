@@ -587,13 +587,13 @@ class TernaryPlotWindow:
                 # Highlight new point
                 self.highlighted_point = closest_point_idx
             
-            # Refresh plot to show highlighting
-            self._render()
+            # Refresh plot to show highlighting while preserving zoom
+            self._render(preserve_zoom=True)
         else:
             # Click not near any point - clear selection
             if self.highlighted_point is not None:
                 self.highlighted_point = None
-                self._render()
+                self._render(preserve_zoom=True)
     
     def _convert_to_plot3d_format(self, df):
         """Convert L*a*b* data to Plot_3D normalized format."""
@@ -698,7 +698,12 @@ class TernaryPlotWindow:
             messagebox.showerror("Error", f"Failed to save plot:\n\n{e}")
 
     # === Plotting ===
-    def _render(self):
+    def _render(self, preserve_zoom=False):
+        # Store current axis limits if preserving zoom
+        if preserve_zoom:
+            xlim = self.ax.get_xlim()
+            ylim = self.ax.get_ylim()
+        
         self.ax.clear()
         self._draw_ternary_axes()
 
@@ -856,6 +861,12 @@ class TernaryPlotWindow:
             title = "Ternary Plot"
         
         self.ax.set_title(title, fontsize=12)
+        
+        # Restore zoom if preserving
+        if preserve_zoom:
+            self.ax.set_xlim(xlim)
+            self.ax.set_ylim(ylim)
+        
         self.canvas.draw_idle()
 
     def _draw_ternary_axes(self):
