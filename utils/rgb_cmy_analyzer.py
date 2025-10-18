@@ -192,6 +192,103 @@ class RGBCMYAnalyzer:
         
         return saved_files
     
+    def save_channel_masks(self, output_directory: str, prefix: str = "channel") -> Dict[str, List[str]]:
+        """
+        Save RGB and CMY channel masks as grayscale images.
+        
+        Args:
+            output_directory: Directory to save channel masks
+            prefix: Filename prefix for channel mask files
+            
+        Returns:
+            Dictionary with lists of saved file paths for each channel type
+        """
+        if self.source_image is None:
+            logger.error("No source image loaded. Cannot create channel masks.")
+            return {}
+        
+        saved_files = {
+            'rgb': [],
+            'cmy': []
+        }
+        
+        try:
+            os.makedirs(output_directory, exist_ok=True)
+            
+            # Convert source image to array for channel extraction
+            image_array = np.array(self.source_image)
+            
+            # Extract RGB channels
+            r_channel = image_array[:, :, 0]  # Red channel
+            g_channel = image_array[:, :, 1]  # Green channel 
+            b_channel = image_array[:, :, 2]  # Blue channel
+            
+            # Calculate CMY channels (255 - RGB)
+            c_channel = 255 - r_channel  # Cyan = 255 - Red
+            m_channel = 255 - g_channel  # Magenta = 255 - Green
+            y_channel = 255 - b_channel  # Yellow = 255 - Blue
+            
+            # Save RGB channel masks
+            rgb_channels = [('R', r_channel), ('G', g_channel), ('B', b_channel)]
+            for channel_name, channel_data in rgb_channels:
+                channel_image = Image.fromarray(channel_data.astype(np.uint8), mode='L')
+                filename = f"{prefix}_RGB_{channel_name}.png"
+                filepath = os.path.join(output_directory, filename)
+                channel_image.save(filepath)
+                saved_files['rgb'].append(filepath)
+                logger.info(f"Saved RGB {channel_name} channel: {filepath}")
+            
+            # Save CMY channel masks
+            cmy_channels = [('C', c_channel), ('M', m_channel), ('Y', y_channel)]
+            for channel_name, channel_data in cmy_channels:
+                channel_image = Image.fromarray(channel_data.astype(np.uint8), mode='L')
+                filename = f"{prefix}_CMY_{channel_name}.png"
+                filepath = os.path.join(output_directory, filename)
+                channel_image.save(filepath)
+                saved_files['cmy'].append(filepath)
+                logger.info(f"Saved CMY {channel_name} channel: {filepath}")
+            
+            # Optionally save composite RGB and CMY visualizations
+            self._save_composite_channel_masks(output_directory, prefix, image_array, saved_files)
+            
+        except Exception as e:
+            logger.error(f"Error saving channel masks: {e}")
+        
+        return saved_files
+    
+    def _save_composite_channel_masks(self, output_directory: str, prefix: str, 
+                                     image_array: np.ndarray, saved_files: Dict[str, List[str]]):
+        """
+        Save composite visualizations of RGB and CMY channels.
+        
+        Args:
+            output_directory: Directory to save files
+            prefix: Filename prefix
+            image_array: Source image array
+            saved_files: Dictionary to append new file paths to
+        """
+        try:
+            # Create RGB composite (original image)
+            rgb_composite = Image.fromarray(image_array.astype(np.uint8), mode='RGB')
+            rgb_filename = f"{prefix}_RGB_composite.png"
+            rgb_filepath = os.path.join(output_directory, rgb_filename)
+            rgb_composite.save(rgb_filepath)
+            saved_files['rgb'].append(rgb_filepath)
+            logger.info(f"Saved RGB composite: {rgb_filepath}")
+            
+            # Create CMY composite visualization
+            # CMY channels as RGB for visualization
+            cmy_array = 255 - image_array  # Convert RGB to CMY
+            cmy_composite = Image.fromarray(cmy_array.astype(np.uint8), mode='RGB')
+            cmy_filename = f"{prefix}_CMY_composite.png"
+            cmy_filepath = os.path.join(output_directory, cmy_filename)
+            cmy_composite.save(cmy_filepath)
+            saved_files['cmy'].append(cmy_filepath)
+            logger.info(f"Saved CMY composite: {cmy_filepath}")
+            
+        except Exception as e:
+            logger.error(f"Error saving composite channel masks: {e}")
+    
     def export_to_template(self, template_path: str, output_path: str) -> bool:
         """
         Export analysis results to RGB-CMY template.
@@ -213,8 +310,6 @@ class RGBCMYAnalyzer:
             
             if file_ext == '.xlsx':
                 return self._export_to_xlsx(template_path, output_path)
-            elif file_ext == '.ods':
-                return self._export_to_ods(template_path, output_path)
             else:
                 # Fallback to CSV
                 self._export_to_csv(output_path)
@@ -233,16 +328,8 @@ class RGBCMYAnalyzer:
             workbook = openpyxl.load_workbook(template_path)
             sheet = workbook.active
             
-            # Populate metadata
-            metadata = self.analysis_data.get('metadata', {})
-            sheet['B2'] = metadata.get('plate', '')
-            sheet['B3'] = datetime.now().strftime('%m/%d/%Y')
-            sheet['B5'] = metadata.get('date_measured', '')
-            sheet['B7'] = metadata.get('plate', '')
-            sheet['B8'] = metadata.get('die', '')
-            sheet['B9'] = metadata.get('date_registered', '')
-            sheet['B10'] = metadata.get('described_colour', '')
-            sheet['B14'] = metadata.get('total_pixels', '')
+            # Skip metadata population - rows 1-14 are for user input
+            # Only populate analysis data in rows 15+ to preserve user's manual entries
             
             # Populate RGB data (rows 16-21, columns B-J) - RGB order
             for i in range(min(6, len(self.results))):  # Only populate up to 6 samples or actual count
@@ -280,206 +367,6 @@ class RGBCMYAnalyzer:
             logger.error(f"Error exporting to Excel: {e}")
             return False
     
-    def _export_to_ods(self, template_path: str, output_path: str) -> bool:
-        """Export to ODS format using proper odfpy library (same as main app)."""
-        try:
-            # Try to import odfpy like the main ODS exporter does
-            try:
-                from odf.opendocument import OpenDocumentSpreadsheet
-                from odf.table import Table, TableRow, TableCell
-                from odf.text import P
-                from odf.style import Style, TableColumnProperties
-                from odf import number
-                
-                logger.info("Using odfpy for native ODS export")
-                
-                # Create new ODS document (we'll populate it from scratch)
-                doc = OpenDocumentSpreadsheet()
-                
-                # Create table
-                table = Table()
-                table.setAttribute('name', 'RGB-CMY Analysis')
-                
-                # Helper function to create a cell with value
-                def create_cell(value, value_type='string'):
-                    cell = TableCell()
-                    if value_type == 'float' and value != '':
-                        try:
-                            numeric_value = float(value)
-                            cell.setAttribute('valuetype', 'float')
-                            cell.setAttribute('value', str(numeric_value))
-                            cell.addElement(P(text=str(value)))
-                        except (ValueError, TypeError):
-                            cell.addElement(P(text=str(value)))
-                    else:
-                        cell.addElement(P(text=str(value)))
-                    return cell
-                
-                # Get metadata
-                metadata = self.analysis_data.get('metadata', {})
-                
-                # Create rows matching the template structure
-                rows_data = [
-                    # Header rows (1-14)
-                    ['Colour Space Analysis', '', '', '', '', '', '', '', '', ''],
-                    [metadata.get('plate', ''), '', '', '', '', '', '', '', '', ''],
-                    [datetime.now().strftime('%m/%d/%Y'), '', '', '', '', '', '', '', '', ''],
-                    ['', '', '', '', '', '', '', '', '', ''],
-                    ['Date Measured', metadata.get('date_measured', ''), '', '', '', '', '', '', '', ''],
-                    ['', '', '', '', '', '', '', '', '', ''],
-                    ['Plate', metadata.get('plate', ''), '', '', '', '', '', '', '', ''],
-                    ['Die', metadata.get('die', ''), '', '', '', '', '', '', '', ''],
-                    ['Date Registered', metadata.get('date_registered', ''), '', '', '', '', '', '', '', ''],
-                    ['Described Colour', metadata.get('described_colour', ''), '', '', '', '', '', '', '', ''],
-                    ['', '', '', '', '', '', '', '', '', ''],
-                    ['', '', '', '', '', '', '', '', '', ''],
-                    ['', 'W x H', 'Area', '', '', '', '', '', '', ''],
-                    ['No of Pixels', metadata.get('total_pixels', ''), '', '', '', '', '', '', '', ''],
-                    
-                    # RGB section header (row 15) - RGB order
-                    ['Sample#', 'R', 'SD', '1/SD²', 'G', 'SD', '1/SD²', 'B', 'SD', '1/SD²']
-                ]
-                
-                # RGB data rows (16-21) - only populate rows for actual samples
-                for i in range(6):
-                    if i < len(self.results):
-                        result = self.results[i]
-                        r_inv_sd2 = 1 / (result['R_std'] ** 2) if result['R_std'] > 0 else ''
-                        g_inv_sd2 = 1 / (result['G_std'] ** 2) if result['G_std'] > 0 else ''
-                        b_inv_sd2 = 1 / (result['B_std'] ** 2) if result['B_std'] > 0 else ''
-                        
-                        rows_data.append([
-                            str(i + 1),
-                            f"{result['R_mean']:.1f}",  # Red first
-                            f"{result['R_std']:.2f}",
-                            f"{r_inv_sd2:.6f}" if r_inv_sd2 != '' else '',
-                            f"{result['G_mean']:.1f}",  # Green middle
-                            f"{result['G_std']:.2f}",
-                            f"{g_inv_sd2:.6f}" if g_inv_sd2 != '' else '',
-                            f"{result['B_mean']:.1f}",  # Blue last
-                            f"{result['B_std']:.2f}",
-                            f"{b_inv_sd2:.6f}" if b_inv_sd2 != '' else ''
-                        ])
-                    else:
-                        # Empty row for unused sample slots
-                        rows_data.append([str(i + 1), '', '', '', '', '', '', '', '', ''])
-                
-                # RGB averages and calculations (rows 22-27)
-                if self.results:
-                    avg_r = np.mean([r['R_mean'] for r in self.results])
-                    avg_g = np.mean([r['G_mean'] for r in self.results])
-                    avg_b = np.mean([r['B_mean'] for r in self.results])
-                    avg_r_std = np.mean([r['R_std'] for r in self.results])
-                    avg_g_std = np.mean([r['G_std'] for r in self.results])
-                    avg_b_std = np.mean([r['B_std'] for r in self.results])
-                    
-                    rows_data.extend([
-                        ['Ave', f"{avg_r:.1f}", f"{avg_r_std:.2f}", 
-                         f"{1/(avg_r_std**2):.6f}" if avg_r_std > 0 else '',
-                         f"{avg_g:.1f}", f"{avg_g_std:.2f}",
-                         f"{1/(avg_g_std**2):.6f}" if avg_g_std > 0 else '',
-                         f"{avg_b:.1f}", f"{avg_b_std:.2f}",
-                         f"{1/(avg_b_std**2):.6f}" if avg_b_std > 0 else ''],
-                        ['8-bit', f"{avg_r:.0f}", '', '', f"{avg_g:.0f}", '', '', f"{avg_b:.0f}", '', ''],
-                        ['R-G', f"{avg_r - avg_g:.1f}", f"{avg_r_std:.2f}", '0.000', '', '', '', '', '', ''],
-                        ['G-B', f"{avg_g - avg_b:.1f}", f"{avg_g_std:.2f}", '', '', '', '', '', '', ''],
-                        ['R-B', f"{avg_r - avg_b:.1f}", '', '', '', '', '', '', '', ''],
-                        ['', '', '', '', '', '', '', '', '', '']
-                    ])
-                else:
-                    rows_data.extend([
-                        ['Ave', '', '', '', '', '', '', '', '', ''],
-                        ['8-bit', '', '', '', '', '', '', '', '', ''],
-                        ['R-G', '', '', '0.000', '', '', '', '', '', ''],
-                        ['G-B', '', '', '', '', '', '', '', '', ''],
-                        ['R-B', '', '', '', '', '', '', '', '', ''],
-                        ['', '', '', '', '', '', '', '', '', '']
-                    ])
-                
-                # CMY section header (row 28) - CMY order
-                rows_data.append(['Sample#', 'C', 'SD', '1/SD²', 'M', 'SD', '1/SD²', 'Y', 'SD', '1/SD²'])
-                
-                # CMY data rows (29-34) - only populate rows for actual samples
-                for i in range(6):
-                    if i < len(self.results):
-                        result = self.results[i]
-                        c_inv_sd2 = 1 / (result['C_std'] ** 2) if result['C_std'] > 0 else ''
-                        m_inv_sd2 = 1 / (result['M_std'] ** 2) if result['M_std'] > 0 else ''
-                        y_inv_sd2 = 1 / (result['Y_std'] ** 2) if result['Y_std'] > 0 else ''
-                        
-                        rows_data.append([
-                            str(i + 1),
-                            f"{result['C_mean']:.1f}",  # Cyan first
-                            f"{result['C_std']:.2f}",
-                            f"{c_inv_sd2:.6f}" if c_inv_sd2 != '' else '',
-                            f"{result['M_mean']:.1f}",  # Magenta middle
-                            f"{result['M_std']:.2f}",
-                            f"{m_inv_sd2:.6f}" if m_inv_sd2 != '' else '',
-                            f"{result['Y_mean']:.1f}",  # Yellow last
-                            f"{result['Y_std']:.2f}",
-                            f"{y_inv_sd2:.6f}" if y_inv_sd2 != '' else ''
-                        ])
-                    else:
-                        # Empty row for unused sample slots
-                        rows_data.append([str(i + 1), '', '', '', '', '', '', '', '', ''])
-                
-                # CMY averages (rows 35-39)
-                if self.results:
-                    avg_c = np.mean([r['C_mean'] for r in self.results])
-                    avg_m = np.mean([r['M_mean'] for r in self.results])
-                    avg_y = np.mean([r['Y_mean'] for r in self.results])
-                    avg_c_std = np.mean([r['C_std'] for r in self.results])
-                    avg_m_std = np.mean([r['M_std'] for r in self.results])
-                    avg_y_std = np.mean([r['Y_std'] for r in self.results])
-                    
-                    rows_data.extend([
-                        ['Ave', f"{avg_c:.1f}", f"{avg_c_std:.2f}",
-                         f"{1/(avg_c_std**2):.6f}" if avg_c_std > 0 else '',
-                         f"{avg_m:.1f}", f"{avg_m_std:.2f}",
-                         f"{1/(avg_m_std**2):.6f}" if avg_m_std > 0 else '',
-                         f"{avg_y:.1f}", f"{avg_y_std:.2f}",
-                         f"{1/(avg_y_std**2):.6f}" if avg_y_std > 0 else ''],
-                        ['', '', '', '', '', '', '', '', '', ''],
-                        ['C-M', f"{avg_c - avg_m:.1f}", f"{avg_c_std:.2f}", '', '', '', '', '', '', ''],
-                        ['M-Y', f"{avg_m - avg_y:.1f}", f"{avg_m_std:.2f}", '', '', '', '', '', '', ''],
-                        ['C-Y', f"{avg_c - avg_y:.1f}", '', '', '', '', '', '', '', '']
-                    ])
-                else:
-                    rows_data.extend([
-                        ['Ave', '', '', '', '', '', '', '', '', ''],
-                        ['', '', '', '', '', '', '', '', '', ''],
-                        ['C-M', '', '', '', '', '', '', '', '', ''],
-                        ['M-Y', '', '', '', '', '', '', '', '', ''],
-                        ['C-Y', '', '', '', '', '', '', '', '', '']
-                    ])
-                
-                # Create table rows
-                for row_data in rows_data:
-                    row = TableRow()
-                    for value in row_data:
-                        cell = create_cell(value, 'float' if str(value).replace('.','').replace('-','').isdigit() else 'string')
-                        row.addElement(cell)
-                    table.addElement(row)
-                
-                # Add table to document
-                doc.spreadsheet.addElement(table)
-                
-                # Save document
-                doc.save(output_path)
-                logger.info(f"ODS file exported with data using odfpy: {output_path}")
-                return True
-                
-            except ImportError as import_error:
-                logger.warning(f"odfpy not available: {import_error}, falling back to template copy")
-                
-                # Fallback: just copy the template (better than broken file)
-                shutil.copy2(template_path, output_path)
-                logger.info(f"ODS template copied (no data population): {output_path}")
-                return True
-            
-        except Exception as e:
-            logger.error(f"Error exporting to ODS: {e}")
-            return False
     
     def _export_to_csv(self, csv_path: str):
         """Export results to CSV format matching the template structure."""

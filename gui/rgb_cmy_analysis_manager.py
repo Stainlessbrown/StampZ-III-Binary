@@ -557,16 +557,27 @@ class RGBCMYAnalysisManager:
             messagebox.showwarning("No Results", "Run analysis first.")
             return
         
-        # Choose output file
+        # Show info dialog about export format
+        messagebox.showinfo(
+            "Export Format", 
+            "RGB-CMY analysis will be exported as Excel (.xlsx) format.\n\n"
+            "This file can be opened with:\n"
+            "• Microsoft Excel\n"
+            "• LibreOffice Calc\n"
+            "• Apple Numbers\n"
+            "• Google Sheets\n\n"
+            "All formulas and calculations will work correctly in these applications."
+        )
+        
+        # Choose output file - XLSX only
         filetypes = [
             ("Excel files", "*.xlsx"),
-            ("OpenDocument Spreadsheet", "*.ods"),
             ("CSV files", "*.csv"),
             ("All files", "*.*")
         ]
         
         filename = filedialog.asksaveasfilename(
-            title="Export Analysis Results",
+            title="Export RGB-CMY Analysis Results",
             defaultextension=".xlsx",
             filetypes=filetypes
         )
@@ -577,18 +588,13 @@ class RGBCMYAnalysisManager:
         try:
             # Determine template to use
             ext = os.path.splitext(filename)[1].lower()
-            template_path = None
             
             if ext == '.xlsx' and os.path.exists(self.template_paths['xlsx']):
-                template_path = self.template_paths['xlsx']
-            elif ext == '.ods' and os.path.exists(self.template_paths['ods']):
-                template_path = self.template_paths['ods']
-            
-            if template_path:
-                success = self.analyzer.export_to_template(template_path, filename)
+                # Export to Excel format
+                success = self.analyzer.export_to_template(self.template_paths['xlsx'], filename)
             else:
                 # Fallback to CSV export
-                csv_path = filename.replace('.xlsx', '.csv').replace('.ods', '.csv')
+                csv_path = filename.replace('.xlsx', '.csv')
                 self.analyzer._export_to_csv(csv_path)
                 success = True
                 filename = csv_path

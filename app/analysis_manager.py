@@ -383,124 +383,193 @@ class AnalysisManager:
         text_widget.insert(tk.END, summary_text)
         text_widget.configure(state="disabled")
         
-        # Export button
+        # Export options frame
         export_frame = ttk.Frame(dialog)
         export_frame.pack(fill="x", padx=20, pady=(0, 20))
         
+        # Channel mask saving option
+        options_frame = ttk.Frame(export_frame)
+        options_frame.pack(fill="x", pady=(0, 10))
+        
+        save_channel_masks_var = tk.BooleanVar(value=False)
+        
+        channel_mask_frame = ttk.Frame(options_frame)
+        channel_mask_frame.pack(anchor="w")
+        
+        ttk.Checkbutton(
+            channel_mask_frame,
+            text="Save RGB & CMY channel masks (for debugging/visualization)",
+            variable=save_channel_masks_var
+        ).pack(side="left")
+        
+        # Help icon/text for channel masks
+        help_label = ttk.Label(
+            channel_mask_frame,
+            text="ⓘ",
+            font=("Arial", 10),
+            foreground="gray",
+            cursor="hand2"
+        )
+        help_label.pack(side="left", padx=(5, 0))
+        
+        def show_channel_mask_help():
+            messagebox.showinfo(
+                "Channel Masks Help",
+                "Channel masks show individual RGB and CMY color channels:\n\n"
+                "• RGB_R.png - Red channel intensity\n"
+                "• RGB_G.png - Green channel intensity\n"
+                "• RGB_B.png - Blue channel intensity\n"
+                "• CMY_C.png - Cyan channel (255-Red)\n"
+                "• CMY_M.png - Magenta channel (255-Green)\n"
+                "• CMY_Y.png - Yellow channel (255-Blue)\n\n"
+                "Useful for troubleshooting color analysis issues or \n"
+                "understanding how colors separate across channels."
+            )
+        
+        help_label.bind("<Button-1>", lambda e: show_channel_mask_help())
+        
+        # Separator
+        ttk.Separator(export_frame, orient="horizontal").pack(fill="x", pady=(0, 10))
+        
+        # Export button frame
+        button_frame = ttk.Frame(export_frame)
+        button_frame.pack(fill="x")
+        
         def export_results():
-            """Export RGB-CMY results to template with auto-generated filename."""
+            """Export RGB-CMY results directly to Excel format with info message."""
+            try:
+                # Show info dialog about Excel export
+                info_dialog = tk.Toplevel(dialog)
+                info_dialog.title("RGB-CMY Export Information")
+                info_dialog.geometry("400x300")
+                info_dialog.transient(dialog)
+                info_dialog.grab_set()
+                
+                # Center info dialog
+                info_dialog.update_idletasks()
+                x = (info_dialog.winfo_screenwidth() // 2) - (400 // 2)
+                y = (info_dialog.winfo_screenheight() // 2) - (300 // 2)
+                info_dialog.geometry(f"400x300+{x}+{y}")
+                
+                # Info dialog UI
+                info_frame = ttk.Frame(info_dialog, padding=20)
+                info_frame.pack(fill="both", expand=True)
+                
+                ttk.Label(
+                    info_frame,
+                    text="Export Format Information",
+                    font=("Arial", 12, "bold")
+                ).pack(pady=(0, 15))
+                
+                # Show info message about XLSX format
+                info_text = (
+                    "RGB-CMY analysis will be exported as Excel (.xlsx) format.\n\n"
+                    "This file can be opened with:\n"
+                    "• Microsoft Excel\n"
+                    "• LibreOffice Calc\n"
+                    "• Apple Numbers\n"
+                    "• Google Sheets\n\n"
+                    "All formulas and calculations will work correctly in these applications."
+                )
+                
+                ttk.Label(
+                    info_frame,
+                    text=info_text,
+                    font=("Arial", 10),
+                    justify="left"
+                ).pack(pady=(0, 15))
+                
+                # OK button to close info and proceed with export
+                def proceed_with_export():
+                    info_dialog.destroy()
+                    # Perform the actual export
+                    _perform_xlsx_export()
+                
+                ttk.Button(
+                    info_frame,
+                    text="OK - Proceed with Export",
+                    command=proceed_with_export
+                ).pack(pady=10)
+                
+            except Exception as e:
+                messagebox.showerror("Export Error", f"Failed to show export info: {str(e)}")
+        
+        def _perform_xlsx_export():
+            """Perform the actual XLSX export."""
             try:
                 from utils.rgb_cmy_template_manager import get_template_manager
                 
                 template_manager = get_template_manager()
-                available_formats = template_manager.get_available_formats()
                 
-                # Show format selection dialog
-                format_dialog = tk.Toplevel(dialog)
-                format_dialog.title("Select Export Format")
-                format_dialog.geometry("300x200")
-                format_dialog.transient(dialog)
-                format_dialog.grab_set()
+                # Export directly to XLSX format
+                analyzer = analysis_results['analyzer']
                 
-                # Center format dialog
-                format_dialog.update_idletasks()
-                x = (format_dialog.winfo_screenwidth() // 2) - (300 // 2)
-                y = (format_dialog.winfo_screenheight() // 2) - (200 // 2)
-                format_dialog.geometry(f"300x200+{x}+{y}")
+                success, output_path = template_manager.export_with_auto_filename(
+                    analyzer,
+                    analysis_results['image_path'],
+                    sample_set_name,
+                    'xlsx'  # Always export as Excel
+                )
                 
-                selected_format = None
-                
-                def select_format(fmt):
-                    nonlocal selected_format
-                    selected_format = fmt
-                    format_dialog.destroy()
-                
-                # Format selection UI
-                format_frame = ttk.Frame(format_dialog, padding=20)
-                format_frame.pack(fill="both", expand=True)
-                
-                ttk.Label(
-                    format_frame,
-                    text="Select Export Format:",
-                    font=("Arial", 12, "bold")
-                ).pack(pady=(0, 15))
-                
-                # Format buttons
-                for fmt in available_formats:
-                    if fmt == 'xlsx':
-                        text = "📊 Excel (.xlsx) - Recommended"
-                    elif fmt == 'ods':
-                        text = "📋 OpenDocument (.ods)"
-                    else:
-                        text = "📄 CSV (.csv) - Basic format"
+                if success:
+                    export_messages = [f"RGB-CMY analysis results exported to: {os.path.basename(output_path)}"]
                     
-                    btn = ttk.Button(
-                        format_frame,
-                        text=text,
-                        command=lambda f=fmt: select_format(f)
-                    )
-                    btn.pack(fill="x", pady=2)
-                
-                # Cancel button
-                ttk.Button(
-                    format_frame,
-                    text="Cancel",
-                    command=format_dialog.destroy
-                ).pack(pady=10)
-                
-                # Wait for format selection
-                format_dialog.wait_window()
-                
-                if selected_format:
-                    # Export with auto-generated filename
-                    analyzer = analysis_results['analyzer']
+                    # Save channel masks if requested
+                    if save_channel_masks_var.get():
+                        try:
+                            analyzer = analysis_results['analyzer']
+                            
+                            # Create channel masks directory in same location as export file
+                            export_dir = os.path.dirname(output_path)
+                            base_name = os.path.splitext(os.path.basename(output_path))[0]
+                            channel_dir = os.path.join(export_dir, f"{base_name}_channel_masks")
+                            
+                            saved_channels = analyzer.save_channel_masks(channel_dir, base_name)
+                            
+                            if saved_channels:
+                                total_files = len(saved_channels.get('rgb', [])) + len(saved_channels.get('cmy', []))
+                                export_messages.append(f"\nSaved {total_files} channel mask files to: {os.path.basename(channel_dir)}/")
+                            else:
+                                export_messages.append("\n⚠️ Warning: Channel masks could not be saved")
+                                
+                        except Exception as channel_error:
+                            logger.warning(f"Failed to save channel masks: {channel_error}")
+                            export_messages.append("\n⚠️ Warning: Channel masks could not be saved")
                     
-                    success, output_path = template_manager.export_with_auto_filename(
-                        analyzer,
-                        analysis_results['image_path'],
-                        sample_set_name,
-                        selected_format
+                    # Show the results
+                    messagebox.showinfo(
+                        "Export Successful",
+                        "\n".join(export_messages) + f"\n\nLocation: {os.path.dirname(output_path)}"
                     )
                     
-                    if success:
-                        # Show the generated filename
-                        filename_only = os.path.basename(output_path)
-                        messagebox.showinfo(
-                            "Export Successful",
-                            f"RGB-CMY analysis results exported to:\n\n"
-                            f"File: {filename_only}\n"
-                            f"Location: {os.path.dirname(output_path)}\n\n"
-                            f"Full path: {output_path}"
-                        )
-                        
-                        # Ask if user wants to open the containing folder
-                        if messagebox.askyesno(
-                            "Open Folder?",
-                            "Would you like to open the folder containing the exported file?"
-                        ):
-                            try:
-                                if os.name == 'nt':  # Windows
-                                    os.startfile(os.path.dirname(output_path))
-                                elif sys.platform == 'darwin':  # macOS
-                                    os.system(f'open "{os.path.dirname(output_path)}"')
-                                else:  # Linux
-                                    os.system(f'xdg-open "{os.path.dirname(output_path)}"')
-                            except Exception as folder_error:
-                                logger.warning(f"Could not open folder: {folder_error}")
-                    else:
-                        messagebox.showerror("Export Failed", "Could not export results.")
-                        
+                    # Ask if user wants to open the containing folder
+                    if messagebox.askyesno(
+                        "Open Folder?",
+                        "Would you like to open the folder containing the exported file?"
+                    ):
+                        try:
+                            if os.name == 'nt':  # Windows
+                                os.startfile(os.path.dirname(output_path))
+                            elif sys.platform == 'darwin':  # macOS
+                                os.system(f'open "{os.path.dirname(output_path)}"')
+                            else:  # Linux
+                                os.system(f'xdg-open "{os.path.dirname(output_path)}"')
+                        except Exception as folder_error:
+                            logger.warning(f"Could not open folder: {folder_error}")
+                else:
+                    messagebox.showerror("Export Failed", "Could not export results.")
+                    
             except Exception as e:
                 messagebox.showerror("Export Error", f"Failed to export results: {str(e)}")
         
         ttk.Button(
-            export_frame,
+            button_frame,
             text="📤 Export Results to Template",
             command=export_results
         ).pack(side="left")
         
         ttk.Button(
-            export_frame,
+            button_frame,
             text="Close",
             command=dialog.destroy
         ).pack(side="right")
