@@ -30,7 +30,10 @@ class CropCanvas(tk.Canvas):
         "red": "#CC0000", 
         "green": "#00CC00",
         "black": "#000000",
-        "white": "#FFFFFF"
+        "white": "#FFFFFF",
+        "yellow": "#FFFF00",
+        "magenta": "#FF00FF",
+        "cyan": "#00FFFF"
     }
     
     def __init__(
@@ -175,11 +178,15 @@ class CropCanvas(tk.Canvas):
         """Set the line and vertex color.
         
         Args:
-            color: Color name ('blue', 'red', 'green', 'black', 'white')
+            color: Color name ('blue', 'red', 'green', 'black', 'white', 'yellow', 'magenta', 'cyan')
         """
         if color in self.COLOR_MAP:
             hex_color = self.COLOR_MAP[color]
             self.shape_manager.set_color(hex_color)
+            
+            # Redraw existing coordinate markers with the new color
+            if hasattr(self, '_coord_markers') and self._coord_markers:
+                self._redraw_all_coordinate_markers()
             
     
     def set_mask_alpha(self, alpha: int) -> None:

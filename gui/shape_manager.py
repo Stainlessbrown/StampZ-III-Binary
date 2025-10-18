@@ -49,7 +49,7 @@ class ShapeManager:
         
         # Shape state
         self.current_shape_type: ShapeType = ShapeType.POLYGON
-        self.current_color: str = "#0066CC"  # Default blue
+        self.current_color: str = "#FFFFFF"  # Default white to match control panel
         self.mask_alpha: int = 80
         self.mask_image: Optional[ImageTk.PhotoImage] = None
         

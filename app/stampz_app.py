@@ -146,6 +146,11 @@ class StampZApp:
         self._handle_tool_mode_change("view")
         self._handle_shape_type_change(ShapeType.POLYGON)
         self.control_panel.on_line_color_change = self._handle_line_color_change
+        
+        # Initialize canvas with the control panel's default line color
+        initial_color = self.control_panel.line_color.get()
+        self._handle_line_color_change(initial_color)
+        
         self.canvas.set_coordinate_callback(self.control_panel.update_mouse_coordinates)
 
     def _bind_shortcuts(self):
