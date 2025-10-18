@@ -19,14 +19,20 @@ import initialize_env
 
 import tkinter as tk
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
 
 def launch_full_stampz():
     """Launch the full StampZ-III application."""
-    # Import the refactored application
+    startup_time = time.time()
+    print(f"StampZ-III startup beginning...")
+    
+    # Import the refactored application  
+    import_start = time.time()
     from app import StampZApp
+    print(f"App import took {time.time() - import_start:.2f}s")
     
     # Setup logging
     logging.basicConfig(
@@ -37,11 +43,16 @@ def launch_full_stampz():
     logger.info("Starting full StampZ-III application...")
     
     # Create main window
+    gui_start = time.time()
     root = tk.Tk()
+    print(f"Tkinter root creation took {time.time() - gui_start:.2f}s")
     
     try:
         # Create and run the application
+        app_start = time.time()
         app = StampZApp(root)
+        print(f"StampZApp initialization took {time.time() - app_start:.2f}s")
+        print(f"Total startup time: {time.time() - startup_time:.2f}s")
         logger.info("StampZ-III application initialized successfully")
         
         # Start the main event loop
