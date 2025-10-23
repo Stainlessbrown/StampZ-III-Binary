@@ -602,9 +602,9 @@ class ColorComparisonManager(tk.Frame):
         
         # Right side: Sample color swatch
         sample_frame = ttk.LabelFrame(main_layout, text="Sample Color")
-        sample_frame.grid(row=0, column=1, sticky='nsew', padx=(10, 0))
+        sample_frame.grid(row=0, column=1, sticky='nsew', padx=(0, 0))
         
-        # Create sample swatch - much larger to fill available space
+        # Create sample swatch - much larger to fill available space, aligned left
         sample_canvas = tk.Canvas(
             sample_frame,
             width=450,
@@ -612,7 +612,7 @@ class ColorComparisonManager(tk.Frame):
             highlightthickness=1,
             highlightbackground='gray'
         )
-        sample_canvas.pack(pady=10, padx=10)
+        sample_canvas.pack(pady=10, padx=(0, 10), anchor='w')
         
         # Draw sample color
         sample_canvas.create_rectangle(
@@ -623,7 +623,7 @@ class ColorComparisonManager(tk.Frame):
         
         # Add sample color info below swatch
         sample_info_frame = ttk.Frame(sample_frame)
-        sample_info_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+        sample_info_frame.pack(fill=tk.X, padx=(0, 10), pady=(0, 10), anchor='w')
         
         sample_info_text = (
             f"RGB: ({int(sample_rgb[0])}, {int(sample_rgb[1])}, {int(sample_rgb[2])})\n"
