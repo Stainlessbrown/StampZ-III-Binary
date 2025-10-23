@@ -496,6 +496,7 @@ class SampleResultsManager(tk.Frame):
         Args:
             library_name: Name of the library that was updated
         """
+        print(f"DEBUG: _refresh_compare_tab_library called for library '{library_name}'")
         try:
             # Find the ColorLibraryManager window through the widget hierarchy
             # The parent is the notebook tab, grandparent is notebook, great-grandparent is ColorLibraryManager
