@@ -647,28 +647,12 @@ class ColorComparisonManager(tk.Frame):
         match_frame = ttk.Frame(parent)
         match_frame.pack(fill=tk.X, pady=5, padx=5)
         
-        # Color swatch - larger size for better visibility
-        swatch_canvas = tk.Canvas(
-            match_frame,
-            width=550,
-            height=100,
-            highlightthickness=1,
-            highlightbackground='gray'
-        )
-        swatch_canvas.pack(side=tk.LEFT, padx=(0, 10))
-        
-        color_rgb = match.library_color.rgb
-        swatch_canvas.create_rectangle(
-            0, 0, 600, 100,
-            fill=f"#{int(color_rgb[0]):02x}{int(color_rgb[1]):02x}{int(color_rgb[2]):02x}",
-            outline=''
-        )
-        
-        # Match information
+        # Match information on the left
         info_frame = ttk.Frame(match_frame)
         info_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
         
         # Color name and library
+        color_rgb = match.library_color.rgb
         name_text = match.library_color.name
         if hasattr(match, 'library_name'):
             name_text += f" ({match.library_name})"
@@ -693,6 +677,22 @@ class ColorComparisonManager(tk.Frame):
             font=("Arial", 12)
         )
         values_label.pack(anchor='w')
+        
+        # Color swatch on the right - closer to sample swatch
+        swatch_canvas = tk.Canvas(
+            match_frame,
+            width=550,
+            height=100,
+            highlightthickness=1,
+            highlightbackground='gray'
+        )
+        swatch_canvas.pack(side=tk.RIGHT, padx=(10, 0))
+        
+        swatch_canvas.create_rectangle(
+            0, 0, 600, 100,
+            fill=f"#{int(color_rgb[0]):02x}{int(color_rgb[1]):02x}{int(color_rgb[2]):02x}",
+            outline=''
+        )
     
     def _open_export_dialog(self):
         """Open export dialog (placeholder - functionality moved to Results tab)."""
