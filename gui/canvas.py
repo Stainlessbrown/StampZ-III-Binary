@@ -115,6 +115,27 @@ class CropCanvas(tk.Canvas):
         """Get current shape type."""
         return self.shape_manager.current_shape_type
     
+    def _get_next_available_marker_index(self) -> Optional[int]:
+        """Find the lowest available marker index (1-max_samples).
+        
+        Returns:
+            Next available index (1-max_samples) or None if all slots are used
+        """
+        # Get max samples from preferences
+        from utils.user_preferences import get_preferences_manager
+        max_samples = get_preferences_manager().get_max_samples()
+        
+        # Get currently used indices, excluding preview markers
+        used_indices = {marker.get('index', 0) for marker in self._coord_markers if not marker.get("is_preview", False)}
+        
+        # Find first unused index from 1 to max_samples
+        for i in range(1, max_samples + 1):
+            if i not in used_indices:
+                return i
+        
+        # All slots are used
+        return None
+    
     # Public interface methods
     def load_image(self, image: Image.Image) -> None:
         """Load a new image into the canvas.
@@ -584,16 +605,21 @@ class CropCanvas(tk.Canvas):
         print(f"DEBUG: Is manual mode: {is_manual_mode}")
         
         if is_manual_mode:
-            # Manual mode: Use the first row of sample settings
-            next_sample_index = len([m for m in self._coord_markers if not m.get("is_preview", False)])
+            # Manual mode: Find next available marker number (1-6)
+            next_marker_number = self._get_next_available_marker_index()
             
-            print(f"DEBUG: Manual mode - using sample index {next_sample_index}")
-            
-            # Check 6-sample limit in manual mode
-            if next_sample_index >= 6:
-                print("DEBUG: Manual mode - maximum 6 samples reached")
-                self.status_callback("Manual mode: Maximum 6 samples reached")
+            if next_marker_number is None:
+                # Get max samples from preferences for better message
+                from utils.user_preferences import get_preferences_manager
+                max_samples = get_preferences_manager().get_max_samples()
+                print(f"DEBUG: Manual mode - maximum {max_samples} samples reached")
+                self.status_callback(f"Manual mode: Maximum {max_samples} samples reached")
                 return
+            
+            # Convert to 0-based index for settings lookup
+            next_sample_index = next_marker_number - 1
+            
+            print(f"DEBUG: Manual mode - using marker #{next_marker_number} (index {next_sample_index})")
             
             # In Manual Mode, use settings from the corresponding row
             settings = main_app.control_panel.get_applied_settings(next_sample_index)
@@ -603,7 +629,7 @@ class CropCanvas(tk.Canvas):
             
             # Create preview marker for dragging (use image_y in mathematical coordinates)
             self._coord_preview = {
-                "index": next_sample_index + 1,
+                "index": next_marker_number,
                 "image_pos": (image_x, image_y),
                 "sample_type": settings["sample_type"],
                 "sample_width": settings["width"],
@@ -624,22 +650,26 @@ class CropCanvas(tk.Canvas):
             print(f"DEBUG: Manual mode - started dragging sample {self._coord_preview['index']} with settings {settings['sample_type']} {settings['width']}x{settings['height']}")
             return
         
-        # Template mode: Use existing template-based logic
-        # Find the next available sample area index
-        next_sample_index = len([m for m in self._coord_markers if not m.get("is_preview", False)])
+        # Template mode: Find next available marker number (1-6)
+        next_marker_number = self._get_next_available_marker_index()
         
-        print(f"DEBUG: Template mode - using sample index {next_sample_index}")
-        
-        # Get settings for this sample (up to 6 samples)
-        if next_sample_index >= 6:
-            print("DEBUG: Maximum samples reached")
-            self.status_callback("Maximum 6 samples reached")
+        if next_marker_number is None:
+            # Get max samples from preferences for better message
+            from utils.user_preferences import get_preferences_manager
+            max_samples = get_preferences_manager().get_max_samples()
+            print(f"DEBUG: Maximum {max_samples} samples reached")
+            self.status_callback(f"Maximum {max_samples} samples reached")
             return
+        
+        # Convert to 0-based index for settings lookup
+        next_sample_index = next_marker_number - 1
+        
+        print(f"DEBUG: Template mode - using marker #{next_marker_number} (index {next_sample_index})")
         
         settings = main_app.control_panel.get_applied_settings(next_sample_index)
         
         # Check if settings are actually applied for this sample
-        print(f"DEBUG: Checking if sample {next_sample_index + 1} (index {next_sample_index}) is applied")
+        print(f"DEBUG: Checking if sample {next_marker_number} (index {next_sample_index}) is applied")
         # TEMP: Disable Apply requirement for easier testing
         if False:  # Disabled - was: if not settings.get("is_applied", False):
             print(f"DEBUG: Sample {next_sample_index + 1} settings not applied yet")
@@ -648,7 +678,7 @@ class CropCanvas(tk.Canvas):
         
         # Store preview marker for dragging (using mathematical coordinates)
         self._coord_preview = {
-            "index": next_sample_index + 1,
+            "index": next_marker_number,
             "image_pos": (image_x, image_y),
             "sample_type": settings["sample_type"],
             "sample_width": settings["width"],

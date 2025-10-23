@@ -396,8 +396,13 @@ class ReorganizedControlPanel(ttk.Frame):
         scrollbar.pack(side="right", fill="y", padx=(0,5))
         
         # Create compact controls for each sample area in the scrollable frame
+        # Get max samples from preferences
+        from utils.user_preferences import get_preferences_manager
+        prefs_manager = get_preferences_manager()
+        max_samples = prefs_manager.get_max_samples()
+        
         self.sample_controls = []
-        for i in range(6):  # 6 sample areas
+        for i in range(max_samples):  # Respect max samples preference
             frame = ttk.Frame(self.sample_scrollable_frame)
             frame.pack(fill=tk.X, padx=1, pady=0)
             
@@ -420,9 +425,7 @@ class ReorganizedControlPanel(ttk.Frame):
             control_container = ttk.Frame(outer_frame)
             control_container.pack(expand=True, anchor=tk.CENTER)
             
-            # Get default values from preferences
-            from utils.user_preferences import get_preferences_manager
-            prefs_manager = get_preferences_manager()
+            # Get default values from preferences (already imported above)
             default_settings = prefs_manager.get_default_sample_settings()
             
             # Shape type selection with wider dropdown
@@ -1117,6 +1120,11 @@ class ReorganizedControlPanel(ttk.Frame):
     def is_manual_mode(self) -> bool:
         """Check if sample tool is in manual mode (compatibility method)."""
         return self.sample_mode.get() == "manual"
+    
+    def get_max_samples(self) -> int:
+        """Get maximum samples from preferences (compatibility method)."""
+        from utils.user_preferences import get_preferences_manager
+        return get_preferences_manager().get_max_samples()
     
     def get_applied_settings(self, sample_index: int) -> dict:
         """Get applied settings for a specific sample index (compatibility method)."""

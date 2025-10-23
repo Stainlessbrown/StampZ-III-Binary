@@ -46,6 +46,7 @@ class SampleAreaPreferences:
     default_width: int = 10  # Default width/diameter in pixels
     default_height: int = 10  # Default height in pixels (same as width for circles)
     default_anchor: str = "center"  # Default anchor position
+    max_samples: int = 6  # Maximum number of sample markers (1-6)
 
 
 @dataclass
@@ -446,13 +447,36 @@ class PreferencesManager:
             print(f"Error setting default sample anchor: {e}")
             return False
     
+    def get_max_samples(self) -> int:
+        """Get the maximum number of sample markers."""
+        return self.preferences.sample_area_prefs.max_samples
+    
+    def set_max_samples(self, max_samples: int) -> bool:
+        """Set the maximum number of sample markers.
+        
+        Args:
+            max_samples: Maximum samples (1-6)
+        """
+        if not 1 <= max_samples <= 6:
+            print(f"Error: Max samples must be between 1 and 6, got {max_samples}")
+            return False
+        
+        try:
+            self.preferences.sample_area_prefs.max_samples = max_samples
+            self.save_preferences()
+            return True
+        except Exception as e:
+            print(f"Error setting max samples: {e}")
+            return False
+    
     def get_default_sample_settings(self) -> dict:
         """Get all default sample area settings as a dictionary."""
         return {
             'shape': self.preferences.sample_area_prefs.default_shape,
             'width': self.preferences.sample_area_prefs.default_width,
             'height': self.preferences.sample_area_prefs.default_height,
-            'anchor': self.preferences.sample_area_prefs.default_anchor
+            'anchor': self.preferences.sample_area_prefs.default_anchor,
+            'max_samples': self.preferences.sample_area_prefs.max_samples
         }
     
     def get_auto_save_averages(self) -> bool:
@@ -604,7 +628,8 @@ class PreferencesManager:
                         default_shape=sample_data.get('default_shape', 'circle'),
                         default_width=sample_data.get('default_width', 10),
                         default_height=sample_data.get('default_height', 10),
-                        default_anchor=sample_data.get('default_anchor', 'center')
+                        default_anchor=sample_data.get('default_anchor', 'center'),
+                        max_samples=sample_data.get('max_samples', 6)
                     )
                 
                 # Load compare mode preferences

@@ -543,6 +543,23 @@ class PreferencesDialog:
         )
         anchor_combo.pack(side=tk.LEFT, padx=(5, 0))
         
+        # Maximum samples selection
+        max_samples_frame = ttk.Frame(sample_controls_frame)
+        max_samples_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        ttk.Label(max_samples_frame, text="Max Samples:", width=10).pack(side=tk.LEFT)
+        self.max_samples_var = tk.StringVar()
+        max_samples_combo = ttk.Combobox(
+            max_samples_frame,
+            textvariable=self.max_samples_var,
+            values=['1', '2', '3', '4', '5', '6'],
+            state='readonly',
+            width=5
+        )
+        max_samples_combo.pack(side=tk.LEFT, padx=(5, 0))
+        
+        ttk.Label(max_samples_frame, text="samples", font=("TkDefaultFont", 9)).pack(side=tk.LEFT, padx=(10, 0))
+        
         # Sample defaults info
         sample_info_text = (
             "These settings will be used as defaults when creating new sample areas. "
@@ -1110,6 +1127,7 @@ class PreferencesDialog:
         self.sample_width_var.set(str(self.prefs_manager.get_default_sample_width()))
         self.sample_height_var.set(str(self.prefs_manager.get_default_sample_height()))
         self.sample_anchor_var.set(self.prefs_manager.get_default_sample_anchor())
+        self.max_samples_var.set(str(self.prefs_manager.get_max_samples()))
         
         # Color space preferences
         self.export_include_rgb_var.set(self.prefs_manager.get_export_include_rgb())
@@ -1238,6 +1256,14 @@ class PreferencesDialog:
                 messagebox.showerror("Invalid Input", "Sample width and height must be valid numbers.")
                 return False
             self.prefs_manager.set_default_sample_anchor(self.sample_anchor_var.get())
+            
+            # Maximum samples preference
+            try:
+                max_samples = int(self.max_samples_var.get())
+                self.prefs_manager.set_max_samples(max_samples)
+            except ValueError:
+                messagebox.showerror("Invalid Input", "Maximum samples must be a valid number (1-6).")
+                return False
             
             # Color space preferences
             self.prefs_manager.set_export_include_rgb(self.export_include_rgb_var.get())
