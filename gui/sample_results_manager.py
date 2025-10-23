@@ -497,28 +497,52 @@ class SampleResultsManager(tk.Frame):
             library_name: Name of the library that was updated
         """
         try:
-            # Try to find the Compare tab through the parent widget chain
-            # The parent should be a notebook
-            parent = self.parent
-            if hasattr(parent, 'tabs'):
-                # This is likely a notebook
-                for tab_id in parent.tabs():
-                    tab_widget = parent.nametowidget(tab_id)
-                    # Check if this tab has a comparison manager
-                    if hasattr(tab_widget, 'winfo_children'):
-                        for child in tab_widget.winfo_children():
-                            if hasattr(child, '_load_available_libraries'):
-                                # Found the comparison manager - reload its libraries
-                                print(f"DEBUG: Refreshing Compare tab after adding to '{library_name}'")
-                                child._load_available_libraries()
-                                # Also reload the specific library if it's currently selected
-                                if hasattr(child, 'library') and child.library and child.library.library_name == library_name:
-                                    from utils.color_library import ColorLibrary
-                                    child.library = ColorLibrary(library_name)
-                                    print(f"DEBUG: Reloaded library '{library_name}' in Compare tab")
-                                break
+            # Find the ColorLibraryManager window through the widget hierarchy
+            # The parent is the notebook tab, grandparent is notebook, great-grandparent is ColorLibraryManager
+            current_widget = self.parent
+            library_manager = None
+            
+            # Walk up the widget tree to find the ColorLibraryManager
+            for _ in range(5):  # Search up to 5 levels
+                if current_widget is None:
+                    break
+                # Check if this widget has a comparison_manager attribute
+                if hasattr(current_widget, 'comparison_manager'):
+                    library_manager = current_widget
+                    break
+                # Check if any child has it (for complex layouts)
+                if hasattr(current_widget, 'winfo_parent'):
+                    try:
+                        current_widget = current_widget.nametowidget(current_widget.winfo_parent())
+                    except:
+                        break
+                else:
+                    break
+            
+            if library_manager and hasattr(library_manager, 'comparison_manager'):
+                comp_manager = library_manager.comparison_manager
+                print(f"DEBUG: Found comparison manager, refreshing after adding to '{library_name}'")
+                
+                # Reload the library list
+                if hasattr(comp_manager, '_load_available_libraries'):
+                    comp_manager._load_available_libraries()
+                
+                # Reload the specific library if it's currently selected
+                if hasattr(comp_manager, 'library') and comp_manager.library:
+                    if comp_manager.library.library_name == library_name:
+                        from utils.color_library import ColorLibrary
+                        comp_manager.library = ColorLibrary(library_name)
+                        # Also update all_libraries if it exists
+                        if hasattr(comp_manager, 'all_libraries') and comp_manager.all_libraries:
+                            comp_manager.all_libraries = [ColorLibrary(lib.library_name) if lib.library_name == library_name else lib for lib in comp_manager.all_libraries]
+                        print(f"DEBUG: Reloaded library '{library_name}' in Compare tab")
+            else:
+                print(f"DEBUG: Could not find ColorLibraryManager with comparison_manager")
+                
         except Exception as e:
+            import traceback
             print(f"DEBUG: Could not refresh Compare tab: {e}")
+            traceback.print_exc()
     
     def _get_available_libraries(self):
         """Get list of available color libraries."""
