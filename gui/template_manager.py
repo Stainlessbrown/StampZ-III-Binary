@@ -115,7 +115,7 @@ class TemplateManager:
                 user_data_dir = os.path.expanduser('~/Library/Application Support/StampZ-III')
             else:
                 user_data_dir = os.path.expanduser('~/AppData/Roaming/StampZ-III')
-            return os.path.join(user_data_dir, "coordinates.db")
+            return os.path.join(user_data_dir, "data", "coordinates.db")
         else:
             # Running in development - use project data directory
             current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
