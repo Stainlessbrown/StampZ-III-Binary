@@ -566,6 +566,11 @@ class StampZApp:
                 if hasattr(self.control_panel, 'template_protection'):
                     self.control_panel.template_protection.protect_template(standardized_name, coordinates)
                 
+                # Refresh the template dropdown to show the new template
+                print(f"DEBUG: Refreshing template dropdown after save")
+                if hasattr(self.control_panel, '_refresh_sample_sets'):
+                    self.control_panel._refresh_sample_sets(show_feedback=False)
+                
                 from tkinter import messagebox
                 messagebox.showinfo(
                     "Success",
