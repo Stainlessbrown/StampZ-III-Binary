@@ -595,35 +595,33 @@ class SampleResultsManager(tk.Frame):
             library_name: Name of the library that was updated
         """
         try:
-            # Walk up widget tree to find ColorLibraryManager
-            current_widget = self.parent
-            for _ in range(10):
-                if current_widget is None:
-                    break
-                if hasattr(current_widget, '_update_colors_display') and hasattr(current_widget, 'library'):
-                    # Found the ColorLibraryManager
-                    if current_widget.library and current_widget.library.library_name == library_name:
-                        print(f"DEBUG: Refreshing Library tab display for '{library_name}'")
-                        # Reload the library to get new colors
-                        from utils.color_library import ColorLibrary
-                        current_widget.library = ColorLibrary(library_name)
-                        # Refresh the display
-                        current_widget._update_colors_display()
+            # Use the class variable to access the current ColorLibraryManager instance
+            from gui.color_library_manager import ColorLibraryManager
+            
+            if ColorLibraryManager._current_instance:
+                manager = ColorLibraryManager._current_instance
+                print(f"DEBUG: Found ColorLibraryManager instance via class variable")
+                
+                if manager.library and manager.library.library_name == library_name:
+                    print(f"DEBUG: Refreshing Library tab display for '{library_name}'")
+                    # Reload the library to get new colors
+                    from utils.color_library import ColorLibrary
+                    manager.library = ColorLibrary(library_name)
+                    # Refresh the display
+                    if hasattr(manager, '_update_colors_display'):
+                        manager._update_colors_display()
                         print(f"DEBUG: Library tab display refreshed")
-                    break
-                if hasattr(current_widget, 'winfo_parent'):
-                    try:
-                        parent_name = current_widget.winfo_parent()
-                        if parent_name:
-                            current_widget = current_widget.nametowidget(parent_name)
-                        else:
-                            break
-                    except:
-                        break
+                    else:
+                        print(f"DEBUG: Manager missing _update_colors_display method")
                 else:
-                    break
+                    print(f"DEBUG: Library names don't match: manager has '{manager.library.library_name if manager.library else 'None'}', looking for '{library_name}'")
+            else:
+                print(f"DEBUG: No ColorLibraryManager instance available")
+                
         except Exception as e:
+            import traceback
             print(f"DEBUG: Could not refresh Library tab: {e}")
+            traceback.print_exc()
     
     def _get_available_libraries(self):
         """Get list of available color libraries."""

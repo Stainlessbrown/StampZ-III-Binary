@@ -24,9 +24,15 @@ __all__ = ['ColorLibraryManager']
 class ColorLibraryManager:
     """Color library management interface."""
     
+    # Class variable to store the most recent instance for refresh access
+    _current_instance = None
+    
     def __init__(self, parent=None):
         self.parent = parent
         self.library = None
+        
+        # Store this instance as the current one
+        ColorLibraryManager._current_instance = self
         
         # Get default library from preferences
         try:
