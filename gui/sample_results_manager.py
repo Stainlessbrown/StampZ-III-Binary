@@ -412,8 +412,8 @@ class SampleResultsManager(tk.Frame):
         dialog.transient(self)  # Make dialog modal
         dialog.grab_set()
         
-        # Center the dialog
-        dialog.geometry("400x200")
+        # Center the dialog - make it taller for notes field
+        dialog.geometry("450x320")
         
         # Color name entry
         name_frame = ttk.Frame(dialog, padding="10")
@@ -435,6 +435,19 @@ class SampleResultsManager(tk.Frame):
         lib_combo = ttk.Combobox(lib_frame, textvariable=lib_var, values=library_list, width=27)
         lib_combo.pack(side=tk.LEFT, padx=5)
         
+        # Notes entry (multi-line)
+        notes_frame = ttk.Frame(dialog, padding="10")
+        notes_frame.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(notes_frame, text="Notes (optional):").pack(anchor='w')
+        
+        notes_text = tk.Text(notes_frame, height=4, width=50, wrap=tk.WORD)
+        notes_text.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        # Add scrollbar for notes
+        notes_scrollbar = ttk.Scrollbar(notes_frame, orient=tk.VERTICAL, command=notes_text.yview)
+        notes_text.configure(yscrollcommand=notes_scrollbar.set)
+        notes_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
         # Preview frame showing the color
         preview_frame = ttk.Frame(dialog, padding="10")
         preview_frame.pack(fill=tk.X)
@@ -453,6 +466,7 @@ class SampleResultsManager(tk.Frame):
         def save_color():
             name = name_var.get().strip()
             library = lib_var.get()
+            notes = notes_text.get("1.0", tk.END).strip()
             
             if not name:
                 messagebox.showerror("Error", "Please enter a color name")
@@ -466,8 +480,8 @@ class SampleResultsManager(tk.Frame):
                 from utils.color_library import ColorLibrary
                 color_lib = ColorLibrary(library)
                 
-                # Add the new color
-                success = color_lib.add_color(name=name, rgb=rgb_values, lab=lab_values)
+                # Add the new color with notes
+                success = color_lib.add_color(name=name, rgb=rgb_values, lab=lab_values, notes=notes if notes else None)
                 
                 if success:
                     messagebox.showinfo("Success", f"Color '{name}' added to library '{library}'")
