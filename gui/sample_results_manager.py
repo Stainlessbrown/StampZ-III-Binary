@@ -518,6 +518,10 @@ class SampleResultsManager(tk.Frame):
                         if hasattr(comp_manager, 'all_libraries') and comp_manager.all_libraries:
                             comp_manager.all_libraries = [ColorLibrary(lib.library_name) if lib.library_name == library_name else lib for lib in comp_manager.all_libraries]
                         print(f"DEBUG: Reloaded library '{library_name}' in Compare tab")
+                
+                # Also refresh the Library tab if we can find the ColorLibraryManager
+                self._refresh_library_tab(library_name)
+                
                 return
             except Exception as e:
                 print(f"DEBUG: Direct reference failed: {e}")
@@ -583,6 +587,43 @@ class SampleResultsManager(tk.Frame):
             import traceback
             print(f"DEBUG: Could not refresh Compare tab: {e}")
             traceback.print_exc()
+    
+    def _refresh_library_tab(self, library_name: str):
+        """Refresh the Library tab display after adding a color.
+        
+        Args:
+            library_name: Name of the library that was updated
+        """
+        try:
+            # Walk up widget tree to find ColorLibraryManager
+            current_widget = self.parent
+            for _ in range(10):
+                if current_widget is None:
+                    break
+                if hasattr(current_widget, '_update_colors_display') and hasattr(current_widget, 'library'):
+                    # Found the ColorLibraryManager
+                    if current_widget.library and current_widget.library.library_name == library_name:
+                        print(f"DEBUG: Refreshing Library tab display for '{library_name}'")
+                        # Reload the library to get new colors
+                        from utils.color_library import ColorLibrary
+                        current_widget.library = ColorLibrary(library_name)
+                        # Refresh the display
+                        current_widget._update_colors_display()
+                        print(f"DEBUG: Library tab display refreshed")
+                    break
+                if hasattr(current_widget, 'winfo_parent'):
+                    try:
+                        parent_name = current_widget.winfo_parent()
+                        if parent_name:
+                            current_widget = current_widget.nametowidget(parent_name)
+                        else:
+                            break
+                    except:
+                        break
+                else:
+                    break
+        except Exception as e:
+            print(f"DEBUG: Could not refresh Library tab: {e}")
     
     def _get_available_libraries(self):
         """Get list of available color libraries."""
