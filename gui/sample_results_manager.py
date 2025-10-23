@@ -497,27 +497,66 @@ class SampleResultsManager(tk.Frame):
             library_name: Name of the library that was updated
         """
         print(f"DEBUG: _refresh_compare_tab_library called for library '{library_name}'")
+        
+        # Try direct reference first if available
+        if hasattr(self, '_comparison_manager_ref') and self._comparison_manager_ref:
+            print(f"DEBUG: Using direct reference to comparison manager")
+            try:
+                comp_manager = self._comparison_manager_ref
+                
+                # Reload the library list
+                if hasattr(comp_manager, '_load_available_libraries'):
+                    comp_manager._load_available_libraries()
+                    print(f"DEBUG: Reloaded library list in Compare tab")
+                
+                # Reload the specific library if it's currently selected
+                if hasattr(comp_manager, 'library') and comp_manager.library:
+                    if comp_manager.library.library_name == library_name:
+                        from utils.color_library import ColorLibrary
+                        comp_manager.library = ColorLibrary(library_name)
+                        # Also update all_libraries if it exists
+                        if hasattr(comp_manager, 'all_libraries') and comp_manager.all_libraries:
+                            comp_manager.all_libraries = [ColorLibrary(lib.library_name) if lib.library_name == library_name else lib for lib in comp_manager.all_libraries]
+                        print(f"DEBUG: Reloaded library '{library_name}' in Compare tab")
+                return
+            except Exception as e:
+                print(f"DEBUG: Direct reference failed: {e}")
+        
         try:
             # Find the ColorLibraryManager window through the widget hierarchy
-            # The parent is the notebook tab, grandparent is notebook, great-grandparent is ColorLibraryManager
             current_widget = self.parent
             library_manager = None
             
+            print(f"DEBUG: Starting widget tree walk from {type(current_widget).__name__}")
+            
             # Walk up the widget tree to find the ColorLibraryManager
-            for _ in range(5):  # Search up to 5 levels
+            for level in range(10):  # Increased search depth
                 if current_widget is None:
+                    print(f"DEBUG: Reached None at level {level}")
                     break
+                
+                print(f"DEBUG: Level {level}: {type(current_widget).__name__}, has comparison_manager: {hasattr(current_widget, 'comparison_manager')}")
+                
                 # Check if this widget has a comparison_manager attribute
                 if hasattr(current_widget, 'comparison_manager'):
                     library_manager = current_widget
+                    print(f"DEBUG: Found comparison_manager at level {level}!")
                     break
-                # Check if any child has it (for complex layouts)
+                
+                # Try to go up one level
                 if hasattr(current_widget, 'winfo_parent'):
                     try:
-                        current_widget = current_widget.nametowidget(current_widget.winfo_parent())
-                    except:
+                        parent_name = current_widget.winfo_parent()
+                        if parent_name:
+                            current_widget = current_widget.nametowidget(parent_name)
+                        else:
+                            print(f"DEBUG: No parent at level {level}")
+                            break
+                    except Exception as e:
+                        print(f"DEBUG: Error getting parent at level {level}: {e}")
                         break
                 else:
+                    print(f"DEBUG: No winfo_parent at level {level}")
                     break
             
             if library_manager and hasattr(library_manager, 'comparison_manager'):

@@ -251,6 +251,8 @@ class ColorLibraryManager:
         # Set library if available
         if hasattr(self, 'library') and self.library:
             self.results_manager.library = self.library
+        
+        # Note: comparison_manager will be set later in _create_compare_tab
     
     
     def _create_compare_tab(self):
@@ -265,6 +267,11 @@ class ColorLibraryManager:
         
         # Set library
         self.comparison_manager.library = self.library
+        
+        # Store direct reference in results manager for library refresh
+        if hasattr(self, 'results_manager'):
+            self.results_manager._comparison_manager_ref = self.comparison_manager
+            print("DEBUG: Stored comparison_manager reference in results_manager")
         
         # Update library binding to keep comparison manager in sync
         self._original_load_library = self._load_library
