@@ -543,6 +543,9 @@ class ColorComparisonManager(tk.Frame):
                     threshold=self.delta_e_threshold
                 )
                 matches = result.get('matches', []) if result else []
+                # Set library name on each match for consistent display
+                for match in matches:
+                    match.library_name = self.library.library_name
             
             # Display matches
             if matches:
