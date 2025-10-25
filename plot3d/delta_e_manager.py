@@ -792,9 +792,20 @@ class DeltaEManager:
                 self.logger.info(f"Reloading data from file before ΔE calculation: {self.file_path}")
                 updated_data = pd.read_excel(self.file_path, engine='odf')
                 
-                # Verify required columns
-                if not all(col in updated_data.columns for col in self.EXPECTED_COLUMNS):
-                    missing = [col for col in self.EXPECTED_COLUMNS if col not in updated_data.columns]
+                # Verify required columns (with alias support)
+                missing = []
+                for col in self.EXPECTED_COLUMNS:
+                    found = col in updated_data.columns
+                    # Check for aliases if not found
+                    if not found:
+                        for alias, target in self.COLUMN_ALIASES.items():
+                            if target == col and alias in updated_data.columns:
+                                found = True
+                                break
+                    if not found:
+                        missing.append(col)
+                
+                if missing:
                     self.logger.error(f"Required columns missing after reload: {missing}")
                     raise ValueError(f"Required columns missing after reload: {missing}")
                 
