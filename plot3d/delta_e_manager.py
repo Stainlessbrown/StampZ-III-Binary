@@ -533,13 +533,8 @@ class DeltaEManager:
                     self.logger.info(f"🔍 Converted to cluster_int: {cluster_int}")
                     
                     # Get all points belonging to this cluster
-                    # Handle both string and integer cluster values safely
-                    # Convert cluster column to string for consistent comparison
-                    cluster_col_str = df[cluster_col].astype(str)
-                    target_cluster_str = str(cluster_int)
-                    
-                    # Use string-based comparison to avoid type mixing
-                    cluster_points = df[cluster_col_str == target_cluster_str]
+                    # Use numeric comparison to handle both int and float cluster values
+                    cluster_points = df[df[cluster_col] == cluster]
                     self.logger.info(f"🔍 Found {len(cluster_points)} points for cluster {cluster_int}")
                     
                     if not cluster_points.empty:
