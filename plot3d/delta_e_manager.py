@@ -992,15 +992,22 @@ class DeltaEManager:
                         required_columns = ['∆E', 'Centroid_X', 'Centroid_Y', 'Centroid_Z']
                         col_indices = {}
                         
-                        # Get indices of existing columns
+                        # Get indices of existing columns, checking for aliases
                         for col in required_columns:
                             if col in df.columns:
                                 col_indices[col] = df.columns.get_loc(col)
                                 self.logger.info(f"Found {col} column at index {col_indices[col]}")
+                            elif col == '∆E':
+                                # Check for DeltaE aliases
+                                for alias in ['DeltaE', 'Delta_E', 'deltae']:
+                                    if alias in df.columns:
+                                        col_indices['∆E'] = df.columns.get_loc(alias)
+                                        self.logger.info(f"Found {alias} column (alias for ∆E) at index {col_indices['∆E']}")
+                                        break
                         
                         # Check for required column
                         if '∆E' not in col_indices:
-                            raise ValueError("∆E column not found in spreadsheet")
+                            raise ValueError("∆E column not found in spreadsheet. Looking for: ∆E, DeltaE, Delta_E, or deltae")
                         
                         delta_e_col_idx = col_indices['∆E']
                         self.logger.info(f"Using ∆E column at index {delta_e_col_idx}")
@@ -1442,21 +1449,28 @@ class DeltaEManager:
 
     def _calculate_delta_e_gui(self):
         """Handle the Calculate ΔE button click."""
+        print("DEBUG: Delta E Calculate button clicked!")
+        self.logger.info("Delta E Calculate button clicked")
+        
         # Check if GUI components exist
         if self.frame is None or self.apply_button is None:
             self.logger.error("GUI components not initialized")
+            messagebox.showerror("Error", "GUI components not initialized. Please create GUI first.")
             raise ValueError("GUI components not initialized. Please create GUI first.")
             
         try:
+            print(f"DEBUG: Getting row range from entries")
+            # Get the row range first (before disabling button)
+            start = int(self.start_row.get())
+            end = int(self.end_row.get())
+            print(f"DEBUG: Row range: {start} to {end}")
+            
             # Disable the button to prevent multiple clicks
             self.apply_button.config(state=tk.DISABLED)
             self.apply_button.update()
             # Show progress indication
             self.apply_button.config(text="Working...")
             self.apply_button.update()
-            # Get the row range
-            start = int(self.start_row.get())
-            end = int(self.end_row.get())
             
             # Function to restore button
             # Function to restore button
@@ -1466,23 +1480,28 @@ class DeltaEManager:
                     self.apply_button.update()
             
             try:
+                print(f"DEBUG: About to call calculate_and_save_delta_e")
                 # Run the calculation
                 self.calculate_and_save_delta_e(start, end)
+                print(f"DEBUG: calculate_and_save_delta_e completed")
+            except Exception as calc_error:
+                print(f"DEBUG: Error in calculate_and_save_delta_e: {calc_error}")
+                import traceback
+                traceback.print_exc()
+                raise
             finally:
                 # Ensure button is restored even if an error occurs
                 if self.frame and self.frame.winfo_exists():
                     self.frame.after(500, restore_button)
         except ValueError as e:
             self.logger.error(f"Value error in GUI: {str(e)}")
-            if self.frame and self.frame.winfo_exists():
-                self.frame.after(100, lambda: tk.messagebox.showerror("Error", str(e)))
-            else:
-                tk.messagebox.showerror("Error", str(e))
+            print(f"DEBUG: ValueError: {e}")
+            messagebox.showerror("Error", str(e))
         except Exception as e:
             import traceback
+            error_trace = traceback.format_exc()
             self.logger.error(f"GUI error: {str(e)}")
-            self.logger.error(traceback.format_exc())
-            if self.frame and self.frame.winfo_exists():
-                self.frame.after(100, lambda: tk.messagebox.showerror("Error", f"An error occurred: {str(e)}"))
-            else:
-                tk.messagebox.showerror("Error", f"An error occurred: {str(e)}")
+            self.logger.error(error_trace)
+            print(f"DEBUG: Exception in _calculate_delta_e_gui: {e}")
+            print(error_trace)
+            messagebox.showerror("Error", f"An error occurred: {str(e)}")
