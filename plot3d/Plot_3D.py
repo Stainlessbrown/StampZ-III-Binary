@@ -223,6 +223,12 @@ class Plot3DApp:
         # Define callback for K-means manager to update main DataFrame
         def on_kmeans_update(updated_df):
             self.df = updated_df
+            
+            # IMPORTANT: Update Delta E manager with the new data that includes centroids
+            if hasattr(self, 'delta_e_manager') and self.delta_e_manager:
+                print("DEBUG: Updating Delta E manager with new centroid data")
+                self.delta_e_manager.load_data(updated_df)
+            
             self.refresh_plot()
             
             # Also update the parent worksheet if callback is provided
