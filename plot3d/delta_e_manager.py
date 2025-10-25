@@ -1185,8 +1185,9 @@ class DeltaEManager:
                                 for row_idx, value in updates:
                                     try:
                                         # Update ONLY the ΔE value
+                                        # Format as string like K-means does for consistency
                                         cell = sheet[row_idx, delta_e_col_idx]
-                                        cell.set_value(value)
+                                        cell.set_value(format(value, '.4f'))
                                         self.logger.debug(f"Updated ∆E at row {row_idx} to {value}")
                                     except Exception as cell_error:
                                         self.logger.warning(f"Failed to update cell at row {row_idx}: {str(cell_error)}")
