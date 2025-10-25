@@ -671,20 +671,28 @@ CREATE TABLE IF NOT EXISTS library_colors (
             print(f"Error getting color count: {e}")
             return 0
 
-    def export_library(self, filename: str) -> bool:
-        """Export library to CSV format with L*a*b* values.
+    def export_library(self, filename: str, format_type: str = 'lab') -> bool:
+        """Export library to CSV format with selected color space.
         
-        CSV Format:
-        name,description,lab_l,lab_a,lab_b,category,source,notes
+        CSV Format varies based on format_type:
+        - 'lab': name,description,lab_l,lab_a,lab_b,category,source,notes
+        - 'rgb': name,description,rgb_r,rgb_g,rgb_b,category,source,notes
+        - 'cmy': name,description,cmy_c,cmy_m,cmy_y,category,source,notes
         
         Args:
             filename: Path to save CSV file
+            format_type: Color space format ('lab', 'rgb', or 'cmy')
             
         Returns:
             True if successful, False otherwise
         """
         try:
             import csv
+            
+            # Validate format_type
+            if format_type not in ['lab', 'rgb', 'cmy']:
+                print(f"Error: Invalid format_type '{format_type}'. Must be 'lab', 'rgb', or 'cmy'.")
+                return False
             
             colors = self.get_all_colors()
             
@@ -700,23 +708,36 @@ CREATE TABLE IF NOT EXISTS library_colors (
                 
                 writer = csv.writer(text_wrapper)
                 
-                # Write header
-                writer.writerow(['name', 'description', 'lab_l', 'lab_a', 'lab_b', 'category', 'source', 'notes'])
+                # Write header based on format
+                if format_type == 'lab':
+                    header = ['name', 'description', 'lab_l', 'lab_a', 'lab_b', 'category', 'source', 'notes']
+                elif format_type == 'rgb':
+                    header = ['name', 'description', 'rgb_r', 'rgb_g', 'rgb_b', 'category', 'source', 'notes']
+                else:  # cmy
+                    header = ['name', 'description', 'cmy_c', 'cmy_m', 'cmy_y', 'category', 'source', 'notes']
+                
+                writer.writerow(header)
                 
                 # Write color data
                 for color in colors:
+                    if format_type == 'lab':
+                        color_values = [color.lab[0], color.lab[1], color.lab[2]]
+                    elif format_type == 'rgb':
+                        color_values = [color.rgb[0], color.rgb[1], color.rgb[2]]
+                    else:  # cmy
+                        cmy = (255 - color.rgb[0], 255 - color.rgb[1], 255 - color.rgb[2])
+                        color_values = [cmy[0], cmy[1], cmy[2]]
+                    
                     writer.writerow([
                         color.name,
                         color.description,
-                        color.lab[0],  # L*
-                        color.lab[1],  # a*
-                        color.lab[2],  # b*
+                        *color_values,
                         color.category,
                         color.source,
                         color.notes or ''
                     ])
             
-            print(f"Exported {len(colors)} colors to {filename}")
+            print(f"Exported {len(colors)} colors to {filename} in {format_type.upper()} format")
             return True
             
         except Exception as e:

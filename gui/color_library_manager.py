@@ -1116,24 +1116,88 @@ class ColorLibraryManager:
     # Removed basic and philatelic library creation methods - users create their own libraries
     
     def _export_library(self):
-        """Export library to CSV."""
+        """Export library to CSV with color space format selection."""
         if not self.library:
             messagebox.showerror("Error", "Please load a library first")
             return
         
-        filename = filedialog.asksaveasfilename(
-            title="Export Library",
-            defaultextension=".csv",
-            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-            initialfile=f"{self.current_library_name}_library.csv"
-        )
+        # Create dialog to select export format
+        format_dialog = tk.Toplevel(self.root)
+        format_dialog.title("Select Export Format")
+        format_dialog.transient(self.root)
+        format_dialog.grab_set()
         
-        if filename:
-            try:
-                if self.library.export_library(filename):
-                    messagebox.showinfo("Success", f"Library exported to {filename}")
-            except Exception as e:
-                messagebox.showerror("Error", f"Export failed: {str(e)}")
+        # Center dialog
+        format_dialog.update_idletasks()
+        x = (format_dialog.winfo_screenwidth() // 2) - 200
+        y = (format_dialog.winfo_screenheight() // 2) - 150
+        format_dialog.geometry(f"400x250+{x}+{y}")
+        
+        # Variable to store selected format
+        selected_format = tk.StringVar(value="lab")
+        
+        # Title
+        ttk.Label(
+            format_dialog, 
+            text="Select color data format for export:",
+            font=("Arial", 11, "bold")
+        ).pack(pady=15)
+        
+        # Radio buttons for format selection
+        ttk.Radiobutton(
+            format_dialog,
+            text="L*a*b* (CIE Lab color space)",
+            variable=selected_format,
+            value="lab"
+        ).pack(anchor="w", padx=40, pady=5)
+        
+        ttk.Radiobutton(
+            format_dialog,
+            text="RGB (Red, Green, Blue values)",
+            variable=selected_format,
+            value="rgb"
+        ).pack(anchor="w", padx=40, pady=5)
+        
+        ttk.Radiobutton(
+            format_dialog,
+            text="CMY (Cyan, Magenta, Yellow values)",
+            variable=selected_format,
+            value="cmy"
+        ).pack(anchor="w", padx=40, pady=5)
+        
+        # Info label
+        info_label = ttk.Label(
+            format_dialog,
+            text="Note: Only one color space will be exported.\nImport will auto-detect the format.",
+            font=("Arial", 9),
+            foreground="gray"
+        )
+        info_label.pack(pady=15)
+        
+        def proceed_with_export():
+            format_dialog.destroy()
+            
+            # Now show file dialog
+            filename = filedialog.asksaveasfilename(
+                title="Export Library",
+                defaultextension=".csv",
+                filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+                initialfile=f"{self.current_library_name}_library.csv"
+            )
+            
+            if filename:
+                try:
+                    format_type = selected_format.get()
+                    if self.library.export_library(filename, format_type=format_type):
+                        messagebox.showinfo("Success", f"Library exported to {filename} in {format_type.upper()} format")
+                except Exception as e:
+                    messagebox.showerror("Error", f"Export failed: {str(e)}")
+        
+        # Buttons
+        btn_frame = ttk.Frame(format_dialog)
+        btn_frame.pack(pady=15)
+        ttk.Button(btn_frame, text="Continue", command=proceed_with_export).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Cancel", command=format_dialog.destroy).pack(side=tk.LEFT, padx=5)
     
     def _import_library(self):
         """Import library from CSV."""
