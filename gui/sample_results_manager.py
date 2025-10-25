@@ -735,7 +735,17 @@ class SampleResultsManager(tk.Frame):
             
             db_var = tk.StringVar()
             if existing_databases:
-                db_var.set(existing_databases[0])
+                # Try to load last used database from preferences
+                try:
+                    from utils.user_preferences import get_preferences_manager
+                    prefs = get_preferences_manager()
+                    last_db = prefs.get('last_used_database', '')
+                    if last_db and last_db in existing_databases:
+                        db_var.set(last_db)
+                    else:
+                        db_var.set(existing_databases[0])
+                except:
+                    db_var.set(existing_databases[0])
             
             existing_combo = ttk.Combobox(existing_frame, textvariable=db_var, 
                                         values=existing_databases, state="readonly", width=50)
@@ -910,6 +920,14 @@ class SampleResultsManager(tk.Frame):
                         all_requested_succeeded = False
                     
                     if all_requested_succeeded and saved_files:
+                        # Save database name to preferences for next time
+                        try:
+                            from utils.user_preferences import get_preferences_manager
+                            prefs = get_preferences_manager()
+                            prefs.set('last_used_database', final_db_name)
+                        except Exception as e:
+                            print(f"Warning: Could not save last_used_database preference: {e}")
+                        
                         # Build success message
                         success_msg = "Results saved successfully!\n\n"
                         

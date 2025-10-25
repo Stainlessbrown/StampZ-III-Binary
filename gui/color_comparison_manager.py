@@ -526,7 +526,7 @@ class ColorComparisonManager(tk.Frame):
                     lib_matches = lib.find_closest_matches(
                         sample_lab=avg_lab,
                         max_delta_e=self.delta_e_threshold,
-                        max_results=5,
+                        max_results=6,
                         include_library_name=True
                     )
                     for match in lib_matches:

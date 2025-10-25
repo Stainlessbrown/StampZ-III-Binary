@@ -484,9 +484,21 @@ class ColorLibraryManager:
                 print(f"Error applying hue sorting, falling back to alphabetical: {e}")
                 all_colors.sort(key=lambda x: (x.category, x.name))
         elif sort_method == "Category":
-            all_colors.sort(key=lambda x: (x.category, x.name))
-        else:  # Alphabetical
-            all_colors.sort(key=lambda x: (x.category, x.name))
+            # Natural sort within category
+            import re
+            def natural_sort_key(color):
+                # Split name into text and number parts for natural sorting
+                parts = re.split(r'(\d+)', color.name)
+                return (color.category, [int(p) if p.isdigit() else p.lower() for p in parts])
+            all_colors.sort(key=natural_sort_key)
+        else:  # Alphabetical with natural number sorting
+            import re
+            def natural_sort_key(color):
+                # Split name into text and number parts for natural sorting
+                # This handles Red_1, Red_2, ..., Red_10, Red_11 correctly
+                parts = re.split(r'(\d+)', color.name)
+                return (color.category, [int(p) if p.isdigit() else p.lower() for p in parts])
+            all_colors.sort(key=natural_sort_key)
         
         # Apply search filter if active
         if hasattr(self, 'search_term') and self.search_term:

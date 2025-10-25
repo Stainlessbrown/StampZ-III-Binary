@@ -409,7 +409,7 @@ class AnalysisManager:
         
         # Consistent width for both modes
         dialog_width = 600
-        dialog_height = 650
+        dialog_height = 700
         
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
@@ -594,7 +594,7 @@ class AnalysisManager:
                 info_dialog.update_idletasks()
                 x = (info_dialog.winfo_screenwidth() // 2) - (400 // 2)
                 y = (info_dialog.winfo_screenheight() // 2) - (300 // 2)
-                info_dialog.geometry(f"400x300+{x}+{y}")
+                info_dialog.geometry(f"400x500+{x}+{y}")
                 
                 # Info dialog UI
                 info_frame = ttk.Frame(info_dialog, padding=20)
@@ -866,7 +866,7 @@ class AnalysisManager:
             # Create save dialog
             dialog = tk.Toplevel(parent_dialog)
             dialog.title(f"Save {mode_label} Channel Results")
-            dialog.geometry("550x650")
+            dialog.geometry("550x700")
             dialog.transient(parent_dialog)
             dialog.grab_set()
             
