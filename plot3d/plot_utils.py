@@ -39,17 +39,44 @@ def calculate_default_ranges(df):
         'z_min': 0.0, 'z_max': 1.0
     }
 
-def set_axis_labels(ax, using_rgb=False):
+def set_axis_labels(ax, using_rgb=False, label_type='LAB'):
     """Set and format axis labels for the 3D plot
     
     Args:
         ax: The 3D axis object
-        using_rgb: Whether to use RGB or L*a*b* labels
+        using_rgb: Whether to use RGB or L*a*b* labels (legacy, prefer label_type)
+        label_type: Type of labels - 'LAB' (L*a*b*), 'RGB', or 'CMY'
         
     Returns:
         tuple: (xlabel, ylabel, zlabel) objects
     """
-    if using_rgb:
+    # Handle legacy using_rgb parameter
+    if using_rgb and label_type == 'LAB':
+        label_type = 'RGB'
+    
+    if label_type == 'CMY':
+        # Using CMY color space
+        xlabel = ax.xaxis.get_label()
+        xlabel.set_text('C')
+        xlabel.set_color('cyan')
+        xlabel.set_weight('bold')
+        xlabel.set_size(16)
+        xlabel.set_visible(True)
+        
+        ylabel = ax.yaxis.get_label()
+        ylabel.set_text('M')
+        ylabel.set_color('magenta')
+        ylabel.set_weight('bold')
+        ylabel.set_size(16)
+        ylabel.set_visible(True)
+        
+        zlabel = ax.zaxis.get_label()
+        zlabel.set_text('Y')
+        zlabel.set_color('gold')
+        zlabel.set_weight('bold')
+        zlabel.set_size(16)
+        zlabel.set_visible(True)
+    elif label_type == 'RGB':
         # Using RGB color space
         xlabel = ax.xaxis.get_label()
         xlabel.set_text('R')
@@ -72,7 +99,7 @@ def set_axis_labels(ax, using_rgb=False):
         zlabel.set_size(16)
         zlabel.set_visible(True)
     else:
-        # Using L*a*b* color space
+        # Using L*a*b* color space (default)
         xlabel = ax.xaxis.get_label()
         xlabel.set_text('L*')
         xlabel.set_color('black')

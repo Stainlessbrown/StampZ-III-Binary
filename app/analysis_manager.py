@@ -154,6 +154,94 @@ class AnalysisManager:
                 f"Failed to analyze color samples:\\n\\n{str(e)}"
             )
     
+    def _get_rgb_cmy_mode(self) -> Optional[str]:
+        """Ask user to choose RGB or CMY for channel analysis."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Select Channel Analysis Mode")
+        dialog.geometry("450x250")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Center dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (450 // 2)
+        y = (dialog.winfo_screenheight() // 2) - (250 // 2)
+        dialog.geometry(f"450x250+{x}+{y}")
+        
+        result = None
+        
+        def on_rgb():
+            nonlocal result
+            result = "rgb"
+            dialog.destroy()
+        
+        def on_cmy():
+            nonlocal result
+            result = "cmy"
+            dialog.destroy()
+        
+        def on_cancel():
+            nonlocal result
+            result = None
+            dialog.destroy()
+        
+        # Main frame
+        main_frame = ttk.Frame(dialog, padding=20)
+        main_frame.pack(fill="both", expand=True)
+        
+        # Title
+        ttk.Label(
+            main_frame,
+            text="Choose Channel Analysis Mode",
+            font=("Arial", 14, "bold")
+        ).pack(pady=(0, 10))
+        
+        # Description
+        ttk.Label(
+            main_frame,
+            text="Select which color channels to analyze:",
+            font=("Arial", 10)
+        ).pack(pady=(0, 15))
+        
+        # RGB only button
+        rgb_btn = ttk.Button(
+            main_frame,
+            text="🔴 RGB Channels",
+            command=on_rgb
+        )
+        rgb_btn.pack(fill="x", pady=5)
+        ttk.Label(
+            main_frame,
+            text="Analyze RGB (Red, Green, Blue) channels",
+            font=("Arial", 9),
+            foreground="gray"
+        ).pack(pady=(0, 10))
+        
+        # CMY only button
+        cmy_btn = ttk.Button(
+            main_frame,
+            text="🌈 CMY Channels",
+            command=on_cmy
+        )
+        cmy_btn.pack(fill="x", pady=5)
+        ttk.Label(
+            main_frame,
+            text="Analyze CMY (Cyan, Magenta, Yellow) channels",
+            font=("Arial", 9),
+            foreground="gray"
+        ).pack(pady=(0, 15))
+        
+        # Cancel button
+        ttk.Button(
+            main_frame,
+            text="Cancel",
+            command=on_cancel
+        ).pack(pady=5)
+        
+        # Wait for dialog to close
+        dialog.wait_window()
+        return result
+    
     def _get_analysis_type(self) -> Optional[str]:
         """Ask user to choose between regular color analysis and RGB-CMY analysis."""
         dialog = tk.Toplevel(self.root)
@@ -219,13 +307,13 @@ class AnalysisManager:
         # RGB-CMY analysis button  
         rgb_cmy_btn = ttk.Button(
             main_frame,
-            text="📊 RGB-CMY Channel Analysis",
+            text="📊 RGB / CMY Channel Analysis",
             command=on_rgb_cmy
         )
         rgb_cmy_btn.pack(fill="x", pady=5)
         ttk.Label(
             main_frame,
-            text="RGB and CMY channel analysis with statistics",
+            text="RGB or CMY channel analysis with statistics",
             font=("Arial", 9),
             foreground="gray"
         ).pack(pady=(0, 15))
@@ -250,6 +338,11 @@ class AnalysisManager:
                 "Please enter a sample set name in the Template field before analyzing."
             )
             return
+        
+        # Ask user to select RGB, CMY, or both
+        mode = self._get_rgb_cmy_mode()
+        if not mode:
+            return  # User cancelled
         
         try:
             from utils.rgb_cmy_color_analyzer import RGBCMYColorAnalyzer
@@ -278,14 +371,16 @@ class AnalysisManager:
                     except:
                         pass
             
-            print(f"DEBUG: Starting RGB-CMY analysis with:")
+            mode_label = {"rgb": "RGB-only", "cmy": "CMY-only"}[mode]
+            print(f"DEBUG: Starting {mode_label} analysis with:")
             print(f"  - image_path: {self.app.current_file}")
             print(f"  - sample_set_name: {actual_sample_set}")
             print(f"  - number of markers: {len(self.app.canvas._coord_markers)}")
+            print(f"  - mode: {mode}")
             
-            # Run RGB-CMY analysis
+            # Run RGB-CMY analysis with selected mode
             results = analyzer.analyze_image_rgb_cmy_from_canvas(
-                self.app.current_file, actual_sample_set, self.app.canvas._coord_markers
+                self.app.current_file, actual_sample_set, self.app.canvas._coord_markers, mode=mode
             )
             
             if results:
@@ -306,10 +401,15 @@ class AnalysisManager:
     def _show_rgb_cmy_analysis_complete_dialog(self, analysis_results: Dict, sample_set_name: str):
         """Show RGB-CMY analysis complete dialog with export options."""
         dialog = tk.Toplevel(self.root)
-        dialog.title("RGB-CMY Analysis Complete")
         
-        dialog_width = 700
-        dialog_height = 600
+        # Determine mode for title
+        mode = analysis_results.get('mode', 'rgb')
+        mode_label = {"rgb": "RGB", "cmy": "CMY"}[mode]
+        dialog.title(f"{mode_label} Channel Analysis Complete")
+        
+        # Consistent width for both modes
+        dialog_width = 600
+        dialog_height = 650
         
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
@@ -325,7 +425,7 @@ class AnalysisManager:
         
         ttk.Label(
             header_frame,
-            text="✅ RGB-CMY Analysis Complete",
+            text=f"✅ {mode_label} Channel Analysis Complete",
             font=("Arial", 14, "bold")
         ).pack()
         
@@ -333,52 +433,95 @@ class AnalysisManager:
         results_frame = ttk.Frame(dialog)
         results_frame.pack(fill="both", expand=True, padx=20, pady=(0, 20))
         
-        # Build results summary
+        # Build results summary based on mode
         results = analysis_results['results']
+        mode = analysis_results.get('mode', 'rgb')
+        mode_label = {"rgb": "RGB", "cmy": "CMY"}[mode]
+        
         summary_text = (
             f"Successfully analyzed {len(results)} samples from set '{sample_set_name}'.\n\n"
-            "RGB-CMY Channel Analysis Results:\n"
-            f"{'Sample':<15} {'R':<6} {'G':<6} {'B':<6} | {'C':<6} {'Y':<6} {'M':<6}\n"
-            f"{'-' * 60}\n"
+            f"{mode_label} Channel Analysis Results:\n"
         )
         
+        # Build header based on mode
+        if mode == 'rgb':
+            summary_text += f"{'Sample':<20} {'R':>8} {'G':>8} {'B':>8}\n"
+            summary_text += f"{'-' * 50}\n"
+        else:  # cmy
+            summary_text += f"{'Sample':<20} {'C':>8} {'M':>8} {'Y':>8}\n"
+            summary_text += f"{'-' * 50}\n"
+        
+        # Build data rows based on mode
         for result in results:
-            summary_text += (
-                f"{result['sample_name']:<15} "
-                f"{result['R_mean']:<6.1f} "
-                f"{result['G_mean']:<6.1f} "
-                f"{result['B_mean']:<6.1f} | "
-                f"{result['C_mean']:<6.1f} "
-                f"{result['Y_mean']:<6.1f} "
-                f"{result['M_mean']:<6.1f}\n"
-            )
+            if mode == 'rgb':
+                line = (
+                    f"{result['sample_name']:<20} "
+                    f"{result.get('R_mean', 0):>8.1f} "
+                    f"{result.get('G_mean', 0):>8.1f} "
+                    f"{result.get('B_mean', 0):>8.1f}"
+                )
+            else:  # cmy
+                line = (
+                    f"{result['sample_name']:<20} "
+                    f"{result.get('C_mean', 0):>8.1f} "
+                    f"{result.get('M_mean', 0):>8.1f} "
+                    f"{result.get('Y_mean', 0):>8.1f}"
+                )
+            summary_text += line + "\n"
         
         # Add statistics if multiple samples
         if len(results) > 1:
             import numpy as np
-            avg_r = np.mean([r['R_mean'] for r in results])
-            avg_g = np.mean([r['G_mean'] for r in results])
-            avg_b = np.mean([r['B_mean'] for r in results])
-            avg_c = np.mean([r['C_mean'] for r in results])
-            avg_y = np.mean([r['Y_mean'] for r in results])
-            avg_m = np.mean([r['M_mean'] for r in results])
             
-            summary_text += f"\n{'AVERAGES':<15} {avg_r:<6.1f} {avg_g:<6.1f} {avg_b:<6.1f} | {avg_c:<6.1f} {avg_y:<6.1f} {avg_m:<6.1f}"
+            if mode == 'rgb':
+                avg_r = np.mean([r.get('R_mean', 0) for r in results if 'R_mean' in r])
+                avg_g = np.mean([r.get('G_mean', 0) for r in results if 'G_mean' in r])
+                avg_b = np.mean([r.get('B_mean', 0) for r in results if 'B_mean' in r])
+                line = (
+                    f"\n{'AVERAGES':<20} "
+                    f"{avg_r:>8.1f} "
+                    f"{avg_g:>8.1f} "
+                    f"{avg_b:>8.1f}"
+                )
+            else:  # cmy
+                avg_c = np.mean([r.get('C_mean', 0) for r in results if 'C_mean' in r])
+                avg_m = np.mean([r.get('M_mean', 0) for r in results if 'M_mean' in r])
+                avg_y = np.mean([r.get('Y_mean', 0) for r in results if 'Y_mean' in r])
+                line = (
+                    f"\n{'AVERAGES':<20} "
+                    f"{avg_c:>8.1f} "
+                    f"{avg_m:>8.1f} "
+                    f"{avg_y:>8.1f}"
+                )
+            
+            summary_text += line
         
-        # Text widget with scrollbar
+        # Text widget with scrollbars (both vertical and horizontal)
         text_frame = ttk.Frame(results_frame)
         text_frame.pack(fill="both", expand=True)
         
         text_widget = tk.Text(
             text_frame,
-            wrap=tk.WORD,
+            wrap=tk.NONE,  # No wrapping - preserve column format
             font=("Courier", 10)
         )
-        scrollbar = ttk.Scrollbar(text_frame, orient="vertical", command=text_widget.yview)
-        text_widget.configure(yscrollcommand=scrollbar.set)
         
-        text_widget.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        # Vertical scrollbar
+        v_scrollbar = ttk.Scrollbar(text_frame, orient="vertical", command=text_widget.yview)
+        text_widget.configure(yscrollcommand=v_scrollbar.set)
+        
+        # Horizontal scrollbar
+        h_scrollbar = ttk.Scrollbar(text_frame, orient="horizontal", command=text_widget.xview)
+        text_widget.configure(xscrollcommand=h_scrollbar.set)
+        
+        # Pack widgets in grid layout
+        text_widget.grid(row=0, column=0, sticky="nsew")
+        v_scrollbar.grid(row=0, column=1, sticky="ns")
+        h_scrollbar.grid(row=1, column=0, sticky="ew")
+        
+        # Configure grid weights
+        text_frame.grid_rowconfigure(0, weight=1)
+        text_frame.grid_columnconfigure(0, weight=1)
         
         text_widget.insert(tk.END, summary_text)
         text_widget.configure(state="disabled")
@@ -436,11 +579,13 @@ class AnalysisManager:
         button_frame.pack(fill="x")
         
         def export_results():
-            """Export RGB-CMY results directly to Excel format with info message."""
+            """Export channel analysis results directly to Excel format with info message."""
             try:
                 # Show info dialog about Excel export
+                mode = analysis_results.get('mode', 'rgb')
+                mode_label = {"rgb": "RGB", "cmy": "CMY"}[mode]
                 info_dialog = tk.Toplevel(dialog)
-                info_dialog.title("RGB-CMY Export Information")
+                info_dialog.title(f"{mode_label} Channel Export Information")
                 info_dialog.geometry("400x300")
                 info_dialog.transient(dialog)
                 info_dialog.grab_set()
@@ -462,8 +607,10 @@ class AnalysisManager:
                 ).pack(pady=(0, 15))
                 
                 # Show info message about XLSX format
+                mode = analysis_results.get('mode', 'rgb')
+                mode_label = {"rgb": "RGB", "cmy": "CMY"}[mode]
                 info_text = (
-                    "RGB-CMY analysis will be exported as Excel (.xlsx) format.\n\n"
+                    f"{mode_label} channel analysis will be exported as Excel (.xlsx) format.\n\n"
                     "This file can be opened with:\n"
                     "• Microsoft Excel\n"
                     "• LibreOffice Calc\n"
@@ -501,18 +648,22 @@ class AnalysisManager:
                 
                 template_manager = get_template_manager()
                 
-                # Export directly to XLSX format
+                # Export directly to XLSX format with mode
                 analyzer = analysis_results['analyzer']
+                mode = analysis_results.get('mode', 'rgb')
                 
                 success, output_path = template_manager.export_with_auto_filename(
                     analyzer,
                     analysis_results['image_path'],
                     sample_set_name,
-                    'xlsx'  # Always export as Excel
+                    'xlsx',  # Always export as Excel
+                    mode=mode  # Pass mode to control which sections to export
                 )
                 
                 if success:
-                    export_messages = [f"RGB-CMY analysis results exported to: {os.path.basename(output_path)}"]
+                    mode = analysis_results.get('mode', 'rgb')
+                    mode_label = {"rgb": "RGB", "cmy": "CMY"}[mode]
+                    export_messages = [f"{mode_label} channel analysis results exported to: {os.path.basename(output_path)}"]
                     
                     # Save channel masks if requested
                     if save_channel_masks_var.get():
@@ -570,7 +721,7 @@ class AnalysisManager:
         
         # Add Save to Database button
         def save_to_database():
-            """Save RGB-CMY results to database."""
+            """Save channel analysis results to database."""
             self._save_rgb_cmy_to_database(analysis_results, sample_set_name, dialog)
         
         ttk.Button(
@@ -702,16 +853,19 @@ class AnalysisManager:
         self.root.wait_window(dialog)
     
     def _save_rgb_cmy_to_database(self, analysis_results, sample_set_name, parent_dialog):
-        """Save RGB-CMY analysis results to database with save dialog."""
+        """Save channel analysis results to database with save dialog."""
         try:
             results = analysis_results['results']
+            mode = analysis_results.get('mode', 'rgb')
+            mode_label = {"rgb": "RGB", "cmy": "CMY"}[mode]
+            
             if not results:
-                messagebox.showwarning("No Results", "No RGB-CMY results to save.")
+                messagebox.showwarning("No Results", f"No {mode_label} results to save.")
                 return
             
             # Create save dialog
             dialog = tk.Toplevel(parent_dialog)
-            dialog.title("Save RGB-CMY Results")
+            dialog.title(f"Save {mode_label} Channel Results")
             dialog.geometry("550x650")
             dialog.transient(parent_dialog)
             dialog.grab_set()
@@ -721,13 +875,13 @@ class AnalysisManager:
             content_frame.pack(fill=tk.BOTH, expand=True)
             
             # Title
-            ttk.Label(content_frame, text="Save RGB-CMY Channel Analysis Results", 
+            ttk.Label(content_frame, text=f"Save {mode_label} Channel Analysis Results", 
                      font=("Arial", 14, "bold")).pack(pady=(0, 10))
             
             # Summary information
             summary_text = (
-                f"Analysis contains {len(results)} RGB-CMY channel samples\n"
-                f"Each sample has RGB and CMY channel statistics\n"
+                f"Analysis contains {len(results)} {mode_label} channel samples\n"
+                f"Each sample has {mode_label} channel statistics\n"
                 f"Sample set: {sample_set_name}\n"
                 f"Data to save: Individual sample results and/or averaged channel statistics"
             )
@@ -774,14 +928,14 @@ class AnalysisManager:
             new_radio.pack(anchor='w')
             
             new_db_var = tk.StringVar()
-            # Generate default database name
+            # Generate default database name with mode
             image_name = "unknown_image"
             if analysis_results.get('image_path'):
                 image_name = os.path.splitext(os.path.basename(analysis_results['image_path']))[0]
             
             from datetime import datetime
             date_str = datetime.now().strftime('%Y%m%d')
-            default_name = f"{image_name}_{sample_set_name}_RGBCMY_{date_str}"
+            default_name = f"{image_name}_{sample_set_name}_{mode_label}_{date_str}"
             new_db_var.set(default_name)
                 
             new_db_entry = ttk.Entry(new_frame, textvariable=new_db_var, width=50)
@@ -803,10 +957,10 @@ class AnalysisManager:
                                             variable=save_average)
             save_average_cb.pack(anchor='w', pady=(0, 10))
             
-            # Info about database naming
+            # Info about database naming with mode
             info_text = (
-                "• Individual sample data: {database_name}_RGBCMY.db\n"
-                "• Averaged statistics: {database_name}_RGBCMY_AVG_averages.db"
+                f"• Individual sample data: {{database_name}}_{mode_label}.db\n"
+                f"• Averaged statistics: {{database_name}}_{mode_label}_AVG_averages.db"
             )
             ttk.Label(options_frame, text=info_text, font=("Arial", 9), 
                      foreground="gray", justify=tk.LEFT).pack(anchor='w')
@@ -846,8 +1000,10 @@ class AnalysisManager:
                 if not (db_name.endswith('_library') or 
                        db_name.endswith('_averages') or
                        db_name.endswith('_AVG') or
-                       db_name.endswith('_RGBCMY') or
-                       db_name.endswith('_RGBCMY_AVG') or
+                       db_name.endswith('_RGB') or
+                       db_name.endswith('_CMY') or
+                       db_name.endswith('_RGB_AVG') or
+                       db_name.endswith('_CMY_AVG') or
                        db_name.startswith('system_') or
                        db_name in ['coordinates', 'coordinate_sets']):
                     non_library_dbs.append(db_name)
@@ -907,8 +1063,10 @@ class AnalysisManager:
                 all_requested_succeeded = False
             
             if all_requested_succeeded and saved_files:
-                # Build success message
-                success_msg = "RGB-CMY results saved successfully!\n\n"
+            # Build success message
+                mode = analysis_results.get('mode', 'rgb')
+                mode_label = {"rgb": "RGB", "cmy": "CMY"}[mode]
+                success_msg = f"{mode_label} channel results saved successfully!\n\n"
                 
                 if save_individual.get() and success_individual:
                     success_msg += f"✓ {len(results)} individual sample measurements saved\n"
@@ -940,108 +1098,148 @@ class AnalysisManager:
         except Exception as e:
             import logging
             logger = logging.getLogger(__name__)
-            messagebox.showerror("Error", f"Failed to save RGB-CMY results: {str(e)}")
-            logger.error(f"RGB-CMY save error: {e}")
+            mode = analysis_results.get('mode', 'rgb')
+            mode_label = {"rgb": "RGB", "cmy": "CMY"}[mode]
+            messagebox.showerror("Error", f"Failed to save {mode_label} channel results: {str(e)}")
+            logger.error(f"{mode_label} channel save error: {e}")
     
     def _save_individual_rgb_cmy_from_analysis(self, db_name, image_name, saved_files, results, sample_set_name):
-        """Save individual RGB-CMY sample data to database."""
+        """Save individual channel sample data to database."""
         try:
             from utils.color_analysis_db import ColorAnalysisDB
             
-            # Use _RGBCMY suffix for RGB-CMY data
-            rgb_cmy_db_name = f"{db_name}_RGBCMY"
-            individual_db = ColorAnalysisDB(rgb_cmy_db_name)
+            # Determine mode from results
+            mode = results[0].get('mode', 'rgb') if results else 'rgb'
+            mode_suffix = mode.upper()  # RGB or CMY
+            
+            # Use mode-specific suffix
+            channel_db_name = f"{db_name}_{mode_suffix}"
+            individual_db = ColorAnalysisDB(channel_db_name)
             
             # Create measurement set
-            set_id = individual_db.create_measurement_set(image_name, f"RGB-CMY channel analysis from {sample_set_name}")
+            set_id = individual_db.create_measurement_set(image_name, f"{mode_suffix} channel analysis from {sample_set_name}")
             
             if not set_id:
                 return False
             
             # Save each sample result as a measurement
             for i, result in enumerate(results, 1):
-                # Create comprehensive notes with RGB and CMY data
-                notes = (
-                    f"RGB-CMY sample analysis: {result['sample_name']} | "
-                    f"RGB: R={result['R_mean']:.1f}±{result.get('R_std', 0):.2f}, "
-                    f"G={result['G_mean']:.1f}±{result.get('G_std', 0):.2f}, "
-                    f"B={result['B_mean']:.1f}±{result.get('B_std', 0):.2f} | "
-                    f"CMY: C={result['C_mean']:.1f}±{result.get('C_std', 0):.2f}, "
-                    f"M={result['M_mean']:.1f}±{result.get('M_std', 0):.2f}, "
-                    f"Y={result['Y_mean']:.1f}±{result.get('Y_std', 0):.2f}"
-                )
+                # Create notes based on mode
+                if mode == 'rgb':
+                    notes = (
+                        f"RGB sample analysis: {result['sample_name']} | "
+                        f"R={result.get('R_mean', 0):.1f}±{result.get('R_std', 0):.2f}, "
+                        f"G={result.get('G_mean', 0):.1f}±{result.get('G_std', 0):.2f}, "
+                        f"B={result.get('B_mean', 0):.1f}±{result.get('B_std', 0):.2f}"
+                    )
+                    # Store RGB values in RGB fields only (leave L*a*b* as 0)
+                    # This ensures Plot_3D normalizes as 0-255 range, not L*a*b* ranges
+                    l_val = 0.0  # Don't use L*a*b* fields for RGB channel data
+                    a_val = 0.0
+                    b_val = 0.0
+                    r_val = result.get('R_mean', 0)
+                    g_val = result.get('G_mean', 0)
+                    b_rgb = result.get('B_mean', 0)
+                else:  # cmy
+                    notes = (
+                        f"CMY sample analysis: {result['sample_name']} | "
+                        f"C={result.get('C_mean', 0):.1f}±{result.get('C_std', 0):.2f}, "
+                        f"M={result.get('M_mean', 0):.1f}±{result.get('M_std', 0):.2f}, "
+                        f"Y={result.get('Y_mean', 0):.1f}±{result.get('Y_std', 0):.2f}"
+                    )
+                    # Store CMY values in RGB fields only (leave L*a*b* as 0)
+                    # This ensures Plot_3D normalizes as 0-255 range, not L*a*b* ranges
+                    l_val = 0.0  # Don't use L*a*b* fields for CMY data
+                    a_val = 0.0
+                    b_val = 0.0
+                    r_val = result.get('C_mean', 0)  # C in R field
+                    g_val = result.get('M_mean', 0)  # M in G field
+                    b_rgb = result.get('Y_mean', 0)  # Y in B field
                 
-                # For RGB-CMY data, we'll store RGB values in the standard fields
+                # Save measurement
                 saved = individual_db.save_color_measurement(
                     set_id=set_id,
                     coordinate_point=i,
-                    x_pos=0.0,  # RGB-CMY analysis doesn't have spatial coordinates
+                    x_pos=0.0,  # Channel analysis doesn't have spatial coordinates
                     y_pos=0.0,
-                    l_value=result['R_mean'],  # Store R in L field
-                    a_value=result['G_mean'],  # Store G in a field  
-                    b_value=result['B_mean'],  # Store B in b field
-                    rgb_r=result['R_mean'],
-                    rgb_g=result['G_mean'], 
-                    rgb_b=result['B_mean'],
-                    sample_type="rgb_cmy_sample",
+                    l_value=l_val,
+                    a_value=a_val,  
+                    b_value=b_val,
+                    rgb_r=r_val,
+                    rgb_g=g_val, 
+                    rgb_b=b_rgb,
+                    sample_type=f"{mode}_channel_sample",
                     sample_size=f"{result.get('sample_size', 'unknown')}",
-                    sample_anchor="rgb_cmy",
+                    sample_anchor=f"{mode}_channel",
                     notes=notes
                 )
                 
                 if not saved:
                     return False
             
-            saved_files.append(f"{rgb_cmy_db_name}.db")
+            saved_files.append(f"{channel_db_name}.db")
             return True
             
         except Exception as e:
             import logging
             logger = logging.getLogger(__name__)
-            logger.error(f"Error saving individual RGB-CMY data: {e}")
+            mode_suffix = mode.upper() if 'mode' in locals() else 'CHANNEL'
+            logger.error(f"Error saving individual {mode_suffix} data: {e}")
             return False
     
     def _save_averaged_rgb_cmy_from_analysis(self, db_name, image_name, saved_files, results, sample_set_name):
-        """Save averaged RGB-CMY statistics to database."""
+        """Save averaged channel statistics to database."""
         try:
             from utils.color_analyzer import ColorAnalyzer
             import numpy as np
             
-            # Calculate averages across all sample results
-            avg_r = np.mean([r['R_mean'] for r in results])
-            avg_g = np.mean([r['G_mean'] for r in results])
-            avg_b = np.mean([r['B_mean'] for r in results])
-            avg_c = np.mean([r['C_mean'] for r in results])
-            avg_m = np.mean([r['M_mean'] for r in results])
-            avg_y = np.mean([r['Y_mean'] for r in results])
+            # Determine mode from results
+            mode = results[0].get('mode', 'rgb') if results else 'rgb'
+            mode_suffix = mode.upper()  # RGB or CMY
+            
+            # Calculate averages based on mode
+            if mode == 'rgb':
+                avg_1 = np.mean([r.get('R_mean', 0) for r in results])
+                avg_2 = np.mean([r.get('G_mean', 0) for r in results])
+                avg_3 = np.mean([r.get('B_mean', 0) for r in results])
+                channel_names = ('R', 'G', 'B')
+            else:  # cmy
+                avg_1 = np.mean([r.get('C_mean', 0) for r in results])
+                avg_2 = np.mean([r.get('M_mean', 0) for r in results])
+                avg_3 = np.mean([r.get('Y_mean', 0) for r in results])
+                channel_names = ('C', 'M', 'Y')
             
             # Convert to format expected by averaged measurement saver
             sample_measurements = []
             for i, result in enumerate(results, 1):
+                if mode == 'rgb':
+                    val1, val2, val3 = result.get('R_mean', 0), result.get('G_mean', 0), result.get('B_mean', 0)
+                else:
+                    val1, val2, val3 = result.get('C_mean', 0), result.get('M_mean', 0), result.get('Y_mean', 0)
+                
                 measurement = {
                     'id': f"sample_{i}",
-                    'l_value': result['R_mean'],  # Store RGB in Lab fields for compatibility
-                    'a_value': result['G_mean'],
-                    'b_value': result['B_mean'], 
-                    'rgb_r': result['R_mean'],
-                    'rgb_g': result['G_mean'],
-                    'rgb_b': result['B_mean'],
+                    'l_value': val1,
+                    'a_value': val2,
+                    'b_value': val3, 
+                    'rgb_r': val1,
+                    'rgb_g': val2,
+                    'rgb_b': val3,
                     'x_position': 0.0,
                     'y_position': 0.0,
-                    'sample_type': 'rgb_cmy_sample',
+                    'sample_type': f'{mode}_channel_sample',
                     'sample_width': 1,
                     'sample_height': 1,
-                    'anchor': 'rgb_cmy'
+                    'anchor': f'{mode}_channel'
                 }
                 sample_measurements.append(measurement)
             
             analyzer = ColorAnalyzer()
-            avg_db_name = f"{db_name}_RGBCMY_AVG"
+            avg_db_name = f"{db_name}_{mode_suffix}_AVG"
             
             notes = (
-                f"RGB-CMY channel averages from {len(results)} samples in {sample_set_name} | "
-                f"Avg RGB: R={avg_r:.1f}, G={avg_g:.1f}, B={avg_b:.1f} | "
-                f"Avg CMY: C={avg_c:.1f}, M={avg_m:.1f}, Y={avg_y:.1f}"
+                f"{mode_suffix} channel averages from {len(results)} samples in {sample_set_name} | "
+                f"Avg: {channel_names[0]}={avg_1:.1f}, {channel_names[1]}={avg_2:.1f}, {channel_names[2]}={avg_3:.1f}"
             )
             
             success = analyzer.save_averaged_measurement_from_samples(
@@ -1059,7 +1257,8 @@ class AnalysisManager:
         except Exception as e:
             import logging
             logger = logging.getLogger(__name__)
-            logger.error(f"Error saving averaged RGB-CMY data: {e}")
+            mode_suffix = mode.upper() if 'mode' in locals() else 'CHANNEL'
+            logger.error(f"Error saving averaged {mode_suffix} data: {e}")
             return False
     
     def _export_individual_to_logger(self, measurements, sample_set_name, dialog):
@@ -2002,6 +2201,117 @@ class AnalysisManager:
                 f"Failed to perform Plot_3D action:\\n\\n{str(e)}"
             )
     
+    def _ask_import_data_type(self, default_type=None):
+        """Ask user what type of color data is being imported.
+        
+        Args:
+            default_type: Auto-detected type to pre-select ('LAB', 'RGB', or 'CMY')
+        
+        Returns:
+            str: 'LAB', 'RGB', or 'CMY' if confirmed, None if cancelled
+        """
+        from tkinter import Toplevel, Label, Radiobutton, Checkbutton, StringVar, BooleanVar, Button, Frame
+        
+        dialog = Toplevel(self.root)
+        dialog.title("Data Type Selection")
+        dialog.geometry("450x400")
+        
+        # Make dialog modal
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.attributes('-topmost', True)
+        dialog.focus_force()
+        
+        # Center on parent
+        dialog.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (dialog.winfo_width() // 2)
+        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+        
+        # Heading
+        heading_text = "What type of color data is in this file?"
+        if default_type:
+            heading_text += f"\n(Auto-detected: {default_type})"
+        Label(dialog, text=heading_text, 
+              font=("Arial", 11, "bold")).pack(pady=15)
+        
+        # Selection variables - use auto-detected type as default
+        selection = StringVar(value=default_type if default_type else "LAB")
+        result = StringVar(value="")  # Empty means cancelled
+        
+        # Radio buttons
+        rb_frame = Frame(dialog)
+        rb_frame.pack(pady=10)
+        
+        Radiobutton(rb_frame, text="L*a*b* (CIE color space)", 
+                   variable=selection, value="LAB",
+                   font=("Arial", 10)).pack(anchor='w', pady=5)
+        
+        Radiobutton(rb_frame, text="RGB (Red/Green/Blue, 0-255 normalized)", 
+                   variable=selection, value="RGB",
+                   font=("Arial", 10)).pack(anchor='w', pady=5)
+        
+        Radiobutton(rb_frame, text="CMY (Cyan/Magenta/Yellow, 0-255 normalized)", 
+                   variable=selection, value="CMY",
+                   font=("Arial", 10)).pack(anchor='w', pady=5)
+        
+        # Separator
+        Frame(dialog, height=2, bg="gray").pack(fill='x', padx=20, pady=10)
+        
+        # Normalized confirmation
+        normalized_var = BooleanVar(value=False)
+        check_frame = Frame(dialog)
+        check_frame.pack(pady=5)
+        
+        Checkbutton(check_frame, 
+                   text="✓ I confirm this data is already normalized (0-1 range)",
+                   variable=normalized_var,
+                   font=("Arial", 10, "bold"),
+                   fg="darkred").pack()
+        
+        # Warning
+        Label(dialog, 
+              text="⚠️ Required for Plot_3D compatibility\n(Unnormalized data will not plot correctly)",
+              font=("Arial", 9), fg="#CC0000").pack(pady=5)
+        
+        # Info note
+        Label(dialog, 
+              text="Axis labels will match your selection.\nData values remain unchanged.",
+              font=("Arial", 9), fg="#666666").pack(pady=5)
+        
+        # Button handlers
+        def on_ok():
+            if not normalized_var.get():
+                messagebox.showwarning(
+                    "Confirmation Required",
+                    "Please confirm that your data is normalized (0-1 range).\n\n"
+                    "Plot_3D requires normalized data to function correctly."
+                )
+                return
+            result.set(selection.get())
+            dialog.destroy()
+        
+        def on_cancel():
+            result.set("")  # Empty means cancelled
+            dialog.destroy()
+        
+        # Buttons
+        btn_frame = Frame(dialog)
+        btn_frame.pack(pady=10)
+        
+        Button(btn_frame, text="OK", command=on_ok, width=10, font=("Arial", 10, "bold")).pack(side='left', padx=5)
+        Button(btn_frame, text="Cancel", command=on_cancel, width=10, font=("Arial", 10)).pack(side='left', padx=5)
+        
+        # Show dialog
+        dialog.deiconify()
+        dialog.lift()
+        dialog.focus_force()
+        
+        # Wait for response
+        dialog.wait_window()
+        
+        return result.get() if result.get() else None
+    
     def _import_external_as_new_worksheet(self):
         """Import external data as a completely new worksheet and database."""
         print("DEBUG: === STARTING IMPORT PROCESS ===")
@@ -2027,6 +2337,30 @@ class AnalysisManager:
             if not file_path:
                 print("DEBUG: User cancelled file selection")
                 return  # User cancelled
+            
+            # Auto-detect data type from filename suffix
+            print("DEBUG: Step 2b - Detecting data type from filename")
+            filename = os.path.basename(file_path)
+            auto_detected_type = None
+            
+            if '-CMY' in filename.upper() or '_CMY' in filename.upper():
+                auto_detected_type = 'CMY'
+            elif '-RGB' in filename.upper() or '_RGB' in filename.upper():
+                auto_detected_type = 'RGB'
+            elif '-LAB' in filename.upper() or '_LAB' in filename.upper():
+                auto_detected_type = 'LAB'
+            
+            if auto_detected_type:
+                print(f"DEBUG: Auto-detected data type: {auto_detected_type} from filename: {filename}")
+            else:
+                print(f"DEBUG: No data type suffix found in filename: {filename}")
+            
+            # Ask user to confirm/select data type (with auto-detected pre-selected)
+            data_type = self._ask_import_data_type(default_type=auto_detected_type)
+            if not data_type:
+                print("DEBUG: User cancelled data type selection")
+                return
+            print(f"DEBUG: Step 2b - Selected data type: {data_type}")
             
             # Ask user for new worksheet name
             print("DEBUG: Step 3 - Asking for worksheet name")
@@ -2061,7 +2395,7 @@ class AnalysisManager:
                 
                 # Save imported data directly to database
                 print(f"DEBUG: Step 5 - Saving imported data to database: {new_worksheet_name}")
-                saved_count = self._save_imported_data_to_database(new_worksheet_name, result)
+                saved_count = self._save_imported_data_to_database(new_worksheet_name, result, data_type)
                 
                 # Verify the database was created
                 from utils.color_analysis_db import ColorAnalysisDB
@@ -2324,17 +2658,18 @@ class AnalysisManager:
             logger.error(f"Error populating new worksheet: {e}")
             raise
     
-    def _save_imported_data_to_database(self, sample_set_name, import_result):
+    def _save_imported_data_to_database(self, sample_set_name, import_result, data_type='LAB'):
         """Save imported data directly to database without UI.
         
         Args:
             sample_set_name: Name for the new database
             import_result: ImportResult with data to save
+            data_type: Data type ('LAB', 'RGB', or 'CMY') for proper detection
         """
         if self.database_manager:
-            return self.database_manager.save_imported_data_to_database(sample_set_name, import_result)
+            return self.database_manager.save_imported_data_to_database(sample_set_name, import_result, data_type)
         else:
-            return self._legacy_save_imported_data_to_database(sample_set_name, import_result)
+            return self._legacy_save_imported_data_to_database(sample_set_name, import_result, data_type)
     
     def _create_new_plot3d_template(self):
         """Create a new empty Plot_3D template."""
@@ -3861,13 +4196,22 @@ class AnalysisManager:
     
     # Legacy Database Methods (fallbacks when DatabaseManager not available)
     
-    def _legacy_save_imported_data_to_database(self, sample_set_name, import_result):
+    def _legacy_save_imported_data_to_database(self, sample_set_name, import_result, data_type='LAB'):
         """Legacy implementation of save_imported_data_to_database."""
         try:
             from utils.color_analysis_db import ColorAnalysisDB
             
             print(f"DEBUG: Creating database: {sample_set_name}")
             db = ColorAnalysisDB(sample_set_name)
+            
+            # Determine sample_type based on data_type
+            if data_type == 'RGB':
+                sample_type = 'rgb_channel_sample'
+            elif data_type == 'CMY':
+                sample_type = 'cmy_channel_sample'
+            else:  # LAB
+                sample_type = 'imported_data'
+            print(f"DEBUG: Using sample_type: {sample_type} (based on data_type: {data_type})")
             
             saved_count = 0
             
@@ -3924,16 +4268,36 @@ class AnalysisManager:
                             image_name = data_id
                             coord_point = 1
                         
+                        # For channel data (RGB/CMY), store values in rgb_ fields and set L*a*b* to 0
+                        if sample_type in ['rgb_channel_sample', 'cmy_channel_sample']:
+                            # Denormalize to 0-255 range for channel values
+                            l_val = 0.0  # Indicates channel data
+                            a_val = 0.0
+                            b_val = 0.0
+                            rgb_r = x_norm * 255.0
+                            rgb_g = y_norm * 255.0
+                            rgb_b = z_norm * 255.0
+                        else:
+                            # L*a*b* data
+                            l_val = x_norm  # Store normalized values
+                            a_val = y_norm
+                            b_val = z_norm
+                            rgb_r = 0.0
+                            rgb_g = 0.0
+                            rgb_b = 0.0
+                        
                         # Insert as new measurement
                         success = db.insert_new_measurement(
                             image_name=image_name,
                             coordinate_point=coord_point,
                             x_pos=0.0,  # Position not relevant for imported data
                             y_pos=0.0,
-                            l_value=x_norm,  # Store normalized values as L*a*b*
-                            a_value=y_norm,
-                            b_value=z_norm,
-                            rgb_r=0.0, rgb_g=0.0, rgb_b=0.0,
+                            l_value=l_val,
+                            a_value=a_val,
+                            b_value=b_val,
+                            rgb_r=rgb_r,
+                            rgb_g=rgb_g,
+                            rgb_b=rgb_b,
                             cluster_id=cluster,
                             delta_e=delta_e,
                             centroid_x=float(row[8]) if row[8] and str(row[8]).strip() else None,
@@ -3943,7 +4307,7 @@ class AnalysisManager:
                             sphere_radius=float(row[12]) if row[12] and str(row[12]).strip() else None,
                             marker=marker,
                             color=color,
-                            sample_type='imported_data',
+                            sample_type=sample_type,
                             notes=f'Imported from external file'
                         )
                         

@@ -22,6 +22,14 @@ import shutil
 
 logger = logging.getLogger(__name__)
 
+# Color space conversion
+try:
+    from colorspacious import cspace_convert
+    HAS_COLORSPACIOUS = True
+except ImportError:
+    HAS_COLORSPACIOUS = False
+    logger.warning("colorspacious not installed. L*a*b* conversion will use approximation.")
+
 
 class RGBCMYAnalyzer:
     """Analyzes RGB and CMY channel values from masked image regions."""
@@ -36,6 +44,61 @@ class RGBCMYAnalyzer:
             'cmy_data': [],
             'statistics': {}
         }
+    
+    def rgb_to_lab(self, rgb: Tuple[float, float, float]) -> Tuple[float, float, float]:
+        """Convert RGB to CIE L*a*b* color space.
+        
+        Args:
+            rgb: RGB values as (r, g, b) floats 0-255
+            
+        Returns:
+            L*a*b* values as (L, a, b) floats
+        """
+        if HAS_COLORSPACIOUS:
+            # Use precise conversion via colorspacious
+            rgb_float = [c/255.0 for c in rgb]
+            lab = cspace_convert(rgb_float, "sRGB1", "CIELab")
+            return tuple(lab)
+        else:
+            # Use approximation if colorspacious not available
+            return self._rgb_to_lab_approximation(rgb)
+    
+    def _rgb_to_lab_approximation(self, rgb: Tuple[float, float, float]) -> Tuple[float, float, float]:
+        """Approximate RGB to L*a*b* conversion.
+        
+        This is a simplified conversion that's reasonably accurate for most colors.
+        For precise color analysis, install colorspacious: pip install colorspacious
+        """
+        r, g, b = [c/255.0 for c in rgb]
+        
+        # Convert to linear RGB
+        def gamma_correct(c):
+            return c/12.92 if c <= 0.04045 else ((c + 0.055)/1.055) ** 2.4
+        
+        r_lin = gamma_correct(r)
+        g_lin = gamma_correct(g)
+        b_lin = gamma_correct(b)
+        
+        # Convert to XYZ (using sRGB matrix)
+        x = 0.4124564 * r_lin + 0.3575761 * g_lin + 0.1804375 * b_lin
+        y = 0.2126729 * r_lin + 0.7151522 * g_lin + 0.0721750 * b_lin
+        z = 0.0193339 * r_lin + 0.1191920 * g_lin + 0.9503041 * b_lin
+        
+        # Normalize by D65 white point
+        xn, yn, zn = 0.95047, 1.0, 1.08883
+        x, y, z = x/xn, y/yn, z/zn
+        
+        # Convert to Lab
+        def f(t):
+            return t**(1/3) if t > 0.008856 else (7.787 * t + 16/116)
+        
+        fx, fy, fz = f(x), f(y), f(z)
+        
+        L = 116 * fy - 16
+        a = 500 * (fx - fy)
+        b = 200 * (fy - fz)
+        
+        return (L, a, b)
     
     def load_image(self, image_path: str) -> bool:
         """Load the source image for analysis."""
@@ -52,16 +115,17 @@ class RGBCMYAnalyzer:
         self.analysis_data['metadata'] = metadata
         logger.info(f"Set metadata: {metadata}")
     
-    def analyze_masked_region(self, mask: Image.Image, sample_name: str) -> Dict[str, float]:
+    def analyze_masked_region(self, mask: Image.Image, sample_name: str, mode: str = 'rgb') -> Dict[str, float]:
         """
-        Analyze RGB and CMY values for a masked region.
+        Analyze RGB or CMY values for a masked region.
         
         Args:
             mask: Binary mask image (white = analyze, black = ignore)
             sample_name: Name/identifier for this sample
+            mode: 'rgb' or 'cmy' - which channels to analyze
             
         Returns:
-            Dictionary with RGB and CMY statistics
+            Dictionary with RGB or CMY statistics
         """
         if self.source_image is None:
             raise ValueError("No source image loaded. Call load_image() first.")
@@ -87,62 +151,91 @@ class RGBCMYAnalyzer:
             # Extract RGB values for masked pixels
             masked_rgb = image_array[mask_pixels]  # Shape: (n_pixels, 3)
             
-            # Calculate RGB statistics
-            rgb_means = np.mean(masked_rgb, axis=0)
-            rgb_stds = np.std(masked_rgb, axis=0, ddof=1)  # Sample standard deviation
-            
-            # Convert RGB to CMY
-            # CMY = 255 - RGB (simple subtractive color model)
-            cmy_values = 255 - masked_rgb
-            cmy_means = np.mean(cmy_values, axis=0)
-            cmy_stds = np.std(cmy_values, axis=0, ddof=1)
-            
-            # Compile results - CORRECTED: Standard RGB and CMY order
+            # Compile results based on mode
             result = {
                 'sample_name': sample_name,
                 'pixel_count': int(np.sum(mask_pixels)),
-                # RGB data - standard RGB order (Red, Green, Blue)
-                'R_mean': float(rgb_means[0]),  # Red = index 0
-                'R_std': float(rgb_stds[0]),
-                'G_mean': float(rgb_means[1]),  # Green = index 1
-                'G_std': float(rgb_stds[1]),
-                'B_mean': float(rgb_means[2]),  # Blue = index 2
-                'B_std': float(rgb_stds[2]),
-                # CMY data - standard CMY order (Cyan, Magenta, Yellow)
-                'C_mean': float(cmy_means[0]),  # Cyan = 255 - Red
-                'C_std': float(cmy_stds[0]),
-                'M_mean': float(cmy_means[1]),  # Magenta = 255 - Green
-                'M_std': float(cmy_stds[1]),
-                'Y_mean': float(cmy_means[2]),  # Yellow = 255 - Blue
-                'Y_std': float(cmy_stds[2])
+                'mode': mode
             }
+            
+            # Calculate RGB statistics if requested
+            if mode == 'rgb':
+                rgb_means = np.mean(masked_rgb, axis=0)
+                rgb_stds = np.std(masked_rgb, axis=0, ddof=1)  # Sample standard deviation
+                
+                # RGB data - standard RGB order (Red, Green, Blue)
+                result.update({
+                    'R_mean': float(rgb_means[0]),  # Red = index 0
+                    'R_std': float(rgb_stds[0]),
+                    'G_mean': float(rgb_means[1]),  # Green = index 1
+                    'G_std': float(rgb_stds[1]),
+                    'B_mean': float(rgb_means[2]),  # Blue = index 2
+                    'B_std': float(rgb_stds[2]),
+                })
+                
+                # Convert RGB mean to L*a*b* for better visualization
+                lab = self.rgb_to_lab((rgb_means[0], rgb_means[1], rgb_means[2]))
+                result.update({
+                    'L_mean': float(lab[0]),
+                    'a_mean': float(lab[1]),
+                    'b_mean': float(lab[2])
+                })
+            
+            # Calculate CMY statistics if requested
+            if mode == 'cmy':
+                # Convert RGB to CMY (CMY = 255 - RGB, simple subtractive color model)
+                cmy_values = 255 - masked_rgb
+                cmy_means = np.mean(cmy_values, axis=0)
+                cmy_stds = np.std(cmy_values, axis=0, ddof=1)
+                
+                # CMY data - standard CMY order (Cyan, Magenta, Yellow)
+                result.update({
+                    'C_mean': float(cmy_means[0]),  # Cyan = 255 - Red
+                    'C_std': float(cmy_stds[0]),
+                    'M_mean': float(cmy_means[1]),  # Magenta = 255 - Green
+                    'M_std': float(cmy_stds[1]),
+                    'Y_mean': float(cmy_means[2]),  # Yellow = 255 - Blue
+                    'Y_std': float(cmy_stds[2])
+                })
             
             logger.info(f"Analyzed sample {sample_name}: {result['pixel_count']} pixels")
             return result
             
         except Exception as e:
             logger.error(f"Error analyzing masked region for {sample_name}: {e}")
-            return self._create_empty_result(sample_name)
+            return self._create_empty_result(sample_name, mode=mode)
     
-    def _create_empty_result(self, sample_name: str) -> Dict[str, float]:
+    def _create_empty_result(self, sample_name: str, mode: str = 'rgb') -> Dict[str, float]:
         """Create empty result structure for failed analysis."""
-        return {
+        result = {
             'sample_name': sample_name,
             'pixel_count': 0,
-            'R_mean': 0.0, 'R_std': 0.0,
-            'G_mean': 0.0, 'G_std': 0.0,
-            'B_mean': 0.0, 'B_std': 0.0,
-            'C_mean': 0.0, 'C_std': 0.0,
-            'M_mean': 0.0, 'M_std': 0.0,
-            'Y_mean': 0.0, 'Y_std': 0.0
+            'mode': mode
         }
+        
+        if mode == 'rgb':
+            result.update({
+                'R_mean': 0.0, 'R_std': 0.0,
+                'G_mean': 0.0, 'G_std': 0.0,
+                'B_mean': 0.0, 'B_std': 0.0,
+                'L_mean': 0.0, 'a_mean': 0.0, 'b_mean': 0.0
+            })
+        else:  # cmy
+            result.update({
+                'C_mean': 0.0, 'C_std': 0.0,
+                'M_mean': 0.0, 'M_std': 0.0,
+                'Y_mean': 0.0, 'Y_std': 0.0
+            })
+        
+        return result
     
-    def analyze_multiple_masks(self, masks: Dict[str, Image.Image]) -> List[Dict[str, float]]:
+    def analyze_multiple_masks(self, masks: Dict[str, Image.Image], mode: str = 'rgb') -> List[Dict[str, float]]:
         """
         Analyze multiple masked regions in batch.
         
         Args:
             masks: Dictionary of {sample_name: mask_image}
+            mode: 'rgb' or 'cmy' - which channels to analyze
             
         Returns:
             List of analysis results for each sample
@@ -150,7 +243,7 @@ class RGBCMYAnalyzer:
         results = []
         
         for sample_name, mask in masks.items():
-            result = self.analyze_masked_region(mask, sample_name)
+            result = self.analyze_masked_region(mask, sample_name, mode=mode)
             results.append(result)
             
             # Store mask for potential saving
@@ -191,6 +284,52 @@ class RGBCMYAnalyzer:
             logger.error(f"Error saving masks: {e}")
         
         return saved_files
+    
+    def export_lab_csv(self, output_path: str) -> bool:
+        """Export RGB data as L*a*b* values to CSV for plotting.
+        
+        Args:
+            output_path: Path for the output CSV file
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            if not self.results:
+                logger.error("No analysis results available. Run analysis first.")
+                return False
+            
+            # Check if results contain RGB data
+            if not any('L_mean' in r for r in self.results):
+                logger.error("No L*a*b* data available. Run RGB analysis first.")
+                return False
+            
+            # Create CSV data
+            csv_data = []
+            csv_data.append(['Sample', 'Pixels', 'L*', 'a*', 'b*', 'R', 'G', 'B'])
+            
+            for result in self.results:
+                if 'L_mean' in result:
+                    csv_data.append([
+                        result['sample_name'],
+                        result['pixel_count'],
+                        f"{result['L_mean']:.2f}",
+                        f"{result['a_mean']:.2f}",
+                        f"{result['b_mean']:.2f}",
+                        f"{result.get('R_mean', 0):.1f}",
+                        f"{result.get('G_mean', 0):.1f}",
+                        f"{result.get('B_mean', 0):.1f}"
+                    ])
+            
+            # Write to CSV
+            df = pd.DataFrame(csv_data[1:], columns=csv_data[0])
+            df.to_csv(output_path, index=False)
+            logger.info(f"Exported L*a*b* data to CSV: {output_path}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error exporting L*a*b* CSV: {e}")
+            return False
     
     def save_channel_masks(self, output_directory: str, prefix: str = "channel") -> Dict[str, List[str]]:
         """
@@ -289,13 +428,14 @@ class RGBCMYAnalyzer:
         except Exception as e:
             logger.error(f"Error saving composite channel masks: {e}")
     
-    def export_to_template(self, template_path: str, output_path: str) -> bool:
+    def export_to_template(self, template_path: str, output_path: str, mode: str = 'rgb') -> bool:
         """
-        Export analysis results to RGB-CMY template.
+        Export analysis results to channel analysis template.
         
         Args:
-            template_path: Path to the RGB-CMY template file
+            template_path: Path to the channel analysis template file
             output_path: Path for the populated output file
+            mode: 'rgb' or 'cmy' - which channels to export
             
         Returns:
             True if successful, False otherwise
@@ -309,17 +449,17 @@ class RGBCMYAnalyzer:
             file_ext = os.path.splitext(output_path)[1].lower()
             
             if file_ext == '.xlsx':
-                return self._export_to_xlsx(template_path, output_path)
+                return self._export_to_xlsx(template_path, output_path, mode=mode)
             else:
                 # Fallback to CSV
-                self._export_to_csv(output_path)
+                self._export_to_csv(output_path, mode=mode)
                 return True
             
         except Exception as e:
             logger.error(f"Error exporting to template: {e}")
             return False
     
-    def _export_to_xlsx(self, template_path: str, output_path: str) -> bool:
+    def _export_to_xlsx(self, template_path: str, output_path: str, mode: str = 'rgb') -> bool:
         """Export to Excel format using openpyxl."""
         try:
             import openpyxl
@@ -331,27 +471,33 @@ class RGBCMYAnalyzer:
             # Skip metadata population - rows 1-14 are for user input
             # Only populate analysis data in rows 15+ to preserve user's manual entries
             
-            # Populate RGB data (rows 16-21, columns B-J) - RGB order
-            for i in range(min(6, len(self.results))):  # Only populate up to 6 samples or actual count
-                result = self.results[i]
-                row = 16 + i
-                sheet[f'B{row}'] = result['R_mean']  # Red in first column
-                sheet[f'C{row}'] = result['R_std']
-                sheet[f'E{row}'] = result['G_mean']  # Green in middle
-                sheet[f'F{row}'] = result['G_std']
-                sheet[f'H{row}'] = result['B_mean']  # Blue in last column
-                sheet[f'I{row}'] = result['B_std']
+            # All templates now use rows 16-21 for data
+            # RGB template: RGB data in rows 16-21
+            # CMY template: CMY data in rows 16-21
             
-            # Populate CMY data (rows 29-34, columns B-J) - CMY order
-            for i in range(min(6, len(self.results))):  # Only populate up to 6 samples or actual count
-                result = self.results[i]
-                row = 29 + i
-                sheet[f'B{row}'] = result['C_mean']  # Cyan first
-                sheet[f'C{row}'] = result['C_std']
-                sheet[f'E{row}'] = result['M_mean']  # Magenta middle
-                sheet[f'F{row}'] = result['M_std']
-                sheet[f'H{row}'] = result['Y_mean']  # Yellow last
-                sheet[f'I{row}'] = result['Y_std']
+            if mode == 'rgb':
+                # RGB-only template: RGB data in rows 16-21
+                for i in range(min(6, len(self.results))):
+                    result = self.results[i]
+                    row = 16 + i
+                    sheet[f'B{row}'] = result.get('R_mean', '')
+                    sheet[f'C{row}'] = result.get('R_std', '')
+                    sheet[f'E{row}'] = result.get('G_mean', '')
+                    sheet[f'F{row}'] = result.get('G_std', '')
+                    sheet[f'H{row}'] = result.get('B_mean', '')
+                    sheet[f'I{row}'] = result.get('B_std', '')
+            
+            else:  # cmy
+                # CMY-only template: CMY data in rows 16-21
+                for i in range(min(6, len(self.results))):
+                    result = self.results[i]
+                    row = 16 + i
+                    sheet[f'B{row}'] = result.get('C_mean', '')
+                    sheet[f'C{row}'] = result.get('C_std', '')
+                    sheet[f'E{row}'] = result.get('M_mean', '')
+                    sheet[f'F{row}'] = result.get('M_std', '')
+                    sheet[f'H{row}'] = result.get('Y_mean', '')
+                    sheet[f'I{row}'] = result.get('Y_std', '')
             
             # Save populated workbook
             workbook.save(output_path)
@@ -361,14 +507,14 @@ class RGBCMYAnalyzer:
         except ImportError:
             logger.warning("openpyxl not available, falling back to CSV")
             csv_path = output_path.replace('.xlsx', '.csv')
-            self._export_to_csv(csv_path)
+            self._export_to_csv(csv_path, mode=mode)
             return True
         except Exception as e:
             logger.error(f"Error exporting to Excel: {e}")
             return False
     
     
-    def _export_to_csv(self, csv_path: str):
+    def _export_to_csv(self, csv_path: str, mode: str = 'rgb'):
         """Export results to CSV format matching the template structure."""
         try:
             # Create data structure matching the template format
@@ -394,118 +540,120 @@ class RGBCMYAnalyzer:
             ])
             
             # RGB section header (row 15) - CORRECTED: RGB order
-            data.append(['Sample#', 'R', 'SD', '1/SD²', 'G', 'SD', '1/SD²', 'B', 'SD', '1/SD²'])
+            if mode == 'rgb':
+                data.append(['Sample#', 'R', 'SD', '1/SD²', 'G', 'SD', '1/SD²', 'B', 'SD', '1/SD²'])
+                
+                # RGB data rows (16-21)
+                for i in range(6):
+                    if i < len(self.results):
+                        result = self.results[i]
+                        r_inv_sd2 = 1 / (result.get('R_std', 0) ** 2) if result.get('R_std', 0) > 0 else 0
+                        g_inv_sd2 = 1 / (result.get('G_std', 0) ** 2) if result.get('G_std', 0) > 0 else 0
+                        b_inv_sd2 = 1 / (result.get('B_std', 0) ** 2) if result.get('B_std', 0) > 0 else 0
+                        
+                        data.append([
+                            str(i + 1),
+                            f"{result.get('R_mean', 0):.1f}",
+                            f"{result.get('R_std', 0):.2f}",
+                            f"{r_inv_sd2:.6f}" if r_inv_sd2 > 0 else "#DIV/0!",
+                            f"{result.get('G_mean', 0):.1f}",
+                            f"{result.get('G_std', 0):.2f}",
+                            f"{g_inv_sd2:.6f}" if g_inv_sd2 > 0 else "#DIV/0!",
+                            f"{result.get('B_mean', 0):.1f}",
+                            f"{result.get('B_std', 0):.2f}",
+                            f"{b_inv_sd2:.6f}" if b_inv_sd2 > 0 else "#DIV/0!"
+                        ])
+                    else:
+                        data.append([str(i + 1), '', '', '#DIV/0!', '', '', '#DIV/0!', '', '', '#DIV/0!'])
             
-            # RGB data rows (16-21)
-            for i in range(6):
-                if i < len(self.results):
-                    result = self.results[i]
-                    r_inv_sd2 = 1 / (result['R_std'] ** 2) if result['R_std'] > 0 else 0
-                    g_inv_sd2 = 1 / (result['G_std'] ** 2) if result['G_std'] > 0 else 0
-                    b_inv_sd2 = 1 / (result['B_std'] ** 2) if result['B_std'] > 0 else 0
+                # RGB averages and calculations (rows 22-27)
+                if self.results:
+                    avg_r = np.mean([r.get('R_mean', 0) for r in self.results if 'R_mean' in r])
+                    avg_g = np.mean([r.get('G_mean', 0) for r in self.results if 'G_mean' in r])
+                    avg_b = np.mean([r.get('B_mean', 0) for r in self.results if 'B_mean' in r])
+                    avg_r_std = np.mean([r.get('R_std', 0) for r in self.results if 'R_std' in r])
+                    avg_g_std = np.mean([r.get('G_std', 0) for r in self.results if 'G_std' in r])
+                    avg_b_std = np.mean([r.get('B_std', 0) for r in self.results if 'B_std' in r])
                     
-                    data.append([
-                        str(i + 1),
-                        f"{result['R_mean']:.1f}",
-                        f"{result['R_std']:.2f}",
-                        f"{r_inv_sd2:.6f}" if r_inv_sd2 > 0 else "#DIV/0!",
-                        f"{result['G_mean']:.1f}",
-                        f"{result['G_std']:.2f}",
-                        f"{g_inv_sd2:.6f}" if g_inv_sd2 > 0 else "#DIV/0!",
-                        f"{result['B_mean']:.1f}",
-                        f"{result['B_std']:.2f}",
-                        f"{b_inv_sd2:.6f}" if b_inv_sd2 > 0 else "#DIV/0!"
+                    data.extend([
+                        ['Ave', f"{avg_r:.1f}", f"{avg_r_std:.2f}", 
+                         f"{1/(avg_r_std**2):.6f}" if avg_r_std > 0 else "#DIV/0!",
+                         f"{avg_g:.1f}", f"{avg_g_std:.2f}",
+                         f"{1/(avg_g_std**2):.6f}" if avg_g_std > 0 else "#DIV/0!",
+                         f"{avg_b:.1f}", f"{avg_b_std:.2f}",
+                         f"{1/(avg_b_std**2):.6f}" if avg_b_std > 0 else "#DIV/0!"],
+                        ['8-bit', f"{avg_r:.0f}", '', '', f"{avg_g:.0f}", '', '', f"{avg_b:.0f}", '', ''],
+                        ['R-G', f"{avg_r - avg_g:.1f}", f"{avg_r_std:.2f}", '0.000', '', '', '', '', '', ''],
+                        ['G-B', f"{avg_g - avg_b:.1f}", f"{avg_g_std:.2f}", '', '', '', '', '', '', ''],
+                        ['R-B', f"{avg_r - avg_b:.1f}", '', '', '', '', '', '', '', ''],
+                        ['', '', '', '', '', '', '', '', '', '']
                     ])
                 else:
-                    data.append([str(i + 1), '', '', '#DIV/0!', '', '', '#DIV/0!', '', '', '#DIV/0!'])
-            
-            # RGB averages and calculations (rows 22-27)
-            if self.results:
-                avg_r = np.mean([r['R_mean'] for r in self.results])
-                avg_g = np.mean([r['G_mean'] for r in self.results])
-                avg_b = np.mean([r['B_mean'] for r in self.results])
-                avg_r_std = np.mean([r['R_std'] for r in self.results])
-                avg_g_std = np.mean([r['G_std'] for r in self.results])
-                avg_b_std = np.mean([r['B_std'] for r in self.results])
-                
-                data.extend([
-                    ['Ave', f"{avg_r:.1f}", f"{avg_r_std:.2f}", 
-                     f"{1/(avg_r_std**2):.6f}" if avg_r_std > 0 else "#DIV/0!",
-                     f"{avg_g:.1f}", f"{avg_g_std:.2f}",
-                     f"{1/(avg_g_std**2):.6f}" if avg_g_std > 0 else "#DIV/0!",
-                     f"{avg_b:.1f}", f"{avg_b_std:.2f}",
-                     f"{1/(avg_b_std**2):.6f}" if avg_b_std > 0 else "#DIV/0!"],
-                    ['8-bit', f"{avg_r:.0f}", '', '', f"{avg_g:.0f}", '', '', f"{avg_b:.0f}", '', ''],
-                    ['R-G', f"{avg_r - avg_g:.1f}", f"{avg_r_std:.2f}", '0.000', '', '', '', '', '', ''],
-                    ['G-B', f"{avg_g - avg_b:.1f}", f"{avg_g_std:.2f}", '', '', '', '', '', '', ''],
-                    ['R-B', f"{avg_r - avg_b:.1f}", '', '', '', '', '', '', '', ''],
-                    ['', '', '', '', '', '', '', '', '', '']
-                ])
-            else:
-                data.extend([
-                    ['Ave', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!'],
-                    ['8-bit', '#DIV/0!', '', '', '#DIV/0!', '', '', '#DIV/0!', '', ''],
-                    ['R-G', '#DIV/0!', '#DIV/0!', '0.000', '', '', '', '', '', ''],
-                    ['G-B', '#DIV/0!', '#DIV/0!', '', '', '', '', '', '', ''],
-                    ['R-B', '#DIV/0!', '', '', '', '', '', '', '', ''],
-                    ['', '', '', '', '', '', '', '', '', '']
-                ])
+                    data.extend([
+                        ['Ave', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!'],
+                        ['8-bit', '#DIV/0!', '', '', '#DIV/0!', '', '', '#DIV/0!', '', ''],
+                        ['R-G', '#DIV/0!', '#DIV/0!', '0.000', '', '', '', '', '', ''],
+                        ['G-B', '#DIV/0!', '#DIV/0!', '', '', '', '', '', '', ''],
+                        ['R-B', '#DIV/0!', '', '', '', '', '', '', '', ''],
+                        ['', '', '', '', '', '', '', '', '', '']
+                    ])
             
             # CMY section header (row 28) - CORRECTED: CMY order
-            data.append(['Sample#', 'C', 'SD', '1/SD²', 'M', 'SD', '1/SD²', 'Y', 'SD', '1/SD²'])
+            if mode == 'cmy':
+                data.append(['Sample#', 'C', 'SD', '1/SD²', 'M', 'SD', '1/SD²', 'Y', 'SD', '1/SD²'])
+                
+                # CMY data rows (29-34)
+                for i in range(6):
+                    if i < len(self.results):
+                        result = self.results[i]
+                        c_inv_sd2 = 1 / (result.get('C_std', 0) ** 2) if result.get('C_std', 0) > 0 else 0
+                        m_inv_sd2 = 1 / (result.get('M_std', 0) ** 2) if result.get('M_std', 0) > 0 else 0
+                        y_inv_sd2 = 1 / (result.get('Y_std', 0) ** 2) if result.get('Y_std', 0) > 0 else 0
+                        
+                        data.append([
+                            str(i + 1),
+                            f"{result.get('C_mean', 0):.1f}",
+                            f"{result.get('C_std', 0):.2f}",
+                            f"{c_inv_sd2:.6f}" if c_inv_sd2 > 0 else "#DIV/0!",
+                            f"{result.get('M_mean', 0):.1f}",
+                            f"{result.get('M_std', 0):.2f}",
+                            f"{m_inv_sd2:.6f}" if m_inv_sd2 > 0 else "#DIV/0!",
+                            f"{result.get('Y_mean', 0):.1f}",
+                            f"{result.get('Y_std', 0):.2f}",
+                            f"{y_inv_sd2:.6f}" if y_inv_sd2 > 0 else "#DIV/0!"
+                        ])
+                    else:
+                        data.append([str(i + 1), '', '', '#DIV/0!', '', '', '#DIV/0!', '', '', '#DIV/0!'])
             
-            # CMY data rows (29-34)
-            for i in range(6):
-                if i < len(self.results):
-                    result = self.results[i]
-                    c_inv_sd2 = 1 / (result['C_std'] ** 2) if result['C_std'] > 0 else 0
-                    m_inv_sd2 = 1 / (result['M_std'] ** 2) if result['M_std'] > 0 else 0
-                    y_inv_sd2 = 1 / (result['Y_std'] ** 2) if result['Y_std'] > 0 else 0
+                # CMY averages (row 35)
+                if self.results:
+                    avg_c = np.mean([r.get('C_mean', 0) for r in self.results if 'C_mean' in r])
+                    avg_m = np.mean([r.get('M_mean', 0) for r in self.results if 'M_mean' in r])
+                    avg_y = np.mean([r.get('Y_mean', 0) for r in self.results if 'Y_mean' in r])
+                    avg_c_std = np.mean([r.get('C_std', 0) for r in self.results if 'C_std' in r])
+                    avg_m_std = np.mean([r.get('M_std', 0) for r in self.results if 'M_std' in r])
+                    avg_y_std = np.mean([r.get('Y_std', 0) for r in self.results if 'Y_std' in r])
                     
-                    data.append([
-                        str(i + 1),
-                        f"{result['C_mean']:.1f}",
-                        f"{result['C_std']:.2f}",
-                        f"{c_inv_sd2:.6f}" if c_inv_sd2 > 0 else "#DIV/0!",
-                        f"{result['M_mean']:.1f}",
-                        f"{result['M_std']:.2f}",
-                        f"{m_inv_sd2:.6f}" if m_inv_sd2 > 0 else "#DIV/0!",
-                        f"{result['Y_mean']:.1f}",
-                        f"{result['Y_std']:.2f}",
-                        f"{y_inv_sd2:.6f}" if y_inv_sd2 > 0 else "#DIV/0!"
+                    data.extend([
+                        ['Ave', f"{avg_c:.1f}", f"{avg_c_std:.2f}",
+                         f"{1/(avg_c_std**2):.6f}" if avg_c_std > 0 else "#DIV/0!",
+                         f"{avg_m:.1f}", f"{avg_m_std:.2f}",
+                         f"{1/(avg_m_std**2):.6f}" if avg_m_std > 0 else "#DIV/0!",
+                         f"{avg_y:.1f}", f"{avg_y_std:.2f}",
+                         f"{1/(avg_y_std**2):.6f}" if avg_y_std > 0 else "#DIV/0!"],
+                        ['', '', '', '', '', '', '', '', '', ''],
+                        ['C-M', f"{avg_c - avg_m:.1f}", f"{avg_c_std:.2f}", '', '', '', '', '', '', ''],
+                        ['M-Y', f"{avg_m - avg_y:.1f}", f"{avg_m_std:.2f}", '', '', '', '', '', '', ''],
+                        ['C-Y', f"{avg_c - avg_y:.1f}", '', '', '', '', '', '', '', '']
                     ])
                 else:
-                    data.append([str(i + 1), '', '', '#DIV/0!', '', '', '#DIV/0!', '', '', '#DIV/0!'])
-            
-            # CMY averages (row 35)
-            if self.results:
-                avg_c = np.mean([r['C_mean'] for r in self.results])
-                avg_m = np.mean([r['M_mean'] for r in self.results])
-                avg_y = np.mean([r['Y_mean'] for r in self.results])
-                avg_c_std = np.mean([r['C_std'] for r in self.results])
-                avg_m_std = np.mean([r['M_std'] for r in self.results])
-                avg_y_std = np.mean([r['Y_std'] for r in self.results])
-                
-                data.extend([
-                    ['Ave', f"{avg_c:.1f}", f"{avg_c_std:.2f}",
-                     f"{1/(avg_c_std**2):.6f}" if avg_c_std > 0 else "#DIV/0!",
-                     f"{avg_m:.1f}", f"{avg_m_std:.2f}",
-                     f"{1/(avg_m_std**2):.6f}" if avg_m_std > 0 else "#DIV/0!",
-                     f"{avg_y:.1f}", f"{avg_y_std:.2f}",
-                     f"{1/(avg_y_std**2):.6f}" if avg_y_std > 0 else "#DIV/0!"],
-                    ['', '', '', '', '', '', '', '', '', ''],
-                    ['C-M', f"{avg_c - avg_m:.1f}", f"{avg_c_std:.2f}", '', '', '', '', '', '', ''],
-                    ['M-Y', f"{avg_m - avg_y:.1f}", f"{avg_m_std:.2f}", '', '', '', '', '', '', ''],
-                    ['C-Y', f"{avg_c - avg_y:.1f}", '', '', '', '', '', '', '', '']
-                ])
-            else:
-                data.extend([
-                    ['Ave', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!'],
-                    ['', '', '', '', '', '', '', '', '', ''],
-                    ['C-M', '#DIV/0!', '#DIV/0!', '', '', '', '', '', '', ''],
-                    ['M-Y', '#DIV/0!', '#DIV/0!', '', '', '', '', '', '', ''],
-                    ['C-Y', '#DIV/0!', '', '', '', '', '', '', '', '']
-                ])
+                    data.extend([
+                        ['Ave', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!'],
+                        ['', '', '', '', '', '', '', '', '', ''],
+                        ['C-M', '#DIV/0!', '#DIV/0!', '', '', '', '', '', '', ''],
+                        ['M-Y', '#DIV/0!', '#DIV/0!', '', '', '', '', '', '', ''],
+                        ['C-Y', '#DIV/0!', '', '', '', '', '', '', '', '']
+                    ])
             
             # Write to CSV
             df = pd.DataFrame(data)

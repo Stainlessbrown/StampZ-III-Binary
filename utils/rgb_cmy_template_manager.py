@@ -34,34 +34,39 @@ class RGBCMYTemplateManager:
         return str(templates_dir)
     
     def ensure_templates_exist(self):
-        """Ensure RGB-CMY templates exist in StampZ templates directory."""
+        """Ensure RGB and CMY templates exist in StampZ templates directory."""
         template_files = [
-            "RGB-CMY Channel analysis.xlsx",
-            "RGB-CMY Channel analysis.ods"
+            "RGB Channel analysis.xlsx",
+            "CMY Channel analysis.xlsx"
         ]
         
         for template_file in template_files:
             template_path = os.path.join(self.templates_dir, template_file)
             
             if not os.path.exists(template_path):
-                logger.warning(f"RGB-CMY template not found: {template_path}")
+                logger.warning(f"Channel analysis template not found: {template_path}")
                 # You could add logic here to create a basic template if needed
     
-    def get_template_path(self, format_type: str) -> str:
+    def get_template_path(self, format_type: str, mode: str = 'rgb') -> str:
         """
-        Get path to RGB-CMY template for specified format.
+        Get path to channel analysis template for specified format and mode.
         
         Args:
             format_type: 'xlsx' or 'ods'
+            mode: 'rgb' or 'cmy' - determines which template
             
         Returns:
             Path to template file
         """
-        template_filename = f"RGB-CMY Channel analysis.{format_type}"
+        if mode == 'rgb':
+            template_filename = f"RGB Channel analysis.{format_type}"
+        else:  # cmy
+            template_filename = f"CMY Channel analysis.{format_type}"
+        
         return os.path.join(self.templates_dir, template_filename)
     
     def generate_output_filename(self, image_path: str, sample_set_name: str, 
-                                format_type: str = "xlsx") -> str:
+                                format_type: str = "xlsx", mode: str = 'rgb') -> str:
         """
         Generate an output filename based on image name and timestamp.
         
@@ -69,6 +74,7 @@ class RGBCMYTemplateManager:
             image_path: Path to the source image
             sample_set_name: Name of the sample set
             format_type: Output format ('xlsx', 'ods', 'csv')
+            mode: 'rgb' or 'cmy' - included in filename
             
         Returns:
             Generated filename with path
@@ -80,8 +86,14 @@ class RGBCMYTemplateManager:
             # Get current timestamp
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             
-            # Create filename: ImageName_SampleSet_YYYYMMDD_HHMMSS.ext
-            filename = f"{image_name}_{sample_set_name}_RGB-CMY_{timestamp}.{format_type}"
+            # Create mode suffix
+            mode_suffix = {
+                'rgb': 'RGB',
+                'cmy': 'CMY'
+            }.get(mode, 'RGB')
+            
+            # Create filename: ImageName_SampleSet_MODE_YYYYMMDD_HHMMSS.ext
+            filename = f"{image_name}_{sample_set_name}_{mode_suffix}_{timestamp}.{format_type}"
             
             # Clean filename (remove invalid characters)
             filename = self._clean_filename(filename)
@@ -115,46 +127,47 @@ class RGBCMYTemplateManager:
         return filename
     
     def export_with_auto_filename(self, analyzer, image_path: str, 
-                                 sample_set_name: str, format_type: str = "xlsx") -> tuple[bool, str]:
+                                 sample_set_name: str, format_type: str = "xlsx", mode: str = 'rgb') -> tuple[bool, str]:
         """
-        Export RGB-CMY analysis results with automatically generated filename.
+        Export RGB or CMY analysis results with automatically generated filename.
         
         Args:
             analyzer: RGBCMYAnalyzer instance with results
             image_path: Path to source image
             sample_set_name: Sample set name
             format_type: Export format ('xlsx', 'ods', 'csv')
+            mode: 'rgb' or 'cmy' - which channels to export
             
         Returns:
             Tuple of (success, output_path)
         """
         try:
-            # Generate output filename
-            output_path = self.generate_output_filename(image_path, sample_set_name, format_type)
+            # Generate output filename with mode
+            output_path = self.generate_output_filename(image_path, sample_set_name, format_type, mode=mode)
             
             if format_type in ['xlsx', 'ods']:
-                # Get template path
-                template_path = self.get_template_path(format_type)
+                # Get mode-specific template path
+                template_path = self.get_template_path(format_type, mode=mode)
                 
                 if not os.path.exists(template_path):
-                    logger.warning(f"Template not found: {template_path}, falling back to CSV")
-                    # Fallback to CSV
+                    logger.warning(f"Template not found: {template_path}")
+                    logger.warning(f"Falling back to CSV export")
                     csv_path = output_path.replace(f'.{format_type}', '.csv')
-                    analyzer._export_to_csv(csv_path)
+                    analyzer._export_to_csv(csv_path, mode=mode)
                     return True, csv_path
                 
-                # Export using template
-                success = analyzer.export_to_template(template_path, output_path)
+                # Export using template with mode
+                success = analyzer.export_to_template(template_path, output_path, mode=mode)
                 if success:
                     return True, output_path
                 else:
                     # Fallback to CSV
                     csv_path = output_path.replace(f'.{format_type}', '.csv')
-                    analyzer._export_to_csv(csv_path)
+                    analyzer._export_to_csv(csv_path, mode=mode)
                     return True, csv_path
             
             else:  # CSV
-                analyzer._export_to_csv(output_path)
+                analyzer._export_to_csv(output_path, mode=mode)
                 return True, output_path
             
         except Exception as e:

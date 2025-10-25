@@ -22,6 +22,7 @@ class ExportPreferences:
     export_normalized_values: bool = False  # Export color values normalized to 0.0-1.0 range
     export_include_rgb: bool = True  # Include RGB color values in export
     export_include_lab: bool = True  # Include L*a*b* color values in export
+    export_include_cmy: bool = False  # Include CMY color values in export
 
 
 @dataclass
@@ -266,6 +267,11 @@ class PreferencesManager:
             include_rgb: True to include RGB values, False to exclude them
         """
         try:
+            # Ensure at least one color space is always included
+            if not include_rgb and not self.preferences.export_prefs.export_include_lab and not self.preferences.export_prefs.export_include_cmy:
+                print("Error: At least one color space (RGB, L*a*b*, or CMY) must be included in exports")
+                return False
+            
             self.preferences.export_prefs.export_include_rgb = include_rgb
             self.save_preferences()
             return True
@@ -285,8 +291,8 @@ class PreferencesManager:
         """
         try:
             # Ensure at least one color space is always included
-            if not include_lab and not self.preferences.export_prefs.export_include_rgb:
-                print("Error: At least one color space (RGB or L*a*b*) must be included in exports")
+            if not include_lab and not self.preferences.export_prefs.export_include_rgb and not self.preferences.export_prefs.export_include_cmy:
+                print("Error: At least one color space (RGB, L*a*b*, or CMY) must be included in exports")
                 return False
             
             self.preferences.export_prefs.export_include_lab = include_lab
@@ -294,6 +300,29 @@ class PreferencesManager:
             return True
         except Exception as e:
             print(f"Error setting L*a*b* export preference: {e}")
+            return False
+    
+    def get_export_include_cmy(self) -> bool:
+        """Get whether to include CMY color values in exports."""
+        return self.preferences.export_prefs.export_include_cmy
+    
+    def set_export_include_cmy(self, include_cmy: bool) -> bool:
+        """Set whether to include CMY color values in exports.
+        
+        Args:
+            include_cmy: True to include CMY values, False to exclude them
+        """
+        try:
+            # Ensure at least one color space is always included
+            if not include_cmy and not self.preferences.export_prefs.export_include_rgb and not self.preferences.export_prefs.export_include_lab:
+                print("Error: At least one color space (RGB, L*a*b*, or CMY) must be included in exports")
+                return False
+            
+            self.preferences.export_prefs.export_include_cmy = include_cmy
+            self.save_preferences()
+            return True
+        except Exception as e:
+            print(f"Error setting CMY export preference: {e}")
             return False
     
     def get_default_color_library(self) -> str:
@@ -601,7 +630,8 @@ class PreferencesManager:
                         preferred_export_format=export_data.get('preferred_export_format', 'ods'),
                         export_normalized_values=export_data.get('export_normalized_values', False),
                         export_include_rgb=export_data.get('export_include_rgb', True),
-                        export_include_lab=export_data.get('export_include_lab', True)
+                        export_include_lab=export_data.get('export_include_lab', True),
+                        export_include_cmy=export_data.get('export_include_cmy', False)
                     )
                 
                 # Load file dialog preferences

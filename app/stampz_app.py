@@ -1512,13 +1512,14 @@ class StampZApp:
             color_canvas = tk.Canvas(sample_frame, width=30, height=20, highlightthickness=1, highlightbackground='gray')
             color_canvas.pack(side=tk.LEFT, padx=(10, 5))
             try:
-                hex_color = f"#{int(rgb[0]):02x}{int(rgb[1]):02x}{int(rgb[2]):02x}"
+                # Round RGB values for hex color display
+                hex_color = f"#{round(rgb[0]):02x}{round(rgb[1]):02x}{round(rgb[2]):02x}"
                 color_canvas.create_rectangle(0, 0, 30, 20, fill=hex_color, outline='')
             except:
                 color_canvas.create_rectangle(0, 0, 30, 20, fill='gray', outline='')
             
-            # Color values
-            values_text = f"RGB({int(rgb[0])}, {int(rgb[1])}, {int(rgb[2])}) | L*a*b*({lab[0]:.1f}, {lab[1]:.1f}, {lab[2]:.1f})"
+            # Color values - show decimal precision
+            values_text = f"RGB({rgb[0]:.2f}, {rgb[1]:.2f}, {rgb[2]:.2f}) | L*a*b*({lab[0]:.1f}, {lab[1]:.1f}, {lab[2]:.1f})"
             ttk.Label(sample_frame, text=values_text, font=("Arial", 9)).pack(side=tk.LEFT, padx=(5, 0))
         
         # Select first color by default

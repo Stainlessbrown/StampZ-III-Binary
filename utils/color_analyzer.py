@@ -567,15 +567,15 @@ class ColorAnalyzer:
             return [(128, 128, 128)]  # Neutral gray fallback
         
         # Calculate true averages from all sampled pixels
-        avg_r = total_r / total_pixels if total_pixels > 0 else 128
-        avg_g = total_g / total_pixels if total_pixels > 0 else 128
-        avg_b = total_b / total_pixels if total_pixels > 0 else 128
+        avg_r = total_r / total_pixels if total_pixels > 0 else 128.0
+        avg_g = total_g / total_pixels if total_pixels > 0 else 128.0
+        avg_b = total_b / total_pixels if total_pixels > 0 else 128.0
         
         print(f"Sample area ({left}, {top}, {right}, {bottom}): {total_pixels} pixels sampled")
-        print(f"Area average RGB: ({avg_r:.1f}, {avg_g:.1f}, {avg_b:.1f})")
+        print(f"Area average RGB: ({avg_r:.2f}, {avg_g:.2f}, {avg_b:.2f})")
         
-        # Return the average color as a single pixel value
-        return [(int(avg_r), int(avg_g), int(avg_b))]
+        # Return the average color with full decimal precision
+        return [(avg_r, avg_g, avg_b)]
     
     def _calculate_average_color(self, pixels: List[Tuple[int, int, int]]) -> Tuple[float, float, float]:
         """Calculate average color from a list of pixels.

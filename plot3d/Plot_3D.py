@@ -60,7 +60,7 @@ class Plot3DApp:
         'x': 40,  # Cross (increased for better visibility)
     }
     
-    def __init__(self, parent=None, data_path=None, dataframe=None, worksheet_update_callback=None):
+    def __init__(self, parent=None, data_path=None, dataframe=None, worksheet_update_callback=None, label_type='LAB'):
         """Initialize the Plot3DApp
         
         Args:
@@ -68,10 +68,13 @@ class Plot3DApp:
             data_path: Optional path to data file (skip file dialog)
             dataframe: Optional DataFrame for direct integration (no file needed)
             worksheet_update_callback: Optional callback to update parent worksheet with changes
+            label_type: Type of axis labels - 'LAB' (L*a*b*), 'RGB', or 'CMY'
         """
         self._refresh_in_progress = False
         self.axis_range_changed = False  # Flag to track when axis ranges change
-        self.use_rgb = False
+        self.label_type = label_type  # Store label type
+        self.use_rgb = (label_type in ['RGB', 'CMY'])  # Set for compatibility with existing code
+        print(f"DEBUG: Plot_3D initialized with label_type={label_type}")
         self.highlight_manager = None
         self.group_display_manager = None  # Will be initialized in _init_ui
         self.file_opener_state = {"attempted": False, "completed": False, "error": None}
@@ -122,6 +125,11 @@ class Plot3DApp:
                     
                 # Get the file path with proper null checking
                 self.file_path = template_selector.file_path if template_selector.file_path else None
+                
+                # Get label type from template selector if available (for external files)
+                if hasattr(template_selector, 'label_type'):
+                    label_type = template_selector.label_type
+                    print(f"External file - using label type: {label_type}")
                 
                 # Check if file path is valid
                 if self.file_path is None or not self.file_path:
@@ -560,7 +568,7 @@ class Plot3DApp:
             # Group visibility is now handled at the beginning of plotting
             # No need for duplicate code here
             
-            set_axis_labels(ax, using_rgb=self.use_rgb)
+            set_axis_labels(ax, using_rgb=self.use_rgb, label_type=self.label_type)
             
             # Apply tick label visibility settings from axis controls
             if hasattr(self, 'axis_controls'):
@@ -1190,20 +1198,15 @@ class Plot3DApp:
         )
         self.axis_controls.grid(row=0, column=0, sticky='ew', padx=5, pady=5)
         
-        # Create label toggle button
-        self.label_toggle_button = ttk.Button(
-            self.control_frame,
-            text="Labels: L*a*b*",
-            command=self._toggle_labels
-        )
-        self.label_toggle_button.grid(row=1, column=0, sticky='ew', padx=5, pady=5)
+        # Label toggle button removed - data type now controlled from spreadsheet toggle
+        # Labels automatically match the data being plotted
         
         # Initialize rotation controls early to ensure they're available for plot creation
         self.rotation_controls = RotationControls(
             self.control_frame,
             on_rotation_change=self._rotation_changed_callback
         )
-        self.rotation_controls.grid(row=2, column=0, sticky='ew', padx=5, pady=5)
+        self.rotation_controls.grid(row=1, column=0, sticky='ew', padx=5, pady=5)
         
         # Initialize zoom controls immediately after rotation controls for better workflow
         try:
@@ -1237,7 +1240,7 @@ class Plot3DApp:
                 ax,
                 on_zoom_change=self._on_zoom_change
             )
-            self.zoom_controls.grid(row=3, column=0, sticky='nsew', padx=5, pady=5)
+            self.zoom_controls.grid(row=2, column=0, sticky='nsew', padx=5, pady=5)
             print("Successfully initialized zoom controls")
         except Exception as e:
             print(f"Error initializing zoom controls: {e}")
@@ -1491,7 +1494,7 @@ class Plot3DApp:
     
     def cleanup_and_exit(self):
         # App cleanup and shutdown handler
-        print("Application is closing, performing cleanup...")
+        print(f"Plot_3D closing (embedded mode: {self.is_embedded})...")
         
         # Clean up parent window reference if stored (macOS fix)
         if hasattr(self, '_parent_window'):
@@ -1518,12 +1521,6 @@ class Plot3DApp:
         except Exception as e:
             print(f"Warning: Error during manager cleanup: {str(e)}")
         
-        try:
-            if platform.system() == 'Darwin':
-                pass
-        except Exception as e:
-            print(f"Warning: Error during process cleanup: {str(e)}")
-        
         if hasattr(self, 'file_opener_state'):
             print("File opener status - Attempted: {}, Completed: {}, Error: {}".format(
                 self.file_opener_state.get('attempted', False),
@@ -1541,20 +1538,13 @@ class Plot3DApp:
         except Exception as e:
             print(f"Warning: Error destroying root window: {str(e)}")
         
-        print("Cleanup complete, exiting application")
-        sys.exit(0)
+        # Only exit the entire application if running standalone
+        if not self.is_embedded:
+            print("Standalone mode - exiting application")
+            sys.exit(0)
+        else:
+            print("Embedded mode - Plot_3D window closed, parent app continues")
 
-    def _toggle_labels(self):
-        """Toggle between L*a*b* and RGB axis labels"""
-        self.use_rgb = not self.use_rgb
-        self.label_toggle_button.config(text="Labels: " + ("RGB" if self.use_rgb else "L*a*b*"))
-        
-        # Update checkbox labels in axis controls to match current axis system
-        if hasattr(self, 'axis_controls'):
-            self.axis_controls.update_checkbox_labels(self.use_rgb)
-            
-        self.refresh_plot()
-        
     def _rotation_changed_callback(self):
         """Handle rotation changes from rotation controls"""
         try:

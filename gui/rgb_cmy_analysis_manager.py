@@ -293,10 +293,25 @@ class RGBCMYAnalysisManager:
         analysis_frame = ttk.LabelFrame(self.main_frame, text="Analysis", padding=5)
         analysis_frame.grid(row=3, column=0, columnspan=3, sticky='ew', pady=10)
         
-        ttk.Button(analysis_frame, text="🔬 Run RGB-CMY Analysis", command=self.run_analysis).grid(row=0, column=0, pady=5)
-        ttk.Button(analysis_frame, text="💾 Save Results", command=self.save_results_to_database).grid(row=0, column=1, padx=10, pady=5)
-        ttk.Button(analysis_frame, text="📁 Save Masks", command=self.save_masks).grid(row=0, column=2, padx=10, pady=5)
-        ttk.Button(analysis_frame, text="📤 Export Results", command=self.export_results).grid(row=0, column=3, pady=5)
+        # Analysis mode selection
+        mode_frame = ttk.Frame(analysis_frame)
+        mode_frame.grid(row=0, column=0, columnspan=4, pady=(0, 10))
+        
+        ttk.Label(mode_frame, text="Analysis Mode:").pack(side=tk.LEFT, padx=(0, 10))
+        self.analysis_mode = tk.StringVar(value="both")
+        ttk.Radiobutton(mode_frame, text="RGB + CMY", variable=self.analysis_mode, value="both").pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(mode_frame, text="RGB Only", variable=self.analysis_mode, value="rgb").pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(mode_frame, text="CMY Only", variable=self.analysis_mode, value="cmy").pack(side=tk.LEFT, padx=5)
+        
+        # Analysis buttons
+        button_row1 = ttk.Frame(analysis_frame)
+        button_row1.grid(row=1, column=0, columnspan=4, pady=5)
+        
+        ttk.Button(button_row1, text="🔬 Run Analysis", command=self.run_analysis).pack(side=tk.LEFT, padx=2)
+        ttk.Button(button_row1, text="💾 Save Results", command=self.save_results_to_database).pack(side=tk.LEFT, padx=2)
+        ttk.Button(button_row1, text="📁 Save Masks", command=self.save_masks).pack(side=tk.LEFT, padx=2)
+        ttk.Button(button_row1, text="📤 Export Results", command=self.export_results).pack(side=tk.LEFT, padx=2)
+        ttk.Button(button_row1, text="🌈 Export L*a*b* CSV", command=self.export_lab_csv).pack(side=tk.LEFT, padx=2)
         
         # Results display
         results_frame = ttk.LabelFrame(self.main_frame, text="Results", padding=5)
@@ -466,7 +481,9 @@ class RGBCMYAnalysisManager:
             return
         
         try:
-            self.status_var.set("Running RGB-CMY analysis...")
+            mode = self.analysis_mode.get()
+            mode_label = {"both": "RGB+CMY", "rgb": "RGB-only", "cmy": "CMY-only"}[mode]
+            self.status_var.set(f"Running {mode_label} analysis...")
             
             # Set metadata
             metadata = {key: var.get() for key, var in self.metadata_vars.items()}
@@ -475,13 +492,13 @@ class RGBCMYAnalysisManager:
                 metadata['total_pixels'] = str(img.size[0] * img.size[1])
             self.analyzer.set_metadata(metadata)
             
-            # Run analysis
-            self.results = self.analyzer.analyze_multiple_masks(self.masks)
+            # Run analysis with selected mode
+            self.results = self.analyzer.analyze_multiple_masks(self.masks, mode=mode)
             
             # Display results
             self.display_results()
             
-            self.status_var.set(f"Analysis complete: {len(self.results)} samples analyzed")
+            self.status_var.set(f"{mode_label} analysis complete: {len(self.results)} samples analyzed")
             
         except Exception as e:
             messagebox.showerror("Analysis Error", f"Failed to run analysis: {str(e)}")
@@ -496,25 +513,42 @@ class RGBCMYAnalysisManager:
             self.results_text.insert(tk.END, "No results available. Run analysis first.")
             return
         
+        # Determine mode from results
+        mode = self.results[0].get('mode', 'both') if self.results else 'both'
+        
         # Header
-        self.results_text.insert(tk.END, "RGB-CMY Channel Analysis Results\\n")
+        mode_label = {"both": "RGB-CMY", "rgb": "RGB", "cmy": "CMY"}[mode]
+        self.results_text.insert(tk.END, f"{mode_label} Channel Analysis Results\\n")
         self.results_text.insert(tk.END, "=" * 60 + "\\n\\n")
         
-        # Table header
-        header = f"{'Sample':<15} {'Pixels':<8} {'R':<6} {'G':<6} {'B':<6} {'C':<6} {'Y':<6} {'M':<6}\\n"
+        # Build table header based on mode
+        header_parts = ["Sample", "Pixels"]
+        if mode in ('both', 'rgb'):
+            header_parts.extend(['R', 'G', 'B'])
+            # Add L*a*b* if available
+            if self.results and 'L_mean' in self.results[0]:
+                header_parts.extend(['L*', 'a*', 'b*'])
+        if mode in ('both', 'cmy'):
+            header_parts.extend(['C', 'M', 'Y'])
+        
+        header = f"{header_parts[0]:<15} {header_parts[1]:<8} "
+        for h in header_parts[2:]:
+            header += f"{h:<7} "
+        header += "\\n"
         self.results_text.insert(tk.END, header)
         self.results_text.insert(tk.END, "-" * len(header) + "\\n")
         
         # Results
         for result in self.results:
-            line = (f"{result['sample_name']:<15} "
-                   f"{result['pixel_count']:<8} "
-                   f"{result['R_mean']:<6.1f} "
-                   f"{result['G_mean']:<6.1f} "
-                   f"{result['B_mean']:<6.1f} "
-                   f"{result['C_mean']:<6.1f} "
-                   f"{result['Y_mean']:<6.1f} "
-                   f"{result['M_mean']:<6.1f}\\n")
+            line = f"{result['sample_name']:<15} {result['pixel_count']:<8} "
+            if mode in ('both', 'rgb'):
+                line += f"{result.get('R_mean', 0):<7.1f} {result.get('G_mean', 0):<7.1f} {result.get('B_mean', 0):<7.1f} "
+                # Add L*a*b* if available
+                if 'L_mean' in result:
+                    line += f"{result.get('L_mean', 0):<7.1f} {result.get('a_mean', 0):<7.1f} {result.get('b_mean', 0):<7.1f} "
+            if mode in ('both', 'cmy'):
+                line += f"{result.get('C_mean', 0):<7.1f} {result.get('M_mean', 0):<7.1f} {result.get('Y_mean', 0):<7.1f} "
+            line += "\\n"
             self.results_text.insert(tk.END, line)
         
         # Statistics
@@ -524,15 +558,24 @@ class RGBCMYAnalysisManager:
             
             import numpy as np
             
-            avg_r = np.mean([r['R_mean'] for r in self.results])
-            avg_g = np.mean([r['G_mean'] for r in self.results])
-            avg_b = np.mean([r['B_mean'] for r in self.results])
-            avg_c = np.mean([r['C_mean'] for r in self.results])
-            avg_y = np.mean([r['Y_mean'] for r in self.results])
-            avg_m = np.mean([r['M_mean'] for r in self.results])
+            if mode in ('both', 'rgb'):
+                avg_r = np.mean([r.get('R_mean', 0) for r in self.results if 'R_mean' in r])
+                avg_g = np.mean([r.get('G_mean', 0) for r in self.results if 'G_mean' in r])
+                avg_b = np.mean([r.get('B_mean', 0) for r in self.results if 'B_mean' in r])
+                self.results_text.insert(tk.END, f"RGB Averages: R={avg_r:.1f}, G={avg_g:.1f}, B={avg_b:.1f}\\n")
+                
+                # Add L*a*b* averages if available
+                if 'L_mean' in self.results[0]:
+                    avg_l = np.mean([r.get('L_mean', 0) for r in self.results if 'L_mean' in r])
+                    avg_a = np.mean([r.get('a_mean', 0) for r in self.results if 'a_mean' in r])
+                    avg_b_lab = np.mean([r.get('b_mean', 0) for r in self.results if 'b_mean' in r])
+                    self.results_text.insert(tk.END, f"L*a*b* Averages: L*={avg_l:.1f}, a*={avg_a:.1f}, b*={avg_b_lab:.1f}\\n")
             
-            self.results_text.insert(tk.END, f"RGB Averages: R={avg_r:.1f}, G={avg_g:.1f}, B={avg_b:.1f}\\n")
-            self.results_text.insert(tk.END, f"CMY Averages: C={avg_c:.1f}, Y={avg_y:.1f}, M={avg_m:.1f}\\n")
+            if mode in ('both', 'cmy'):
+                avg_c = np.mean([r.get('C_mean', 0) for r in self.results if 'C_mean' in r])
+                avg_m = np.mean([r.get('M_mean', 0) for r in self.results if 'M_mean' in r])
+                avg_y = np.mean([r.get('Y_mean', 0) for r in self.results if 'Y_mean' in r])
+                self.results_text.insert(tk.END, f"CMY Averages: C={avg_c:.1f}, M={avg_m:.1f}, Y={avg_y:.1f}\\n")
     
     def save_masks(self):
         """Save individual mask files."""
@@ -562,10 +605,14 @@ class RGBCMYAnalysisManager:
             messagebox.showwarning("No Results", "Run analysis first.")
             return
         
+        # Determine mode from results
+        mode = self.results[0].get('mode', 'both') if self.results else 'both'
+        mode_label = {"both": "RGB-CMY", "rgb": "RGB", "cmy": "CMY"}[mode]
+        
         # Show info dialog about export format
         messagebox.showinfo(
             "Export Format", 
-            "RGB-CMY analysis will be exported as Excel (.xlsx) format.\n\n"
+            f"{mode_label} analysis will be exported as Excel (.xlsx) format.\n\n"
             "This file can be opened with:\n"
             "• Microsoft Excel\n"
             "• LibreOffice Calc\n"
@@ -575,6 +622,10 @@ class RGBCMYAnalysisManager:
         )
         
         # Choose output file - XLSX only
+        # Determine mode-specific filename suggestion
+        mode = self.results[0].get('mode', 'both') if self.results else 'both'
+        mode_suffix = {"both": "RGB-CMY", "rgb": "RGB", "cmy": "CMY"}[mode]
+        
         filetypes = [
             ("Excel files", "*.xlsx"),
             ("CSV files", "*.csv"),
@@ -582,7 +633,7 @@ class RGBCMYAnalysisManager:
         ]
         
         filename = filedialog.asksaveasfilename(
-            title="Export RGB-CMY Analysis Results",
+            title=f"Export {mode_suffix} Analysis Results",
             defaultextension=".xlsx",
             filetypes=filetypes
         )
@@ -591,16 +642,17 @@ class RGBCMYAnalysisManager:
             return
         
         try:
-            # Determine template to use
+            # Determine template to use and mode
             ext = os.path.splitext(filename)[1].lower()
+            mode = self.results[0].get('mode', 'both') if self.results else 'both'
             
             if ext == '.xlsx' and os.path.exists(self.template_paths['xlsx']):
-                # Export to Excel format
-                success = self.analyzer.export_to_template(self.template_paths['xlsx'], filename)
+                # Export to Excel format with mode
+                success = self.analyzer.export_to_template(self.template_paths['xlsx'], filename, mode=mode)
             else:
-                # Fallback to CSV export
+                # Fallback to CSV export with mode
                 csv_path = filename.replace('.xlsx', '.csv')
-                self.analyzer._export_to_csv(csv_path)
+                self.analyzer._export_to_csv(csv_path, mode=mode)
                 success = True
                 filename = csv_path
             
@@ -616,6 +668,49 @@ class RGBCMYAnalysisManager:
         except Exception as e:
             messagebox.showerror("Export Error", f"Failed to export: {str(e)}")
             logger.error(f"Export error: {e}")
+    
+    def export_lab_csv(self):
+        """Export L*a*b* data to CSV for plotting."""
+        if not self.results:
+            messagebox.showwarning("No Results", "Run analysis first.")
+            return
+        
+        # Check if RGB analysis was performed (L*a*b* requires RGB data)
+        if not any('L_mean' in r for r in self.results):
+            messagebox.showwarning(
+                "No L*a*b* Data",
+                "L*a*b* values are only available for RGB or RGB+CMY analysis mode.\n"
+                "Please run the analysis with RGB or RGB+CMY mode selected."
+            )
+            return
+        
+        # Choose output file
+        filename = filedialog.asksaveasfilename(
+            title="Export L*a*b* Data for Plotting",
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+        )
+        
+        if not filename:
+            return
+        
+        try:
+            success = self.analyzer.export_lab_csv(filename)
+            
+            if success:
+                messagebox.showinfo(
+                    "Export Successful",
+                    f"L*a*b* data exported to:\n{filename}\n\n"
+                    "This CSV file contains perceptually uniform L*a*b* color values\n"
+                    "ideal for plotting and color difference visualization."
+                )
+                self.status_var.set("L*a*b* data exported successfully")
+            else:
+                messagebox.showerror("Export Error", "Failed to export L*a*b* data.")
+                
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Failed to export: {str(e)}")
+            logger.error(f"L*a*b* export error: {e}")
     
     def save_results_to_database(self):
         """Save RGB-CMY analysis results to database."""
@@ -882,43 +977,55 @@ class RGBCMYAnalysisManager:
         try:
             from utils.color_analysis_db import ColorAnalysisDB
             
-            # Use _RGBCMY suffix for RGB-CMY data
-            rgb_cmy_db_name = f"{db_name}_RGBCMY"
+            # Determine mode from results
+            mode = self.results[0].get('mode', 'both') if self.results else 'both'
+            mode_suffix = {"both": "RGBCMY", "rgb": "RGB", "cmy": "CMY"}[mode]
+            
+            # Use mode-specific suffix for data
+            rgb_cmy_db_name = f"{db_name}_{mode_suffix}"
             individual_db = ColorAnalysisDB(rgb_cmy_db_name)
             
             # Create measurement set
-            set_id = individual_db.create_measurement_set(image_name, f"RGB-CMY channel analysis from {image_name}")
+            mode_label = {"both": "RGB-CMY", "rgb": "RGB", "cmy": "CMY"}[mode]
+            set_id = individual_db.create_measurement_set(image_name, f"{mode_label} channel analysis from {image_name}")
             
             if not set_id:
                 return False
             
             # Save each mask result as a measurement
             for i, result in enumerate(self.results, 1):
-                # Create comprehensive notes with RGB and CMY data
-                notes = (
-                    f"RGB-CMY mask analysis: {result['sample_name']} | "
-                    f"Pixels: {result['pixel_count']} | "
-                    f"RGB: R={result['R_mean']:.1f}±{result['R_std']:.2f}, "
-                    f"G={result['G_mean']:.1f}±{result['G_std']:.2f}, "
-                    f"B={result['B_mean']:.1f}±{result['B_std']:.2f} | "
-                    f"CMY: C={result['C_mean']:.1f}±{result['C_std']:.2f}, "
-                    f"M={result['M_mean']:.1f}±{result['M_std']:.2f}, "
-                    f"Y={result['Y_mean']:.1f}±{result['Y_std']:.2f}"
-                )
+                # Create comprehensive notes based on mode
+                notes_parts = [f"{mode_label} mask analysis: {result['sample_name']}", 
+                              f"Pixels: {result['pixel_count']}"]
                 
-                # For RGB-CMY data, we'll store RGB values in the standard fields
-                # and put CMY values in the notes for now
+                if mode in ('both', 'rgb'):
+                    notes_parts.append(
+                        f"RGB: R={result.get('R_mean', 0):.1f}±{result.get('R_std', 0):.2f}, "
+                        f"G={result.get('G_mean', 0):.1f}±{result.get('G_std', 0):.2f}, "
+                        f"B={result.get('B_mean', 0):.1f}±{result.get('B_std', 0):.2f}"
+                    )
+                
+                if mode in ('both', 'cmy'):
+                    notes_parts.append(
+                        f"CMY: C={result.get('C_mean', 0):.1f}±{result.get('C_std', 0):.2f}, "
+                        f"M={result.get('M_mean', 0):.1f}±{result.get('M_std', 0):.2f}, "
+                        f"Y={result.get('Y_mean', 0):.1f}±{result.get('Y_std', 0):.2f}"
+                    )
+                
+                notes = " | ".join(notes_parts)
+                
+                # Store RGB values in the standard fields (or 0 if CMY-only)
                 saved = individual_db.save_color_measurement(
                     set_id=set_id,
                     coordinate_point=i,
-                    x_pos=0.0,  # RGB-CMY analysis doesn't have spatial coordinates
+                    x_pos=0.0,  # Channel analysis doesn't have spatial coordinates
                     y_pos=0.0,
-                    l_value=result['R_mean'],  # Store R in L field
-                    a_value=result['G_mean'],  # Store G in a field  
-                    b_value=result['B_mean'],  # Store B in b field
-                    rgb_r=result['R_mean'],
-                    rgb_g=result['G_mean'], 
-                    rgb_b=result['B_mean'],
+                    l_value=result.get('R_mean', 0),  # Store R in L field
+                    a_value=result.get('G_mean', 0),  # Store G in a field  
+                    b_value=result.get('B_mean', 0),  # Store B in b field
+                    rgb_r=result.get('R_mean', 0),
+                    rgb_g=result.get('G_mean', 0), 
+                    rgb_b=result.get('B_mean', 0),
                     sample_type="mask_region",
                     sample_size=f"{result['pixel_count']}px",
                     sample_anchor="mask",
@@ -941,25 +1048,41 @@ class RGBCMYAnalysisManager:
             from utils.color_analyzer import ColorAnalyzer
             import numpy as np
             
-            # Calculate averages across all mask results
-            avg_r = np.mean([r['R_mean'] for r in self.results])
-            avg_g = np.mean([r['G_mean'] for r in self.results])
-            avg_b = np.mean([r['B_mean'] for r in self.results])
-            avg_c = np.mean([r['C_mean'] for r in self.results])
-            avg_m = np.mean([r['M_mean'] for r in self.results])
-            avg_y = np.mean([r['Y_mean'] for r in self.results])
+            # Determine mode from results
+            mode = self.results[0].get('mode', 'both') if self.results else 'both'
+            mode_suffix = {"both": "RGBCMY", "rgb": "RGB", "cmy": "CMY"}[mode]
+            mode_label = {"both": "RGB-CMY", "rgb": "RGB", "cmy": "CMY"}[mode]
+            
+            # Calculate averages across all mask results based on mode
+            notes_parts = [f"{mode_label} channel averages from {len(self.results)} masks"]
+            
+            if mode in ('both', 'rgb'):
+                avg_r = np.mean([r.get('R_mean', 0) for r in self.results if 'R_mean' in r])
+                avg_g = np.mean([r.get('G_mean', 0) for r in self.results if 'G_mean' in r])
+                avg_b = np.mean([r.get('B_mean', 0) for r in self.results if 'B_mean' in r])
+                notes_parts.append(f"Avg RGB: R={avg_r:.1f}, G={avg_g:.1f}, B={avg_b:.1f}")
+            else:
+                avg_r = avg_g = avg_b = 0
+            
+            if mode in ('both', 'cmy'):
+                avg_c = np.mean([r.get('C_mean', 0) for r in self.results if 'C_mean' in r])
+                avg_m = np.mean([r.get('M_mean', 0) for r in self.results if 'M_mean' in r])
+                avg_y = np.mean([r.get('Y_mean', 0) for r in self.results if 'Y_mean' in r])
+                notes_parts.append(f"Avg CMY: C={avg_c:.1f}, M={avg_m:.1f}, Y={avg_y:.1f}")
+            
+            notes_parts.append(f"Total pixels analyzed: {sum(r['pixel_count'] for r in self.results)}")
             
             # Convert to format expected by averaged measurement saver
             sample_measurements = []
             for i, result in enumerate(self.results, 1):
                 measurement = {
                     'id': f"mask_{i}",
-                    'l_value': result['R_mean'],  # Store RGB in Lab fields for compatibility
-                    'a_value': result['G_mean'],
-                    'b_value': result['B_mean'], 
-                    'rgb_r': result['R_mean'],
-                    'rgb_g': result['G_mean'],
-                    'rgb_b': result['B_mean'],
+                    'l_value': result.get('R_mean', 0),  # Store RGB in Lab fields for compatibility
+                    'a_value': result.get('G_mean', 0),
+                    'b_value': result.get('B_mean', 0), 
+                    'rgb_r': result.get('R_mean', 0),
+                    'rgb_g': result.get('G_mean', 0),
+                    'rgb_b': result.get('B_mean', 0),
                     'x_position': 0.0,
                     'y_position': 0.0,
                     'sample_type': 'mask_region',
@@ -970,14 +1093,9 @@ class RGBCMYAnalysisManager:
                 sample_measurements.append(measurement)
             
             analyzer = ColorAnalyzer()
-            avg_db_name = f"{db_name}_RGBCMY_AVG"
+            avg_db_name = f"{db_name}_{mode_suffix}_AVG"
             
-            notes = (
-                f"RGB-CMY channel averages from {len(self.results)} masks | "
-                f"Avg RGB: R={avg_r:.1f}, G={avg_g:.1f}, B={avg_b:.1f} | "
-                f"Avg CMY: C={avg_c:.1f}, M={avg_m:.1f}, Y={avg_y:.1f} | "
-                f"Total pixels analyzed: {sum(r['pixel_count'] for r in self.results)}"
-            )
+            notes = " | ".join(notes_parts)
             
             success = analyzer.save_averaged_measurement_from_samples(
                 sample_measurements=sample_measurements,

@@ -139,12 +139,28 @@ class DirectPlot3DExporter:
                     data_id += f"_P{measurement['coordinate_point']}"
                 # For averaged data, don't add _P999 - just use the image name for cleaner DataID
                 
-                data_row = {
-                    'L_norm': measurement['l_value'] / 100.0,  # Normalize L* from 0-100 to 0-1
-                    'a_norm': (measurement['a_value'] + 128) / 255.0,  # Normalize a* from -128/+127 to 0-1
-                    'b_norm': (measurement['b_value'] + 128) / 255.0,  # Normalize b* from -128/+127 to 0-1
-                    'DataID': data_id
-                }
+                # Check if this is channel data (RGB/CMY) or L*a*b* data
+                # Channel data has L*a*b* values near 0 and uses RGB fields
+                sample_type = measurement.get('sample_type', '')
+                l_val = measurement.get('l_value', 0)
+                
+                # If L*a*b* is 0 or sample_type indicates channel data, use RGB fields
+                if l_val == 0 or 'channel' in sample_type.lower():
+                    # Channel data (RGB or CMY) - normalize RGB fields as 0-255
+                    data_row = {
+                        'L_norm': measurement.get('rgb_r', 0) / 255.0,  # R or C channel
+                        'a_norm': measurement.get('rgb_g', 0) / 255.0,  # G or M channel
+                        'b_norm': measurement.get('rgb_b', 0) / 255.0,  # B or Y channel
+                        'DataID': data_id
+                    }
+                else:
+                    # L*a*b* color data - normalize using L*a*b* ranges
+                    data_row = {
+                        'L_norm': measurement['l_value'] / 100.0,  # Normalize L* from 0-100 to 0-1
+                        'a_norm': (measurement['a_value'] + 128) / 255.0,  # Normalize a* from -128/+127 to 0-1
+                        'b_norm': (measurement['b_value'] + 128) / 255.0,  # Normalize b* from -128/+127 to 0-1
+                        'DataID': data_id
+                    }
                 plot3d_data.append(data_row)
             
             self.logger.info(f"Retrieved {len(plot3d_data)} data points from {db_name}")

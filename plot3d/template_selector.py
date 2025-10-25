@@ -138,9 +138,98 @@ class TemplateSelector:
             # Convert to absolute path
             self.file_path = os.path.abspath(selected_file)
             logging.info(f"Selected file (absolute path): {self.file_path}")
+            
+            # Ask user what type of color data the file contains
+            self.label_type = self._ask_data_type()
+            logging.info(f"User selected data type: {self.label_type}")
+            
             self.root.destroy()
         else:
             logging.warning("No file selected")
+    
+    def _ask_data_type(self):
+        """Ask user what type of color data is in the selected file."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Data Type")
+        dialog.geometry("450x320")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Center the dialog
+        dialog.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (dialog.winfo_width() // 2)
+        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+        
+        # Add heading
+        heading = tk.Label(dialog, text="What type of color data is in this file?", 
+                          font=("Arial", 11, "bold"))
+        heading.pack(pady=15)
+        
+        # Variable to store selection
+        selection = tk.StringVar(value="LAB")
+        
+        # Radio buttons
+        rb_frame = tk.Frame(dialog)
+        rb_frame.pack(pady=10)
+        
+        tk.Radiobutton(rb_frame, text="L*a*b* (CIE color space)", 
+                      variable=selection, value="LAB",
+                      font=("Arial", 10)).pack(anchor='w', pady=5)
+        
+        tk.Radiobutton(rb_frame, text="RGB (Red/Green/Blue, 0-255 normalized)", 
+                      variable=selection, value="RGB",
+                      font=("Arial", 10)).pack(anchor='w', pady=5)
+        
+        tk.Radiobutton(rb_frame, text="CMY (Cyan/Magenta/Yellow, 0-255 normalized)", 
+                      variable=selection, value="CMY",
+                      font=("Arial", 10)).pack(anchor='w', pady=5)
+        
+        # Separator
+        tk.Frame(dialog, height=2, bg="gray").pack(fill='x', padx=20, pady=10)
+        
+        # Normalized data confirmation
+        normalized_var = tk.BooleanVar(value=False)
+        check_frame = tk.Frame(dialog)
+        check_frame.pack(pady=5)
+        
+        check = tk.Checkbutton(check_frame, 
+                              text="✓ I confirm this data is already normalized (0-1 range)",
+                              variable=normalized_var,
+                              font=("Arial", 10, "bold"),
+                              fg="darkred")
+        check.pack()
+        
+        # Warning note
+        warning = tk.Label(dialog, 
+                          text="⚠️ Required for Plot_3D compatibility\n(Unnormalized data will not plot correctly)",
+                          font=("Arial", 9), fg="#CC0000")
+        warning.pack(pady=5)
+        
+        # Info note
+        note = tk.Label(dialog, 
+                       text="Axis labels will match your selection.\nData values remain unchanged.",
+                       font=("Arial", 9), fg="#666666")
+        note.pack(pady=5)
+        
+        # OK button (disabled until checkbox is checked)
+        def on_ok():
+            if not normalized_var.get():
+                messagebox.showwarning(
+                    "Confirmation Required",
+                    "Please confirm that your data is normalized (0-1 range).\n\n"
+                    "Plot_3D requires normalized data to function correctly."
+                )
+                return
+            dialog.destroy()
+        
+        ok_btn = tk.Button(dialog, text="OK", command=on_ok, width=10, font=("Arial", 10, "bold"))
+        ok_btn.pack(pady=10)
+        
+        # Wait for dialog to close
+        dialog.wait_window()
+        
+        return selection.get()
     
     def create_rigid_template(self):
         """Create a new rigid Plot_3D template."""

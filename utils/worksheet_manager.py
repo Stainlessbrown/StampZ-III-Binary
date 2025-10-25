@@ -275,21 +275,31 @@ class WorksheetManager:
         for i, measurement in enumerate(measurements):
             row = start_row + i
             
-            # Get Lab values - these are raw L*a*b* values from database that need normalization
+            # Check if this is channel data (RGB/CMY) or L*a*b* color data
+            sample_type = measurement.get('sample_type', '')
             l_val = measurement.get('l_value', 0.0)
-            a_val = measurement.get('a_value', 0.0)  
-            b_val = measurement.get('b_value', 0.0)
             
-            # CRITICAL FIX: Database stores raw L*a*b* values, but Plot_3D requires 0-1 normalized values
-            # Apply proper normalization to convert from raw color space to Plot_3D format
-            # L*: 0-100 → 0-1
-            # a*: -128 to +127 → 0-1 
-            # b*: -128 to +127 → 0-1
-            
-            # Normalize values regardless of export_normalized preference for Plot_3D compatibility
-            x_norm = max(0.0, min(1.0, (l_val if l_val is not None else 0.0) / 100.0))
-            y_norm = max(0.0, min(1.0, ((a_val if a_val is not None else 0.0) + 128.0) / 255.0))
-            z_norm = max(0.0, min(1.0, ((b_val if b_val is not None else 0.0) + 128.0) / 255.0))
+            # If L*a*b* is 0 or sample_type indicates channel data, use RGB fields
+            if l_val == 0 or 'channel' in sample_type.lower():
+                # Channel data (RGB or CMY) - normalize RGB fields as 0-255
+                r_val = measurement.get('rgb_r', 0.0)
+                g_val = measurement.get('rgb_g', 0.0)
+                b_val = measurement.get('rgb_b', 0.0)
+                
+                x_norm = max(0.0, min(1.0, r_val / 255.0))
+                y_norm = max(0.0, min(1.0, g_val / 255.0))
+                z_norm = max(0.0, min(1.0, b_val / 255.0))
+            else:
+                # L*a*b* color data - get Lab values and normalize using L*a*b* ranges
+                a_val = measurement.get('a_value', 0.0)  
+                b_val = measurement.get('b_value', 0.0)
+                
+                # L*: 0-100 → 0-1
+                # a*: -128 to +127 → 0-1 
+                # b*: -128 to +127 → 0-1
+                x_norm = max(0.0, min(1.0, (l_val if l_val is not None else 0.0) / 100.0))
+                y_norm = max(0.0, min(1.0, ((a_val if a_val is not None else 0.0) + 128.0) / 255.0))
+                z_norm = max(0.0, min(1.0, ((b_val if b_val is not None else 0.0) + 128.0) / 255.0))
             
             self.worksheet.cell(row=row, column=1).value = round(x_norm, 4)  # Xnorm (normalized L*)
             self.worksheet.cell(row=row, column=2).value = round(y_norm, 4)  # Ynorm (normalized a*)  

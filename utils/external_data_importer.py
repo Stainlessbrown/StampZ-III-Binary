@@ -151,7 +151,10 @@ class ExternalDataImporter:
         centroid_rows = []
         data_rows = []
         
-        if len(df) > 6:  # Only process if we have enough rows
+        # Check if file has Plot_3D structure by looking for valid centroid rows
+        has_plot3d_structure = False
+        
+        if len(df) > 6:  # Only check for Plot_3D structure if we have enough rows
             # Check rows 0-5 (DataFrame index, which are rows 2-7 in spreadsheet) for valid centroid data
             original_df = df.copy()  # Keep original for centroid processing
             for i in range(6):
@@ -160,21 +163,27 @@ class ExternalDataImporter:
                     # Check if this row has meaningful centroid data
                     has_centroid_data = self._is_valid_centroid_row(row)
                     if has_centroid_data:
+                        has_plot3d_structure = True
                         # Store as dictionary for easier processing later
                         row_dict = row.to_dict()
                         centroid_rows.append((i, row_dict))
                         warnings.append(f"Found valid K-means centroid data in row {i+2}")
             
-            # Data rows start from row 7 (DataFrame index 6)
-            data_rows_df = df.iloc[6:].reset_index(drop=True)
-            if not data_rows_df.empty:
-                warnings.append(f"Imported {len(data_rows_df)} data rows starting from row 8")
+            if has_plot3d_structure:
+                # File has Plot_3D structure - data starts from row 7 (DataFrame index 6)
+                data_rows_df = df.iloc[6:].reset_index(drop=True)
+                if not data_rows_df.empty:
+                    warnings.append(f"Imported {len(data_rows_df)} data rows starting from row 8 (Plot_3D format)")
+                else:
+                    warnings.append("No data rows found after centroid area")
             else:
-                warnings.append("No data rows found after centroid area")
+                # No centroid structure found - treat all rows as data
+                data_rows_df = df
+                warnings.append(f"No centroid structure detected, importing all {len(df)} rows as data")
         else:
             # If we have 6 or fewer rows, treat them all as data
             data_rows_df = df
-            warnings.append("File has 6 or fewer rows, treating all as data rows")
+            warnings.append(f"File has {len(df)} rows, treating all as data rows")
         
         # Store centroid info for later use
         self.last_centroid_data = centroid_rows
@@ -182,7 +191,40 @@ class ExternalDataImporter:
         # Return only the data rows for normal processing
         df = data_rows_df if 'data_rows_df' in locals() else df
         
-        logger.info(f"Read {len(df)} rows and {len(df.columns)} columns from {file_path}")
+        # Filter out rows with no valid coordinate data (empty rows with just validation)
+        if not df.empty and len(df) > 0:
+            # Look for coordinate columns
+            coord_cols = []
+            for col in df.columns:
+                col_upper = str(col).upper()
+                if any(x in col_upper for x in ['XNORM', 'YNORM', 'ZNORM', 'X_NORM', 'Y_NORM', 'Z_NORM']):
+                    coord_cols.append(col)
+            
+            if coord_cols:
+                # Check each row - keep only if it has at least one non-empty coordinate
+                def has_valid_coordinates(row):
+                    for col in coord_cols:
+                        val = row[col]
+                        # Skip NaN, None, empty strings, and pure zeros
+                        if pd.notna(val):
+                            val_str = str(val).strip()
+                            if val_str and val_str not in ['', '0', '0.0', '0.00', '0.000', '0.0000']:
+                                try:
+                                    float_val = float(val_str)
+                                    if float_val != 0.0:  # Has actual data
+                                        return True
+                                except (ValueError, TypeError):
+                                    pass
+                    return False
+                
+                original_len = len(df)
+                df = df[df.apply(has_valid_coordinates, axis=1)].reset_index(drop=True)
+                filtered_count = original_len - len(df)
+                
+                if filtered_count > 0:
+                    warnings.append(f"Filtered out {filtered_count} empty rows (validation cells with no data)")
+        
+        logger.info(f"Read {len(df)} valid data rows and {len(df.columns)} columns from {file_path}")
         return df, warnings
     
     def map_columns(self, df: pd.DataFrame, custom_mappings: Optional[Dict[str, str]] = None) -> Tuple[Dict[str, str], List[str]]:

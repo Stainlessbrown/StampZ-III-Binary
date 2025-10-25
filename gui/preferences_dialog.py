@@ -351,11 +351,20 @@ class PreferencesDialog:
             variable=self.export_include_lab_var,
             command=self._on_color_space_change
         )
-        self.lab_checkbox.pack(anchor=tk.W, pady=(0, 10))
+        self.lab_checkbox.pack(anchor=tk.W, pady=(0, 5))
+        
+        self.export_include_cmy_var = tk.BooleanVar()
+        self.cmy_checkbox = ttk.Checkbutton(
+            color_space_frame,
+            text="Include CMY color values (Cyan, Magenta, Yellow)",
+            variable=self.export_include_cmy_var,
+            command=self._on_color_space_change
+        )
+        self.cmy_checkbox.pack(anchor=tk.W, pady=(0, 10))
         
         ttk.Label(
             color_space_frame,
-            text="• RGB: Scanned image native format (0-255 per channel)\n• L*a*b*: Perceptually uniform color space, better for color analysis\n• Selecting only one color space reduces export column count\n• At least one color space must be selected",
+            text="• RGB: Scanned image native format (0-255 per channel)\n• L*a*b*: Perceptually uniform color space, better for color analysis\n• CMY: Subtractive color model (255 - RGB), useful for print analysis\n• Selecting specific color spaces reduces export column count\n• At least one color space must be selected",
             font=("TkDefaultFont", 9),
             foreground="gray"
         ).pack(anchor=tk.W)
@@ -1132,6 +1141,7 @@ class PreferencesDialog:
         # Color space preferences
         self.export_include_rgb_var.set(self.prefs_manager.get_export_include_rgb())
         self.export_include_lab_var.set(self.prefs_manager.get_export_include_lab())
+        self.export_include_cmy_var.set(self.prefs_manager.get_export_include_cmy())
         
         # Compare mode preferences
         self.auto_save_averages_var.set(self.prefs_manager.get_auto_save_averages())
@@ -1268,6 +1278,7 @@ class PreferencesDialog:
             # Color space preferences
             self.prefs_manager.set_export_include_rgb(self.export_include_rgb_var.get())
             self.prefs_manager.set_export_include_lab(self.export_include_lab_var.get())
+            self.prefs_manager.set_export_include_cmy(self.export_include_cmy_var.get())
             
             # Compare mode preferences
             self.prefs_manager.set_auto_save_averages(self.auto_save_averages_var.get())
@@ -1328,15 +1339,15 @@ class PreferencesDialog:
         """Handle color space checkbox changes to ensure at least one is selected."""
         rgb_checked = self.export_include_rgb_var.get()
         lab_checked = self.export_include_lab_var.get()
+        cmy_checked = self.export_include_cmy_var.get()
         
         # Ensure at least one color space is selected
-        if not rgb_checked and not lab_checked:
-            # If both are unchecked, recheck the one that was just unchecked
-            # We can't tell which was just unchecked, so default to re-enabling RGB
+        if not rgb_checked and not lab_checked and not cmy_checked:
+            # If all are unchecked, recheck RGB as default
             self.export_include_rgb_var.set(True)
             messagebox.showwarning(
                 "Color Space Required",
-                "At least one color space (RGB or L*a*b*) must be selected for exports.\n\nRGB has been re-enabled."
+                "At least one color space (RGB, L*a*b*, or CMY) must be selected for exports.\n\nRGB has been re-enabled."
             )
     
     def _on_cancel(self):

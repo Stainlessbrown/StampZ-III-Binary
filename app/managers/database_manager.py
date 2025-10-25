@@ -43,12 +43,13 @@ class DatabaseManager:
         self.app = app
         self.root = root
         
-    def save_imported_data_to_database(self, sample_set_name, import_result):
+    def save_imported_data_to_database(self, sample_set_name, import_result, data_type='LAB'):
         """Save imported data directly to database without UI.
         
         Args:
             sample_set_name: Name for the new database
             import_result: ImportResult with data to save
+            data_type: Data type ('LAB', 'RGB', or 'CMY') for proper detection
             
         Returns:
             int: Number of records saved
@@ -58,6 +59,15 @@ class DatabaseManager:
             
             print(f"DEBUG: Creating database: {sample_set_name}")
             db = ColorAnalysisDB(sample_set_name)
+            
+            # Determine sample_type based on data_type
+            if data_type == 'RGB':
+                sample_type = 'rgb_channel_sample'
+            elif data_type == 'CMY':
+                sample_type = 'cmy_channel_sample'
+            else:  # LAB
+                sample_type = 'imported_data'
+            print(f"DEBUG: Using sample_type: {sample_type} (based on data_type: {data_type})")
             
             saved_count = 0
             
@@ -114,16 +124,36 @@ class DatabaseManager:
                             image_name = data_id
                             coord_point = 1
                         
+                        # For channel data (RGB/CMY), store values in rgb_ fields and set L*a*b* to 0
+                        if sample_type in ['rgb_channel_sample', 'cmy_channel_sample']:
+                            # Denormalize to 0-255 range for channel values
+                            l_val = 0.0  # Indicates channel data
+                            a_val = 0.0
+                            b_val = 0.0
+                            rgb_r = x_norm * 255.0
+                            rgb_g = y_norm * 255.0
+                            rgb_b = z_norm * 255.0
+                        else:
+                            # L*a*b* data
+                            l_val = x_norm  # Store normalized values
+                            a_val = y_norm
+                            b_val = z_norm
+                            rgb_r = 0.0
+                            rgb_g = 0.0
+                            rgb_b = 0.0
+                        
                         # Insert as new measurement
                         success = db.insert_new_measurement(
                             image_name=image_name,
                             coordinate_point=coord_point,
                             x_pos=0.0,  # Position not relevant for imported data
                             y_pos=0.0,
-                            l_value=x_norm,  # Store normalized values as L*a*b*
-                            a_value=y_norm,
-                            b_value=z_norm,
-                            rgb_r=0.0, rgb_g=0.0, rgb_b=0.0,
+                            l_value=l_val,
+                            a_value=a_val,
+                            b_value=b_val,
+                            rgb_r=rgb_r,
+                            rgb_g=rgb_g,
+                            rgb_b=rgb_b,
                             cluster_id=cluster,
                             delta_e=delta_e,
                             centroid_x=float(row[8]) if row[8] and str(row[8]).strip() else None,
@@ -133,7 +163,7 @@ class DatabaseManager:
                             sphere_radius=float(row[12]) if row[12] and str(row[12]).strip() else None,
                             marker=marker,
                             color=color,
-                            sample_type='imported_data',
+                            sample_type=sample_type,
                             notes=f'Imported from external file'
                         )
                         

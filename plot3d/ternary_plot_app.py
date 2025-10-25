@@ -35,6 +35,8 @@ class TernaryPlotWindow:
         self.manager = get_data_file_manager()
         self.current_database = tk.StringVar(value="No database loaded")
         self.current_database_name = None  # Track actual database name for viewer
+        self.database_measurements = []  # Store raw database measurements for re-normalization
+        self.data_source_type = None  # 'channel_rgb', 'channel_cmy', or 'color_analysis'
         
         # Point highlighting state
         self.plot_points = []  # Store plot coordinates for click detection
@@ -86,7 +88,9 @@ class TernaryPlotWindow:
         options_frame.pack(fill=tk.X, pady=6)
         ttk.Checkbutton(options_frame, text="Show Convex Hull", variable=self.show_hull, command=self._render).pack(anchor='w', padx=5, pady=2)
         ttk.Checkbutton(options_frame, text="Show Grid Lines", variable=self.show_grid, command=self._render).pack(anchor='w', padx=5, pady=2)
-        ttk.Checkbutton(options_frame, text="Use RGB Labels", variable=self.use_rgb_labels, command=self._render).pack(anchor='w', padx=5, pady=2)
+        # RGB toggle - will re-normalize data when changed
+        self.rgb_toggle = ttk.Checkbutton(options_frame, text="Use RGB Data", variable=self.use_rgb_labels, command=self._on_data_type_toggle)
+        self.rgb_toggle.pack(anchor='w', padx=5, pady=2)
         
         # Zoom control
         zoom_frame = ttk.Frame(options_frame)
@@ -141,7 +145,107 @@ class TernaryPlotWindow:
         """Handle zoom level changes."""
         self.zoom_label.config(text=f"{self.zoom_level.get():.1f}x")
         self._render()
+    
+    def _on_data_type_toggle(self):
+        """Handle toggle between L*a*b* and RGB data for color analysis databases."""
+        # Only re-normalize if we have color analysis data (which has both L*a*b* and RGB)
+        if self.data_source_type == 'color_analysis' and self.database_measurements:
+            print(f"DEBUG: Data type toggled to {'RGB' if self.use_rgb_labels.get() else 'L*a*b*'}")
+            self._convert_measurements_to_dataframe()
+            self._render()
+        elif self.data_source_type in ['channel_rgb', 'channel_cmy']:
+            # Channel data only has one data type - just re-render with same data
+            print(f"DEBUG: Channel data ({self.data_source_type}) - toggle has no effect")
+            self._render()
+        else:
+            # No data loaded yet - just re-render
+            self._render()
 
+    def _detect_data_source_type(self, measurements):
+        """Detect whether database contains channel data or color analysis data."""
+        if not measurements:
+            return None
+        
+        # Sample first few measurements to determine type
+        sample_size = min(10, len(measurements))
+        
+        channel_count = 0
+        color_count = 0
+        rgb_channel_count = 0
+        cmy_channel_count = 0
+        
+        for m in measurements[:sample_size]:
+            l_val = m.get('l_value', 0)
+            sample_type = m.get('sample_type', '')
+            
+            if l_val == 0 or 'channel' in sample_type.lower():
+                channel_count += 1
+                # Distinguish RGB vs CMY by checking sample_type
+                if 'rgb' in sample_type.lower():
+                    rgb_channel_count += 1
+                elif 'cmy' in sample_type.lower():
+                    cmy_channel_count += 1
+            else:
+                color_count += 1
+        
+        # Determine type based on majority
+        if channel_count > color_count:
+            if cmy_channel_count > rgb_channel_count:
+                return 'channel_cmy'
+            else:
+                return 'channel_rgb'
+        else:
+            return 'color_analysis'
+    
+    def _convert_measurements_to_dataframe(self):
+        """Convert stored measurements to dataframe based on current toggle setting."""
+        if not self.database_measurements:
+            return
+        
+        df_data = []
+        use_rgb = self.use_rgb_labels.get()
+        
+        for m in self.database_measurements:
+            l_val = m.get('l_value', 50)
+            a_val = m.get('a_value', 0)
+            b_val = m.get('b_value', 0)
+            sample_type = m.get('sample_type', '')
+            
+            # Detect if this is channel data
+            is_channel = (l_val == 0 or 'channel' in sample_type.lower())
+            
+            if is_channel:
+                # Channel data - always use RGB values (which contain R/G/B or C/M/Y)
+                l_val = m.get('rgb_r', 0)
+                a_val = m.get('rgb_g', 0)
+                b_val = m.get('rgb_b', 0)
+            elif use_rgb and self.data_source_type == 'color_analysis':
+                # Color analysis with RGB toggle ON - use RGB values
+                l_val = m.get('rgb_r', 0)
+                a_val = m.get('rgb_g', 0)
+                b_val = m.get('rgb_b', 0)
+            else:
+                # Color analysis with L*a*b* selected (default) - use L*a*b* values
+                # Check if values are normalized and convert if needed
+                if 0 <= l_val <= 1:
+                    l_val = l_val * 100
+                if -1 <= a_val <= 1:
+                    a_val = a_val * 128
+                if -1 <= b_val <= 1:
+                    b_val = b_val * 128
+            
+            df_data.append({
+                'L*': l_val,
+                'a*': a_val,
+                'b*': b_val,
+                'DataID': m.get('image_name', '') + f"_pt{m.get('coordinate_point', '')}",
+                'Marker': m.get('marker_preference', '.'),
+                'Color': m.get('color_preference', 'blue')
+            })
+        
+        self.df = pd.DataFrame(df_data)
+        print(f"DEBUG: Converted {len(df_data)} measurements to dataframe (RGB mode: {use_rgb}, source type: {self.data_source_type})")
+    
     # === File handling ===
     def _open_file(self):
         path = filedialog.askopenfilename(
@@ -337,33 +441,26 @@ class TernaryPlotWindow:
             self.current_database.set(f"{selected_db} ({len(measurements)} points)")
             self.current_database_name = selected_db  # Store database name for viewer
             
-            # Convert to DataFrame with ternary-compatible columns
-            import pandas as pd
-            df_data = []
-            for m in measurements:
-                # Convert L*a*b* values - check if they're already in reasonable ranges
-                l_val = m.get('l_value', 50)  # Default to mid-range if missing
-                a_val = m.get('a_value', 0)
-                b_val = m.get('b_value', 0)
-                
-                # If values seem to be normalized (0-1), convert to L*a*b* ranges
-                if 0 <= l_val <= 1:
-                    l_val = l_val * 100
-                if -1 <= a_val <= 1:
-                    a_val = a_val * 128
-                if -1 <= b_val <= 1:
-                    b_val = b_val * 128
-                
-                df_data.append({
-                    'L*': l_val,
-                    'a*': a_val,
-                    'b*': b_val,
-                    'DataID': m.get('image_name', '') + f"_pt{m.get('coordinate_point', '')}",
-                    'Marker': m.get('marker_preference', '.'),
-                    'Color': m.get('color_preference', 'blue')
-                })
+            # Store raw measurements for re-normalization when toggle changes
+            self.database_measurements = measurements
             
-            self.df = pd.DataFrame(df_data)
+            # Detect data source type
+            self.data_source_type = self._detect_data_source_type(measurements)
+            print(f"DEBUG: Detected data source type: {self.data_source_type}")
+            
+            # Enable/disable RGB toggle based on data type
+            if self.data_source_type in ['channel_rgb', 'channel_cmy']:
+                # Channel data only has one data type - disable toggle
+                self.rgb_toggle.configure(state='disabled')
+                self.use_rgb_labels.set(True)  # Always "RGB" for channel data
+                print(f"DEBUG: Channel data detected - toggle disabled")
+            else:
+                # Color analysis - enable toggle
+                self.rgb_toggle.configure(state='normal')
+                print(f"DEBUG: Color analysis data detected - toggle enabled")
+            
+            # Convert measurements to dataframe based on current toggle state
+            self._convert_measurements_to_dataframe()
             self._render()
             
             messagebox.showinfo("Success", f"Loaded {len(measurements)} measurements from database.")
@@ -409,26 +506,19 @@ class TernaryPlotWindow:
                     measurements = db.get_all_measurements()
                     
                     if measurements:
-                        df_data = []
-                        for m in measurements:
-                            l_val = m.get('l_value', 50)
-                            a_val = m.get('a_value', 0) 
-                            b_val = m.get('b_value', 0)
-                            
-                            # Convert normalized to Lab ranges if needed
-                            if 0 <= l_val <= 1: l_val = l_val * 100
-                            if -1 <= a_val <= 1: a_val = a_val * 128
-                            if -1 <= b_val <= 1: b_val = b_val * 128
-                            
-                            df_data.append({
-                                'L*': l_val, 'a*': a_val, 'b*': b_val,
-                                'DataID': m.get('image_name', '') + f"_pt{m.get('coordinate_point', '')}",
-                                'Marker': m.get('marker_preference', '.'),
-                                'Color': m.get('color_preference', 'blue')
-                            })
+                        # Store measurements and detect type
+                        self.database_measurements = measurements
+                        self.data_source_type = self._detect_data_source_type(measurements)
                         
-                        # Update ternary plot
-                        self.df = pd.DataFrame(df_data)
+                        # Update toggle state
+                        if self.data_source_type in ['channel_rgb', 'channel_cmy']:
+                            self.rgb_toggle.configure(state='disabled')
+                            self.use_rgb_labels.set(True)
+                        else:
+                            self.rgb_toggle.configure(state='normal')
+                        
+                        # Convert using current toggle setting
+                        self._convert_measurements_to_dataframe()
                         self.current_database.set(f"{self.current_database_name} ({len(measurements)} points)")
                         self._render()
                         print(f"DEBUG: Updated ternary plot with {len(measurements)} points")
@@ -521,33 +611,19 @@ class TernaryPlotWindow:
                 messagebox.showwarning("No Data", f"No measurements found in database '{self.current_database_name}'.")
                 return
             
-            # Convert to DataFrame with ternary-compatible columns (same logic as _load_from_realtime_db)
-            import pandas as pd
-            df_data = []
-            for m in measurements:
-                # Convert L*a*b* values - check if they're already in reasonable ranges
-                l_val = m.get('l_value', 50)  # Default to mid-range if missing
-                a_val = m.get('a_value', 0)
-                b_val = m.get('b_value', 0)
-                
-                # If values seem to be normalized (0-1), convert to L*a*b* ranges
-                if 0 <= l_val <= 1:
-                    l_val = l_val * 100
-                if -1 <= a_val <= 1:
-                    a_val = a_val * 128
-                if -1 <= b_val <= 1:
-                    b_val = b_val * 128
-                
-                df_data.append({
-                    'L*': l_val,
-                    'a*': a_val,
-                    'b*': b_val,
-                    'DataID': m.get('image_name', '') + f"_pt{m.get('coordinate_point', '')}",
-                    'Marker': m.get('marker_preference', '.'),
-                    'Color': m.get('color_preference', 'blue')
-                })
+            # Store raw measurements and detect type
+            self.database_measurements = measurements
+            self.data_source_type = self._detect_data_source_type(measurements)
             
-            self.df = pd.DataFrame(df_data)
+            # Update toggle state based on data type
+            if self.data_source_type in ['channel_rgb', 'channel_cmy']:
+                self.rgb_toggle.configure(state='disabled')
+                self.use_rgb_labels.set(True)
+            else:
+                self.rgb_toggle.configure(state='normal')
+            
+            # Convert measurements using current toggle setting
+            self._convert_measurements_to_dataframe()
             self.current_database.set(f"{self.current_database_name} ({len(measurements)} points)")
             self._render()
             
@@ -599,19 +675,31 @@ class TernaryPlotWindow:
         """Convert L*a*b* data to Plot_3D normalized format."""
         plot3d_df = pd.DataFrame()
         
-        # Convert L*a*b* to normalized Xnorm, Ynorm, Znorm (0-1 range)
+        # Convert L*a*b* or RGB/CMY channel data to normalized Xnorm, Ynorm, Znorm (0-1 range)
         if all(col in df.columns for col in ['L*', 'a*', 'b*']):
-            # Normalize L* (0-100) to Xnorm (0-1)
             l_values = pd.to_numeric(df['L*'], errors='coerce').fillna(50)  # Default mid-range
-            plot3d_df['Xnorm'] = np.clip(l_values / 100.0, 0, 1)
-            
-            # Normalize a* (-128 to +127) to Ynorm (0-1)
             a_values = pd.to_numeric(df['a*'], errors='coerce').fillna(0)  # Default neutral
-            plot3d_df['Ynorm'] = np.clip((a_values + 128) / 255.0, 0, 1)
-            
-            # Normalize b* (-128 to +127) to Znorm (0-1)
             b_values = pd.to_numeric(df['b*'], errors='coerce').fillna(0)  # Default neutral
-            plot3d_df['Znorm'] = np.clip((b_values + 128) / 255.0, 0, 1)
+            
+            # Detect if this is channel data (RGB/CMY) vs L*a*b* color data
+            # Channel data: values are in 0-255 range
+            # L*a*b* data: L* in 0-100, a*/b* in -128 to +127
+            l_in_rgb_range = (l_values >= 0).all() and (l_values <= 255).all() and (l_values.max() > 100 or (l_values > 1).any())
+            a_in_rgb_range = (a_values >= 0).all() and (a_values <= 255).all()
+            b_in_rgb_range = (b_values >= 0).all() and (b_values <= 255).all()
+            
+            if l_in_rgb_range and a_in_rgb_range and b_in_rgb_range:
+                # Channel data (RGB or CMY) - values are 0-255, normalize by dividing by 255
+                print(f"DEBUG: Detected channel data in Plot3D conversion (0-255 range)")
+                plot3d_df['Xnorm'] = np.clip(l_values / 255.0, 0, 1)
+                plot3d_df['Ynorm'] = np.clip(a_values / 255.0, 0, 1)
+                plot3d_df['Znorm'] = np.clip(b_values / 255.0, 0, 1)
+            else:
+                # L*a*b* color data - apply L*a*b* normalization formulas
+                print(f"DEBUG: Detected L*a*b* color data in Plot3D conversion")
+                plot3d_df['Xnorm'] = np.clip(l_values / 100.0, 0, 1)
+                plot3d_df['Ynorm'] = np.clip((a_values + 128) / 255.0, 0, 1)
+                plot3d_df['Znorm'] = np.clip((b_values + 128) / 255.0, 0, 1)
         else:
             # If no L*a*b* data, create default values
             plot3d_df['Xnorm'] = 0.5
@@ -884,13 +972,20 @@ class TernaryPlotWindow:
         # Add axis labels around the perimeter
         label_offset = 0.08
         
-        # Choose labels based on toggle
-        if self.use_rgb_labels.get():
+        # Choose labels based on data type and toggle
+        print(f"DEBUG: Label selection - data_source_type={self.data_source_type}, use_rgb_labels={self.use_rgb_labels.get()}")
+        if self.data_source_type == 'channel_cmy':
+            label1, label2, label3 = 'C', 'M', 'Y'
+            color1, color2, color3 = 'cyan', 'magenta', 'yellow'
+            print(f"DEBUG: Using CMY labels")
+        elif self.data_source_type == 'channel_rgb' or self.use_rgb_labels.get():
             label1, label2, label3 = 'R', 'G', 'B'
             color1, color2, color3 = 'lightcoral', 'lightgreen', 'lightblue'
+            print(f"DEBUG: Using RGB labels (channel_rgb={self.data_source_type == 'channel_rgb'}, toggle={self.use_rgb_labels.get()})")
         else:
             label1, label2, label3 = 'L*', 'a*', 'b*'
             color1, color2, color3 = 'lightblue', 'lightgreen', 'lightcoral'
+            print(f"DEBUG: Using L*a*b* labels")
         
         # Label (bottom left vertex)
         self.ax.text(A[0] - label_offset, A[1] - label_offset, label1, 

@@ -28,14 +28,15 @@ class RGBCMYColorAnalyzer:
         self.rgb_cmy_analyzer = RGBCMYAnalyzer()
     
     def analyze_image_rgb_cmy_from_canvas(self, image_path: str, sample_set_name: str, 
-                                         coord_markers: List) -> Optional[Dict]:
+                                         coord_markers: List, mode: str = 'rgb') -> Optional[Dict]:
         """
-        Analyze RGB-CMY channels from canvas coordinate markers.
+        Analyze RGB or CMY channels from canvas coordinate markers.
         
         Args:
             image_path: Path to the source image
             sample_set_name: Name of the sample set
             coord_markers: List of coordinate markers from canvas
+            mode: 'rgb' or 'cmy' - which channels to analyze
             
         Returns:
             Dictionary with analysis results or None if failed
@@ -65,8 +66,8 @@ class RGBCMYColorAnalyzer:
                 logger.warning("No valid masks created from coordinate markers")
                 return None
             
-            # Run analysis
-            results = self.rgb_cmy_analyzer.analyze_multiple_masks(masks)
+            # Run analysis with specified mode
+            results = self.rgb_cmy_analyzer.analyze_multiple_masks(masks, mode=mode)
             
             if not results:
                 logger.warning("RGB-CMY analysis returned no results")
@@ -78,7 +79,8 @@ class RGBCMYColorAnalyzer:
                 'image_path': image_path,
                 'num_samples': len(results),
                 'results': results,
-                'analyzer': self.rgb_cmy_analyzer  # Include analyzer for export functions
+                'analyzer': self.rgb_cmy_analyzer,  # Include analyzer for export functions
+                'mode': mode  # Include mode for export formatting
             }
             
             logger.info(f"RGB-CMY analysis completed successfully for {len(results)} samples")

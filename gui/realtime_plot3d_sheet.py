@@ -61,6 +61,10 @@ class RealtimePlot3DSheet:
         self.sample_set_name = sample_set_name
         self.current_file_path = None
         self.plot3d_app = None  # Reference to Plot_3D instance
+        self.database_measurements = []  # Store raw measurements for re-normalization
+        self.data_source_type = None  # 'channel_rgb', 'channel_cmy', or 'color_analysis'
+        self.use_rgb_data = tk.BooleanVar(value=False)  # Toggle for L*a*b* vs RGB (color analysis only)
+        self.imported_label_type = None  # Store label type from external file imports
         
         print(f"DEBUG: Initializing RealtimePlot3DSheet for {sample_set_name} (load_initial_data={load_initial_data})")
         
@@ -412,6 +416,42 @@ class RealtimePlot3DSheet:
             print(f"DEBUG: Validation setup error: {e}")
             logger.warning(f"Could not setup validation: {e}")
     
+    def _detect_data_source_type(self, measurements):
+        """Detect whether database contains channel data or color analysis data."""
+        if not measurements:
+            return None
+        
+        # Sample first few measurements to determine type
+        sample_size = min(10, len(measurements))
+        
+        channel_count = 0
+        color_count = 0
+        rgb_channel_count = 0
+        cmy_channel_count = 0
+        
+        for m in measurements[:sample_size]:
+            l_val = m.get('l_value', 0)
+            sample_type = m.get('sample_type', '')
+            
+            if l_val == 0 or 'channel' in sample_type.lower():
+                channel_count += 1
+                # Distinguish RGB vs CMY by checking sample_type
+                if 'rgb' in sample_type.lower():
+                    rgb_channel_count += 1
+                elif 'cmy' in sample_type.lower():
+                    cmy_channel_count += 1
+            else:
+                color_count += 1
+        
+        # Determine type based on majority
+        if channel_count > color_count:
+            if cmy_channel_count > rgb_channel_count:
+                return 'channel_cmy'
+            else:
+                return 'channel_rgb'
+        else:
+            return 'color_analysis'
+    
     def _setup_toolbar(self):
         """Setup toolbar with action buttons."""
         toolbar = ttk.Frame(self.window)
@@ -454,6 +494,12 @@ class RealtimePlot3DSheet:
         self.auto_refresh_btn = ttk.Button(toolbar, text="Auto-Refresh: ON", command=self._toggle_auto_refresh)
         self.auto_refresh_btn.pack(side=tk.LEFT, padx=20)
         
+        # Data type toggle (for color analysis databases)
+        ttk.Separator(toolbar, orient='vertical').pack(side=tk.LEFT, fill='y', padx=10)
+        self.rgb_toggle = ttk.Checkbutton(toolbar, text="Use RGB Data", variable=self.use_rgb_data, command=self._on_data_type_toggle)
+        self.rgb_toggle.pack(side=tk.LEFT, padx=5)
+        self.rgb_toggle.configure(state='disabled')  # Initially disabled until data is loaded
+        
         print("DEBUG: Toolbar buttons created with explicit commands")
         
         # Status labels
@@ -471,6 +517,17 @@ class RealtimePlot3DSheet:
         self.auto_refresh_enabled = True
         self.refresh_job = None
         
+    def _on_data_type_toggle(self):
+        """Handle toggle between L*a*b* and RGB data for color analysis databases."""
+        if self.data_source_type == 'color_analysis' and self.database_measurements:
+            print(f"DEBUG: Plot_3D data type toggled to {'RGB' if self.use_rgb_data.get() else 'L*a*b*'}")
+            # Re-refresh using stored measurements with current toggle state
+            self._refresh_from_stampz(force_complete_rebuild=True)
+        elif self.data_source_type in ['channel_rgb', 'channel_cmy']:
+            print(f"DEBUG: Channel data ({self.data_source_type}) - toggle has no effect")
+        else:
+            print(f"DEBUG: No data loaded yet")
+    
     def _load_initial_data(self):
         """Load initial data from StampZ database."""
         print(f"\n🎆 INITIAL DATA LOADING FOR {self.sample_set_name}")
@@ -509,6 +566,23 @@ class RealtimePlot3DSheet:
             measurements = db.get_all_measurements()
             logger.info(f"Found {len(measurements) if measurements else 0} measurements for {self.sample_set_name}")
             
+            # Store raw measurements and detect data type
+            if measurements:
+                self.database_measurements = measurements
+                self.data_source_type = self._detect_data_source_type(measurements)
+                print(f"DEBUG: Detected data source type: {self.data_source_type}")
+                
+                # Update toggle state based on data type
+                if self.data_source_type in ['channel_rgb', 'channel_cmy']:
+                    # Channel data - disable toggle
+                    self.rgb_toggle.configure(state='disabled')
+                    self.use_rgb_data.set(True)  # Always "RGB" for channel data (actually channel values)
+                    print(f"DEBUG: Channel data detected - toggle disabled")
+                else:
+                    # Color analysis - enable toggle
+                    self.rgb_toggle.configure(state='normal')
+                    print(f"DEBUG: Color analysis data detected - toggle enabled")
+            
             # SMART REFRESH: Only do complete rebuild if forced (e.g., initial load) or sheet is empty
             current_rows = self.sheet.get_total_rows()
             should_rebuild = force_complete_rebuild or current_rows == 0
@@ -519,8 +593,12 @@ class RealtimePlot3DSheet:
                 
                 # Clear ALL rows and start fresh
                 if current_rows > 0:
-                    self.sheet.delete_rows(0, current_rows)
-                    print(f"  ✅ Deleted all {current_rows} rows")
+                    print(f"  Attempting to delete all {current_rows} rows...")
+                    # tksheet delete_rows takes a list of row indices, not a range
+                    # Delete from bottom to top to avoid index shifting issues
+                    self.sheet.delete_rows(list(range(current_rows)))
+                    new_row_count = self.sheet.get_total_rows()
+                    print(f"  ✅ Deleted {current_rows} rows, sheet now has {new_row_count} rows (should be 0)")
                 
                 # Clear any existing formatting
                 try:
@@ -600,26 +678,41 @@ class RealtimePlot3DSheet:
                     # Debug the measurement structure
                     logger.debug(f"Processing measurement {i}: keys={list(measurement.keys())}")
                     
-                    # Get Lab values - these are raw L*a*b* values from database that need normalization
+                    # Check if this is channel data (RGB/CMY) or L*a*b* color data
                     l_val = measurement.get('l_value', 0.0)
-                    a_val = measurement.get('a_value', 0.0)
-                    b_val = measurement.get('b_value', 0.0)
                     sample_type = measurement.get('sample_type', '')
+                    is_channel = (l_val == 0 or 'channel' in sample_type.lower())
                     
-                    # CRITICAL FIX: Database stores raw L*a*b* values, but Plot_3D requires 0-1 normalized values
-                    # Apply proper normalization to convert from raw color space to Plot_3D format
-                    # L*: 0-100 → 0-1
-                    # a*: -128 to +127 → 0-1 
-                    # b*: -128 to +127 → 0-1
-                    
-                    # Normalize L* (0-100) to X (0-1)
-                    x_norm = max(0.0, min(1.0, (l_val if l_val is not None else 0.0) / 100.0))
-                    
-                    # Normalize a* (-128 to +127) to Y (0-1)
-                    y_norm = max(0.0, min(1.0, ((a_val if a_val is not None else 0.0) + 128.0) / 255.0))
-                    
-                    # Normalize b* (-128 to +127) to Z (0-1) 
-                    z_norm = max(0.0, min(1.0, ((b_val if b_val is not None else 0.0) + 128.0) / 255.0))
+                    # Determine which data to use
+                    if is_channel:
+                        # Channel data (RGB or CMY) - always use channel values
+                        r_val = measurement.get('rgb_r', 0.0)
+                        g_val = measurement.get('rgb_g', 0.0)
+                        b_val = measurement.get('rgb_b', 0.0)
+                        
+                        x_norm = max(0.0, min(1.0, r_val / 255.0))
+                        y_norm = max(0.0, min(1.0, g_val / 255.0))
+                        z_norm = max(0.0, min(1.0, b_val / 255.0))
+                    elif self.use_rgb_data.get() and self.data_source_type == 'color_analysis':
+                        # Color analysis with RGB toggle ON - use RGB values
+                        r_val = measurement.get('rgb_r', 0.0)
+                        g_val = measurement.get('rgb_g', 0.0)
+                        b_val = measurement.get('rgb_b', 0.0)
+                        
+                        x_norm = max(0.0, min(1.0, r_val / 255.0))
+                        y_norm = max(0.0, min(1.0, g_val / 255.0))
+                        z_norm = max(0.0, min(1.0, b_val / 255.0))
+                    else:
+                        # L*a*b* color data (default) - normalize using L*a*b* ranges
+                        a_val = measurement.get('a_value', 0.0)
+                        b_val = measurement.get('b_value', 0.0)
+                        
+                        # L*: 0-100 → 0-1
+                        # a*: -128 to +127 → 0-1 
+                        # b*: -128 to +127 → 0-1
+                        x_norm = max(0.0, min(1.0, (l_val if l_val is not None else 0.0) / 100.0))
+                        y_norm = max(0.0, min(1.0, ((a_val if a_val is not None else 0.0) + 128.0) / 255.0))
+                        z_norm = max(0.0, min(1.0, ((b_val if b_val is not None else 0.0) + 128.0) / 255.0))
                     
                     # Debug output for first few rows
                     if i < 5:
@@ -1451,8 +1544,32 @@ class RealtimePlot3DSheet:
         """Open current data in Plot_3D - now reads directly from internal worksheet!"""
         print("DEBUG: Open in Plot_3D button clicked (direct integration mode)")
         try:
+            # Check if Plot_3D is already open
+            if self.plot3d_app and hasattr(self.plot3d_app, 'root'):
+                try:
+                    # Check if window still exists
+                    if self.plot3d_app.root.winfo_exists():
+                        messagebox.showinfo(
+                            "Plot_3D Already Open",
+                            "Plot_3D is already open!\n\n"
+                            "Please close the existing Plot_3D window first, or use 'Refresh Plot_3D' to update it."
+                        )
+                        self.plot3d_app.root.lift()
+                        return
+                except:
+                    # Window was closed, clear the reference
+                    self.plot3d_app = None
+            
             # Get current data as DataFrame directly from the sheet
             df = self.get_data_as_dataframe()
+            
+            print(f"\n🔍 OPEN PLOT_3D DEBUG:")
+            print(f"  Toggle state: {'RGB' if self.use_rgb_data.get() else 'L*a*b*'}")
+            print(f"  Data source type: {self.data_source_type}")
+            print(f"  DataFrame shape: {df.shape if df is not None else 'None'}")
+            if df is not None and len(df) > 0:
+                print(f"  First 3 DataIDs: {list(df['DataID'].head(3))}")
+                print(f"  Sample Xnorm values: {list(df['Xnorm'].head(3))}")
             
             if df is None or len(df) == 0:
                 messagebox.showwarning(
@@ -1465,12 +1582,32 @@ class RealtimePlot3DSheet:
             # Import the modified Plot_3D class
             from plot3d.Plot_3D import Plot3DApp
             
-            # Launch Plot_3D with DataFrame directly (no file required!)
+            # Launch NEW Plot_3D instance with DataFrame directly (no file required!)
             # Pass the worksheet update callback to enable bidirectional data flow
+            print("  Creating fresh Plot_3D instance...")
+            print(f"  DataFrame being passed to Plot_3D: {len(df)} rows")
+            print(f"  Sample DataIDs being passed: {list(df['DataID'].head(5))}")
+            print(f"  Sample Xnorm being passed: {list(df['Xnorm'].head(5))}")
+            print(f"  Data source type: {self.data_source_type}")
+            print(f"  RGB toggle state: {self.use_rgb_data.get()}")
+            
+            # Determine label type based on data source and toggle
+            # Check if we have an imported label type (from external file)
+            if hasattr(self, 'imported_label_type') and self.imported_label_type:
+                label_type = self.imported_label_type
+                print(f"  Using imported label type: {label_type}")
+            elif self.data_source_type == 'channel_cmy':
+                label_type = 'CMY'
+            elif self.data_source_type == 'channel_rgb' or (self.data_source_type == 'color_analysis' and self.use_rgb_data.get()):
+                label_type = 'RGB'
+            else:
+                label_type = 'LAB'  # L*a*b*
+            
             self.plot3d_app = Plot3DApp(
                 parent=self.parent, 
                 dataframe=df,
-                worksheet_update_callback=self.update_worksheet_from_plot3d
+                worksheet_update_callback=self.update_worksheet_from_plot3d,
+                label_type=label_type
             )
             
             messagebox.showinfo(
@@ -2485,6 +2622,127 @@ class RealtimePlot3DSheet:
             from utils.external_data_importer import ImportResult
             return ImportResult(success=False, errors=[str(e)])
     
+    def _ask_data_type_for_import(self):
+        """Ask user what type of color data is in the imported file.
+        
+        Returns:
+            str: 'LAB', 'RGB', or 'CMY' if confirmed, None if cancelled
+        """
+        print("DEBUG: Creating data type dialog...")
+        dialog = tk.Toplevel(self.window)
+        dialog.title("Data Type Selection")
+        dialog.geometry("450x350")
+        
+        # Make dialog modal and on top
+        dialog.transient(self.window)
+        dialog.grab_set()
+        dialog.attributes('-topmost', True)
+        dialog.focus_force()
+        
+        print("DEBUG: Dialog window created")
+        
+        # Center the dialog
+        print("DEBUG: Centering dialog...")
+        dialog.update_idletasks()
+        x = self.window.winfo_x() + (self.window.winfo_width() // 2) - (dialog.winfo_width() // 2)
+        y = self.window.winfo_y() + (self.window.winfo_height() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+        print(f"DEBUG: Dialog positioned at {x}, {y}")
+        
+        # Add heading
+        heading = tk.Label(dialog, text="What type of color data is in this file?", 
+                          font=("Arial", 11, "bold"))
+        heading.pack(pady=15)
+        print("DEBUG: Heading added")
+        
+        # Variable to store selection
+        selection = tk.StringVar(value="LAB")
+        result = tk.StringVar(value="")  # Empty means cancelled
+        
+        # Radio buttons
+        rb_frame = tk.Frame(dialog)
+        rb_frame.pack(pady=10)
+        
+        tk.Radiobutton(rb_frame, text="L*a*b* (CIE color space)", 
+                      variable=selection, value="LAB",
+                      font=("Arial", 10)).pack(anchor='w', pady=5)
+        
+        tk.Radiobutton(rb_frame, text="RGB (Red/Green/Blue, 0-255 normalized)", 
+                      variable=selection, value="RGB",
+                      font=("Arial", 10)).pack(anchor='w', pady=5)
+        
+        tk.Radiobutton(rb_frame, text="CMY (Cyan/Magenta/Yellow, 0-255 normalized)", 
+                      variable=selection, value="CMY",
+                      font=("Arial", 10)).pack(anchor='w', pady=5)
+        
+        # Separator
+        tk.Frame(dialog, height=2, bg="gray").pack(fill='x', padx=20, pady=10)
+        
+        # Normalized data confirmation
+        normalized_var = tk.BooleanVar(value=False)
+        check_frame = tk.Frame(dialog)
+        check_frame.pack(pady=5)
+        
+        check = tk.Checkbutton(check_frame, 
+                              text="✓ I confirm this data is already normalized (0-1 range)",
+                              variable=normalized_var,
+                              font=("Arial", 10, "bold"),
+                              fg="darkred")
+        check.pack()
+        
+        # Warning note
+        warning = tk.Label(dialog, 
+                          text="⚠️ Required for Plot_3D compatibility\n(Unnormalized data will not plot correctly)",
+                          font=("Arial", 9), fg="#CC0000")
+        warning.pack(pady=5)
+        
+        # Info note
+        note = tk.Label(dialog, 
+                       text="Axis labels will match your selection.\nData values remain unchanged.",
+                       font=("Arial", 9), fg="#666666")
+        note.pack(pady=5)
+        
+        # OK button (disabled until checkbox is checked)
+        def on_ok():
+            if not normalized_var.get():
+                messagebox.showwarning(
+                    "Confirmation Required",
+                    "Please confirm that your data is normalized (0-1 range).\n\n"
+                    "Plot_3D requires normalized data to function correctly."
+                )
+                return
+            result.set(selection.get())
+            dialog.destroy()
+        
+        def on_cancel():
+            result.set("")  # Empty means cancelled
+            dialog.destroy()
+        
+        # Button frame
+        btn_frame = tk.Frame(dialog)
+        btn_frame.pack(pady=10)
+        
+        ok_btn = tk.Button(btn_frame, text="OK", command=on_ok, width=10, font=("Arial", 10, "bold"))
+        ok_btn.pack(side=tk.LEFT, padx=5)
+        
+        cancel_btn = tk.Button(btn_frame, text="Cancel", command=on_cancel, width=10, font=("Arial", 10))
+        cancel_btn.pack(side=tk.LEFT, padx=5)
+        
+        print("DEBUG: All dialog widgets created, about to show dialog...")
+        
+        # Make sure dialog is visible
+        dialog.deiconify()
+        dialog.lift()
+        dialog.focus_force()
+        
+        print("DEBUG: Waiting for dialog response...")
+        # Wait for dialog to close
+        dialog.wait_window()
+        
+        final_result = result.get() if result.get() else None
+        print(f"DEBUG: Dialog closed, returning: {final_result}")
+        return final_result
+    
     def _import_from_plot3d(self):
         """Import changes back from a Plot_3D external file.
         
@@ -2552,6 +2810,26 @@ class RealtimePlot3DSheet:
                 logger.error(f"Error reading file: {read_error}")
                 messagebox.showerror("Import Error", f"Failed to read file:\n{read_error}")
                 return
+            
+            # Ask user what type of color data is in the file
+            print("DEBUG: About to show data type dialog...")
+            try:
+                label_type = self._ask_data_type_for_import()
+                print(f"DEBUG: Data type dialog returned: {label_type}")
+            except Exception as dialog_error:
+                print(f"DEBUG: Data type dialog error: {dialog_error}")
+                import traceback
+                traceback.print_exc()
+                label_type = None
+            
+            if not label_type:
+                # User cancelled
+                print("DEBUG: User cancelled or dialog failed - aborting import")
+                return
+            
+            # Store the label type for later use (Plot_3D needs this)
+            self.imported_label_type = label_type
+            logger.info(f"User specified imported data type: {label_type}")
             
             # Validate that the imported data has the expected columns
             expected_cols = set(self.PLOT3D_COLUMNS)
