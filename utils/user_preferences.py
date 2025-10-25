@@ -730,6 +730,55 @@ class PreferencesManager:
         self.preferences = UserPreferences()
         return self.save_preferences()
     
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get a custom preference value.
+        
+        Args:
+            key: Preference key
+            default: Default value if key doesn't exist
+            
+        Returns:
+            Preference value or default
+        """
+        try:
+            if self.prefs_file.exists():
+                with open(self.prefs_file, 'r') as f:
+                    data = json.load(f)
+                    return data.get(key, default)
+        except Exception as e:
+            print(f"Error getting preference '{key}': {e}")
+        return default
+    
+    def set(self, key: str, value: Any) -> bool:
+        """Set a custom preference value.
+        
+        Args:
+            key: Preference key
+            value: Value to set
+            
+        Returns:
+            True if successful
+        """
+        try:
+            # Load existing data
+            existing_data = {}
+            if self.prefs_file.exists():
+                with open(self.prefs_file, 'r') as f:
+                    existing_data = json.load(f)
+            
+            # Set the custom key
+            existing_data[key] = value
+            
+            # Save back
+            self.prefs_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.prefs_file, 'w') as f:
+                json.dump(existing_data, f, indent=2)
+            
+            return True
+        except Exception as e:
+            print(f"Error setting preference '{key}': {e}")
+            return False
+    
     def get_preferences_summary(self) -> Dict[str, Any]:
         """Get a summary of current preferences."""
         return {

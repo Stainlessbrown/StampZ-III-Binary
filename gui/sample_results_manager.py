@@ -432,7 +432,20 @@ class SampleResultsManager(tk.Frame):
         library_list = self._get_available_libraries()
         
         lib_var = tk.StringVar()
-        lib_combo = ttk.Combobox(lib_frame, textvariable=lib_var, values=library_list, width=27)
+        
+        # Preselect default library from preferences if available
+        try:
+            from utils.user_preferences import get_preferences_manager
+            prefs = get_preferences_manager()
+            default_lib = prefs.get_default_color_library()
+            if default_lib in library_list:
+                lib_var.set(default_lib)
+            else:
+                lib_var.set(library_list[0] if library_list else '')
+        except Exception:
+            lib_var.set(library_list[0] if library_list else '')
+        
+        lib_combo = ttk.Combobox(lib_frame, textvariable=lib_var, values=library_list, width=27, state="readonly")
         lib_combo.pack(side=tk.LEFT, padx=5)
         
         # Notes entry (multi-line)
