@@ -413,7 +413,7 @@ class SampleResultsManager(tk.Frame):
         dialog.grab_set()
         
         # Center the dialog - make it taller for notes field
-        dialog.geometry("450x320")
+        dialog.geometry("450x420")
         
         # Color name entry
         name_frame = ttk.Frame(dialog, padding="10")

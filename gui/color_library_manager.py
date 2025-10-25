@@ -866,7 +866,7 @@ class ColorLibraryManager:
             # Create and configure the dialog
             dialog = tk.Toplevel(self.root)
             dialog.title("Add Color")
-            dialog.geometry("400x450")  # Increased height to show all elements
+            dialog.geometry("400x700")  # Increased height to show all elements
             dialog.transient(self.root)
             
             # Force dialog to be visible and on top
