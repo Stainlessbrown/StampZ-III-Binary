@@ -681,10 +681,10 @@ class RotationControls(tk.LabelFrame):
             )
             align_btn.grid(row=1, column=0, columnspan=2, padx=2, pady=2, sticky='ew')
             
-            # Create "View Along Trendline" button  
+            # Create "View Across Trendline" button  
             along_btn = ttk.Button(
                 button_frame,
-                text="→ View Along Trend",
+                text="↔ View Across Trend",
                 command=self._view_along_trendline
             )
             along_btn.grid(row=1, column=2, padx=2, pady=2, sticky='ew')
@@ -772,11 +772,12 @@ class RotationControls(tk.LabelFrame):
             azim_rad = np.arctan2(b, a)
             azim_deg = np.degrees(azim_rad)
             
-            # Calculate elevation based on the magnitude of the gradient
-            # This tilts the view to show the slope
-            gradient_mag = np.sqrt(a**2 + b**2)
-            # Use moderate elevation to show both the slope and the spread
-            elev_deg = 30 + min(30, gradient_mag * 50)  # 30-60 degrees
+            # Use a fixed moderate elevation for consistency
+            # This provides a good 3D perspective without extreme angles
+            elev_deg = 30  # Fixed 30 degree elevation
+            
+            print(f"Trendline params: a={a:.4f}, b={b:.4f}, c={c:.4f}")
+            print(f"Calculated azim={azim_deg:.1f}, elev={elev_deg:.1f}")
             
             # Set flag to prevent recursive callbacks
             self._updating_programmatically = True
@@ -834,14 +835,16 @@ class RotationControls(tk.LabelFrame):
             
             a, b, c = params
             
-            # Calculate azimuth to look along the trendline
-            # We want to look in the direction of (a, b, 1) projected to XY
+            # Calculate azimuth perpendicular to the trendline direction
+            # Add 90 degrees to look across the trendline instead of along it
             azim_rad = np.arctan2(b, a)
-            azim_deg = np.degrees(azim_rad)
+            azim_deg = np.degrees(azim_rad) + 90  # Perpendicular view
             
-            # Set elevation to look nearly horizontally along the trend
-            # Use a slight elevation (10 degrees) to maintain some 3D perspective
-            elev_deg = 10
+            # Use moderate elevation to see the spread
+            elev_deg = 20
+            
+            print(f"Trendline params: a={a:.4f}, b={b:.4f}, c={c:.4f}")
+            print(f"View across trend: azim={azim_deg:.1f}, elev={elev_deg:.1f}")
             
             # Set flag to prevent recursive callbacks
             self._updating_programmatically = True
