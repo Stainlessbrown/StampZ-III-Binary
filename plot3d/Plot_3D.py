@@ -955,6 +955,7 @@ class Plot3DApp:
             # Update the rotation controls with current view angles
             if hasattr(self, 'rotation_controls'):
                 try:
+                    print(f"DEBUG: matplotlib axes angles: elev={ax.elev}, azim={ax.azim}, roll={ax.roll if hasattr(ax, 'roll') else 0}")
                     self.rotation_controls.update_values(
                         ax.elev,
                         ax.azim,
@@ -1211,7 +1212,8 @@ class Plot3DApp:
         self.rotation_controls = RotationControls(
             self.control_frame,
             on_rotation_change=self._rotation_changed_callback,
-            trendline_manager=self.trendline_manager
+            trendline_manager=self.trendline_manager,
+            plotly_callback=self._open_plotly_view
         )
         self.rotation_controls.grid(row=1, column=0, sticky='ew', padx=5, pady=5)
         
@@ -1293,7 +1295,10 @@ class Plot3DApp:
         # Ensure the control frame can expand properly
         self.control_frame.grid_columnconfigure(0, weight=1)
         
-        button_frame = create_button_frame(self.control_frame, on_refresh=self.refresh_plot)
+        button_frame = create_button_frame(
+            self.control_frame, 
+            on_refresh=self.refresh_plot
+        )
         button_frame.grid(row=6, column=0, sticky='ew', padx=5, pady=5)
 
         # Create highlight frame and manager
@@ -1498,6 +1503,71 @@ class Plot3DApp:
             # Fall back to default size if anything goes wrong
             print(f"Warning: Could not calculate optimal window size: {e}")
             self.root.geometry("1200x800")
+    
+    def _open_plotly_view(self):
+        """Open an interactive Plotly view of the current data in a browser."""
+        try:
+            # Import the plotly viewer function
+            from .plotly_viewer import open_interactive_view
+            
+            # Check if we have valid data
+            if self.df is None or len(self.df) == 0:
+                print("No data available for Plotly view")
+                return
+            
+            # Determine if we should show trendline and spheres
+            show_trendline = False
+            if hasattr(self, 'show_trendline') and self.show_trendline:
+                show_trendline = self.show_trendline.get()
+            
+            show_spheres = False
+            sphere_data = None
+            if hasattr(self, 'sphere_manager') and self.sphere_manager:
+                # Extract sphere data from sphere_manager which has access to all rows
+                sphere_df = self.sphere_manager.data_df
+                # Filter to rows with valid centroid data
+                valid_centroids = sphere_df.dropna(subset=['Centroid_X', 'Centroid_Y', 'Centroid_Z'])
+                if len(valid_centroids) > 0:
+                    sphere_data = valid_centroids[['Centroid_X', 'Centroid_Y', 'Centroid_Z', 'Sphere', 'Radius']].copy()
+                    
+                    # Filter out spheres that are toggled off
+                    visible_spheres = []
+                    for idx, row in sphere_data.iterrows():
+                        color_name = row.get('Sphere')
+                        if pd.notna(color_name):
+                            color = self.sphere_manager._get_color(str(color_name))
+                        else:
+                            color = 'gray'
+                        # Check if this sphere color is visible
+                        if self.sphere_manager.visibility_states.get(color, True):
+                            visible_spheres.append(idx)
+                    
+                    sphere_data = sphere_data.loc[visible_spheres]
+                    print(f"DEBUG: Extracted {len(sphere_data)} visible sphere definitions from sphere_manager")
+                    
+                    if len(sphere_data) > 0:
+                        show_spheres = True
+            
+            # Get current rotation angles from matplotlib
+            initial_elev = 30
+            initial_azim = -60
+            initial_roll = 0
+            if hasattr(self, 'rotation_controls') and self.rotation_controls:
+                initial_elev = self.rotation_controls.elevation
+                initial_azim = self.rotation_controls.azimuth
+                initial_roll = self.rotation_controls.roll
+                print(f"Starting Plotly with matplotlib angles: elev={initial_elev:.1f}, azim={initial_azim:.1f}, roll={initial_roll:.1f}")
+            
+            # Open the interactive view
+            print("Opening Plotly interactive view...")
+            open_interactive_view(self.df, show_trendline=show_trendline, show_spheres=show_spheres, 
+                                sphere_data=sphere_data, initial_elev=initial_elev, 
+                                initial_azim=initial_azim, initial_roll=initial_roll)
+            
+        except Exception as e:
+            print(f"Error opening Plotly view: {e}")
+            import traceback
+            traceback.print_exc()
     
     def cleanup_and_exit(self):
         # App cleanup and shutdown handler

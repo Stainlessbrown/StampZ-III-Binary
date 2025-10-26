@@ -5,7 +5,7 @@ from .rotary_knob import RotaryKnob
 class RotationControls(tk.LabelFrame):
     """Widget providing controls for 3D plot rotation using rotary knobs"""
     
-    def __init__(self, master, on_rotation_change=None, trendline_manager=None):
+    def __init__(self, master, on_rotation_change=None, trendline_manager=None, plotly_callback=None):
         """Initialize rotation controls
         
         Args:
@@ -17,14 +17,9 @@ class RotationControls(tk.LabelFrame):
                        font=('Arial', 10, 'bold'), foreground='blue', borderwidth=2)
         
         # Initialize default values for the 3D plot (in plot coordinate system)
-        # Initialize default values for the 3D plot (in plot coordinate system)
-        self._elevation = 30  # Now in -180 to 180 range for full rotation
+        self._elevation = 30  # Plot angles are in -180 to 180 range
         self._azimuth = -60
         self._roll = 0
-        # Initialize knob angles (0-360 range)
-        self._knob_elevation = self._plot_to_knob_elevation(self._elevation)
-        self._knob_azimuth = self._plot_to_knob_azimuth(self._azimuth)
-        self._knob_roll = self._plot_to_knob_roll(self._roll)
         
         # Set callback function
         self.on_rotation_change = on_rotation_change
@@ -32,13 +27,16 @@ class RotationControls(tk.LabelFrame):
         # Store trendline manager for trendline-based views
         self.trendline_manager = trendline_manager
         
+        # Store Plotly viewer callback
+        self.plotly_callback = plotly_callback
+        
         # Flag to prevent recursive callbacks
         self._updating_programmatically = False
         
-        # Create Tkinter variables for spinboxes
-        self.elevation_var = tk.DoubleVar(value=self._knob_elevation)
-        self.azimuth_var = tk.DoubleVar(value=self._knob_azimuth)
-        self.roll_var = tk.DoubleVar(value=self._knob_roll)
+        # Create Tkinter variables for spinboxes - show actual plot angles
+        self.elevation_var = tk.DoubleVar(value=self._elevation)
+        self.azimuth_var = tk.DoubleVar(value=self._azimuth)
+        self.roll_var = tk.DoubleVar(value=self._roll)
         
         # Knob references
         self.elevation_knob = None
@@ -102,13 +100,13 @@ class RotationControls(tk.LabelFrame):
         knobs_frame.columnconfigure(1, weight=1)
         knobs_frame.columnconfigure(2, weight=1)
         
-        # Create each knob with labels
+        # Create each knob with labels (convert plot angles to knob angles)
         self._create_knob_column(knobs_frame, 0, "Elevation", 
-                                self._knob_elevation, self._on_elevation_knob_change)
+                                self._plot_to_knob_elevation(self._elevation), self._on_elevation_knob_change)
         self._create_knob_column(knobs_frame, 1, "Azimuth", 
-                                self._knob_azimuth, self._on_azimuth_knob_change)
+                                self._plot_to_knob_azimuth(self._azimuth), self._on_azimuth_knob_change)
         self._create_knob_column(knobs_frame, 2, "Roll", 
-                                self._knob_roll, self._on_roll_knob_change)
+                                self._plot_to_knob_roll(self._roll), self._on_roll_knob_change)
         
         # Spinbox frame below the knobs with more space
         spinbox_frame = tk.Frame(main_frame)
@@ -240,13 +238,13 @@ class RotationControls(tk.LabelFrame):
             column: Grid column
             variable: Tkinter variable to bind to
         """
-        # Simplified spinbox without +/- buttons, using whole numbers only
+        # Spinbox showing actual plot angles (-180 to 180)
         spinbox = ttk.Spinbox(
             parent,
-            from_=0,
-            to=360,
-            width=6,  # Smaller width since we only need space for integers
-            increment=1.0,  # Smaller increments for finer control
+            from_=-180,
+            to=180,
+            width=6,
+            increment=1.0,
             textvariable=variable,  # Bind to variable for immediate updating
             command=lambda: self._immediate_update(variable)  # Direct update on spinbox change
         )
@@ -307,9 +305,9 @@ class RotationControls(tk.LabelFrame):
             # Convert the knob angle (0-360) to plot elevation (-180 to 180)
             self._elevation = self._knob_to_plot_elevation(angle)
             
-            # Update the spinbox value (showing 0-360) as an integer
+            # Update the spinbox value (showing plot angle -180 to 180)
             self._updating_programmatically = True
-            self.elevation_var.set(round(angle))
+            self.elevation_var.set(round(self._elevation))
             self._updating_programmatically = False
             
             # Trigger the callback to update the plot
@@ -326,9 +324,9 @@ class RotationControls(tk.LabelFrame):
             # Convert the knob angle (0-360) to plot azimuth (-180 to 180)
             self._azimuth = self._knob_to_plot_azimuth(angle)
             
-            # Update the spinbox value (showing 0-360) as an integer
+            # Update the spinbox value (showing plot angle -180 to 180)
             self._updating_programmatically = True
-            self.azimuth_var.set(round(angle))
+            self.azimuth_var.set(round(self._azimuth))
             self._updating_programmatically = False
             
             # Trigger the callback to update the plot
@@ -345,9 +343,9 @@ class RotationControls(tk.LabelFrame):
             # Convert the knob angle (0-360) to plot roll (-180 to 180)
             self._roll = self._knob_to_plot_roll(angle)
             
-            # Update the spinbox value (showing 0-360) as an integer
+            # Update the spinbox value (showing plot angle -180 to 180)
             self._updating_programmatically = True
-            self.roll_var.set(round(angle))
+            self.roll_var.set(round(self._roll))
             self._updating_programmatically = False
             
             # Trigger the callback to update the plot
@@ -361,15 +359,14 @@ class RotationControls(tk.LabelFrame):
             return
             
         try:
-            # Get the spinbox value (0-360)
-            knob_angle = self.elevation_var.get()
+            # Get the spinbox value (plot angle -180 to 180)
+            plot_angle = self.elevation_var.get()
+            self._elevation = plot_angle
             
-            # Update the knob UI
+            # Convert plot angle to knob angle and update knob UI
+            knob_angle = self._plot_to_knob_elevation(plot_angle)
             if self.elevation_knob:
                 self.elevation_knob.set_angle(knob_angle)
-            
-            # Convert to plot elevation (-180 to 180)
-            self._elevation = self._knob_to_plot_elevation(knob_angle)
             
             # Trigger the callback
             self._trigger_callback()
@@ -382,15 +379,14 @@ class RotationControls(tk.LabelFrame):
             return
             
         try:
-            # Get the spinbox value (0-360)
-            knob_angle = self.azimuth_var.get()
+            # Get the spinbox value (plot angle -180 to 180)
+            plot_angle = self.azimuth_var.get()
+            self._azimuth = plot_angle
             
-            # Update the knob UI
+            # Convert plot angle to knob angle and update knob UI
+            knob_angle = self._plot_to_knob_azimuth(plot_angle)
             if self.azimuth_knob:
                 self.azimuth_knob.set_angle(knob_angle)
-            
-            # Convert to plot azimuth (-180 to 180)
-            self._azimuth = self._knob_to_plot_azimuth(knob_angle)
             
             # Trigger the callback
             self._trigger_callback()
@@ -403,15 +399,14 @@ class RotationControls(tk.LabelFrame):
             return
             
         try:
-            # Get the spinbox value (0-360)
-            knob_angle = self.roll_var.get()
+            # Get the spinbox value (plot angle -180 to 180)
+            plot_angle = self.roll_var.get()
+            self._roll = plot_angle
             
-            # Update the knob UI
+            # Convert plot angle to knob angle and update knob UI
+            knob_angle = self._plot_to_knob_roll(plot_angle)
             if self.roll_knob:
                 self.roll_knob.set_angle(knob_angle)
-            
-            # Convert to plot roll (-180 to 180)
-            self._roll = self._knob_to_plot_roll(knob_angle)
             
             # Trigger the callback
             self._trigger_callback()
@@ -432,38 +427,36 @@ class RotationControls(tk.LabelFrame):
             # Set flag to prevent recursive callbacks (only once)
             self._updating_programmatically = True
             
-            # Get current values from spinboxes and normalize to 0-360
+            # Get current values from spinboxes (plot angles -180 to 180)
             try:
-                elev_knob = float(self.elevation_var.get()) % 360
-                azim_knob = float(self.azimuth_var.get()) % 360
-                roll_knob = float(self.roll_var.get()) % 360
+                self._elevation = float(self.elevation_var.get())
+                self._azimuth = float(self.azimuth_var.get())
+                self._roll = float(self.roll_var.get())
+                
+                # Normalize to -180 to 180 range
+                self._elevation = ((self._elevation + 180) % 360) - 180
+                self._azimuth = ((self._azimuth + 180) % 360) - 180
+                self._roll = ((self._roll + 180) % 360) - 180
             except (ValueError, tk.TclError):
-                # Use current knob values if conversion fails
-                elev_knob = self._plot_to_knob_elevation(self._elevation)
-                azim_knob = self._plot_to_knob_azimuth(self._azimuth)
-                roll_knob = self._plot_to_knob_roll(self._roll)
+                # Keep current values if conversion fails
+                pass
             
-            # Convert knob values to plot angles
-            self._elevation = self._knob_to_plot_elevation(elev_knob)
-            self._azimuth = self._knob_to_plot_azimuth(azim_knob)
-            self._roll = self._knob_to_plot_roll(roll_knob)
-            
-            # Update spinbox variables with normalized knob angles as integers
+            # Update spinbox variables with normalized plot angles
             # Only update if values have changed to prevent recursive updates
-            if round(self.elevation_var.get()) != round(elev_knob):
-                self.elevation_var.set(round(elev_knob))
-            if round(self.azimuth_var.get()) != round(azim_knob):
-                self.azimuth_var.set(round(azim_knob))
-            if round(self.roll_var.get()) != round(roll_knob):
-                self.roll_var.set(round(roll_knob))
+            if round(self.elevation_var.get()) != round(self._elevation):
+                self.elevation_var.set(round(self._elevation))
+            if round(self.azimuth_var.get()) != round(self._azimuth):
+                self.azimuth_var.set(round(self._azimuth))
+            if round(self.roll_var.get()) != round(self._roll):
+                self.roll_var.set(round(self._roll))
             
-            # Update knob positions
+            # Update knob positions (convert plot angles to knob angles)
             if self.elevation_knob:
-                self.elevation_knob.set_angle(elev_knob)
+                self.elevation_knob.set_angle(self._plot_to_knob_elevation(self._elevation))
             if self.azimuth_knob:
-                self.azimuth_knob.set_angle(azim_knob)
+                self.azimuth_knob.set_angle(self._plot_to_knob_azimuth(self._azimuth))
             if self.roll_knob:
-                self.roll_knob.set_angle(roll_knob)
+                self.roll_knob.set_angle(self._plot_to_knob_roll(self._roll))
             
             # Ensure UI updates
             self.update_idletasks()
@@ -489,28 +482,23 @@ class RotationControls(tk.LabelFrame):
             default_azim = -60
             default_roll = 0
             
-            # Convert to knob angles
-            default_elev_knob = self._plot_to_knob_elevation(default_elev)
-            default_azim_knob = self._plot_to_knob_azimuth(default_azim)
-            default_roll_knob = self._plot_to_knob_roll(default_roll)
-            
             # Update internal state
             self._elevation = default_elev
             self._azimuth = default_azim
             self._roll = default_roll
             
-            # Update spinbox variables with knob angles as integers
-            self.elevation_var.set(round(default_elev_knob))
-            self.azimuth_var.set(round(default_azim_knob))
-            self.roll_var.set(round(default_roll_knob))
+            # Update spinbox variables with plot angles
+            self.elevation_var.set(round(default_elev))
+            self.azimuth_var.set(round(default_azim))
+            self.roll_var.set(round(default_roll))
             
-            # Update knob positions
+            # Update knob positions (convert plot angles to knob angles)
             if self.elevation_knob:
-                self.elevation_knob.set_angle(default_elev_knob)
+                self.elevation_knob.set_angle(self._plot_to_knob_elevation(default_elev))
             if self.azimuth_knob:
-                self.azimuth_knob.set_angle(default_azim_knob)
+                self.azimuth_knob.set_angle(self._plot_to_knob_azimuth(default_azim))
             if self.roll_knob:
-                self.roll_knob.set_angle(default_roll_knob)
+                self.roll_knob.set_angle(self._plot_to_knob_roll(default_roll))
             
             # Ensure UI updates
             self.update_idletasks()
@@ -529,36 +517,36 @@ class RotationControls(tk.LabelFrame):
         the controls updating the plot.
         
         Args:
-            elev: Elevation angle in plot coordinates (-180 to 180)
-            azim: Azimuth angle in plot coordinates (-180 to 180)
-            roll: Roll angle in plot coordinates (-180 to 180)
+            elev: Elevation angle in plot coordinates (may be outside -180 to 180)
+            azim: Azimuth angle in plot coordinates (may be outside -180 to 180)
+            roll: Roll angle in plot coordinates (may be outside -180 to 180)
         """
         try:
             # Set flag to prevent recursive callbacks
             self._updating_programmatically = True
             
-            # Update internal plot angles
+            # Update internal plot angles and normalize to -180 to 180
             self._elevation = float(elev)
             self._azimuth = float(azim)
             self._roll = float(roll)
             
-            # Convert to knob angles (0-360)
-            elev_knob = self._plot_to_knob_elevation(self._elevation)
-            azim_knob = self._plot_to_knob_azimuth(self._azimuth)
-            roll_knob = self._plot_to_knob_roll(self._roll)
+            # Normalize to -180 to 180 range
+            self._elevation = ((self._elevation + 180) % 360) - 180
+            self._azimuth = ((self._azimuth + 180) % 360) - 180
+            self._roll = ((self._roll + 180) % 360) - 180
             
-            # Update spinbox variables as integers
-            self.elevation_var.set(round(elev_knob))
-            self.azimuth_var.set(round(azim_knob))
-            self.roll_var.set(round(roll_knob))
+            # Update spinbox variables with plot angles
+            self.elevation_var.set(round(self._elevation))
+            self.azimuth_var.set(round(self._azimuth))
+            self.roll_var.set(round(self._roll))
             
-            # Update knob positions
+            # Update knob positions (convert plot angles to knob angles)
             if self.elevation_knob:
-                self.elevation_knob.set_angle(elev_knob)
+                self.elevation_knob.set_angle(self._plot_to_knob_elevation(self._elevation))
             if self.azimuth_knob:
-                self.azimuth_knob.set_angle(azim_knob)
+                self.azimuth_knob.set_angle(self._plot_to_knob_azimuth(self._azimuth))
             if self.roll_knob:
-                self.roll_knob.set_angle(roll_knob)
+                self.roll_knob.set_angle(self._plot_to_knob_roll(self._roll))
             
             # Ensure UI updates
             self.update_idletasks()
@@ -576,8 +564,10 @@ class RotationControls(tk.LabelFrame):
         """
         try:
             current_value = variable.get()
-            # Calculate new value and round to the nearest integer
-            new_value = round((current_value + amount) % 360)
+            # Calculate new value and normalize to -180 to 180
+            new_value = current_value + amount
+            new_value = ((new_value + 180) % 360) - 180
+            new_value = round(new_value)
             # Set flag to prevent recursive callbacks that could interfere with the update
             self._updating_programmatically = True
             variable.set(new_value)
@@ -595,8 +585,10 @@ class RotationControls(tk.LabelFrame):
             variable: The Tkinter variable to update from
         """
         try:
-            # Normalize and round the value
-            value = round(float(variable.get())) % 360
+            # Normalize and round the value to -180 to 180 range
+            value = float(variable.get())
+            value = ((value + 180) % 360) - 180
+            value = round(value)
             
             # Set the normalized value back to ensure consistency
             if variable.get() != value:
@@ -671,31 +663,24 @@ class RotationControls(tk.LabelFrame):
         )
         yz_btn.grid(row=0, column=2, padx=2, pady=2, sticky='ew')
         
-        # Add trendline view buttons in second row if trendline manager is available
-        if self.trendline_manager is not None:
-            # Create "Align to Trendline" button
-            align_btn = ttk.Button(
+        # Add Plotly interactive viewer button if callback is available
+        if self.plotly_callback is not None:
+            plotly_btn = ttk.Button(
                 button_frame,
-                text="⟂ Align Trendline",
-                command=self._align_to_trendline
+                text="🌐 Interactive View (Browser)",
+                command=self.plotly_callback
             )
-            align_btn.grid(row=1, column=0, columnspan=2, padx=2, pady=2, sticky='ew')
+            plotly_btn.grid(row=1, column=0, columnspan=3, padx=2, pady=(5,2), sticky='ew')
             
-            # Create "View Across Trendline" button  
-            across_btn = ttk.Button(
+            # Add note about features
+            note_label = ttk.Label(
                 button_frame,
-                text="↔ View Across Trend",
-                command=self._view_along_trendline
+                text="Includes: Linear trendline & visible spheres\n(Opens new browser tab each time)\n(Spheres may block hover - toggle off to inspect points)\n(Polynomial trendline: matplotlib only)",
+                font=('Arial', 9),
+                foreground='gray',
+                justify='center'
             )
-            across_btn.grid(row=1, column=2, padx=2, pady=2, sticky='ew')
-            
-            # Create "Verticalize Trend" button in third row
-            vertical_btn = ttk.Button(
-                button_frame,
-                text="↕ Verticalize Trend",
-                command=self._verticalize_trendline
-            )
-            vertical_btn.grid(row=2, column=0, columnspan=3, padx=2, pady=2, sticky='ew')
+            note_label.grid(row=2, column=0, columnspan=3, padx=2, pady=(0,5), sticky='ew')
         
         return plane_frame
         
@@ -746,214 +731,6 @@ class RotationControls(tk.LabelFrame):
                 
         except Exception as e:
             print(f"Error setting plane view: {e}")
-        finally:
-            # Reset flag and trigger callback
-            self._updating_programmatically = False
-            self._trigger_callback()
-    
-    def _align_to_trendline(self):
-        """Align the view to make the trendline visible and clear.
-        
-        This rotates the view so the trendline direction is prominent,
-        making it easier to see the relationship between data and trend.
-        """
-        if self.trendline_manager is None:
-            print("No trendline manager available")
-            return
-        
-        try:
-            # Get trendline parameters: z = ax + by + c
-            params = self.trendline_manager.params
-            if params is None:
-                print("No trendline calculated yet")
-                return
-            
-            import numpy as np
-            
-            # The trendline direction vector is (1, 0, a) in x-direction
-            # and (0, 1, b) in y-direction. We want to align the view
-            # to show the dominant slope direction.
-            a, b, c = params
-            
-            # Calculate azimuth based on the x,y components of the gradient
-            # atan2(b, a) gives the direction of steepest ascent in the XY plane
-            azim_rad = np.arctan2(b, a)
-            azim_deg = np.degrees(azim_rad)
-            
-            # Use a fixed moderate elevation for consistency
-            # This provides a good 3D perspective without extreme angles
-            elev_deg = 30  # Fixed 30 degree elevation
-            
-            print(f"Trendline params: a={a:.4f}, b={b:.4f}, c={c:.4f}")
-            print(f"Calculated azim={azim_deg:.1f}, elev={elev_deg:.1f}")
-            
-            # Set flag to prevent recursive callbacks
-            self._updating_programmatically = True
-            
-            # Update internal state
-            self._elevation = elev_deg
-            self._azimuth = azim_deg
-            self._roll = 0
-            
-            # Convert to knob angles (0-360)
-            elev_knob = self._plot_to_knob_elevation(self._elevation)
-            azim_knob = self._plot_to_knob_azimuth(self._azimuth)
-            roll_knob = self._plot_to_knob_roll(self._roll)
-            
-            # Update spinbox variables
-            self.elevation_var.set(round(elev_knob))
-            self.azimuth_var.set(round(azim_knob))
-            self.roll_var.set(round(roll_knob))
-            
-            # Update knob positions
-            if self.elevation_knob:
-                self.elevation_knob.set_angle(elev_knob)
-            if self.azimuth_knob:
-                self.azimuth_knob.set_angle(azim_knob)
-            if self.roll_knob:
-                self.roll_knob.set_angle(roll_knob)
-            
-            print(f"Aligned to trendline: elev={self._elevation:.1f}, azim={self._azimuth:.1f}")
-            
-        except Exception as e:
-            print(f"Error aligning to trendline: {e}")
-        finally:
-            # Reset flag and trigger callback
-            self._updating_programmatically = False
-            self._trigger_callback()
-    
-    def _view_along_trendline(self):
-        """Set view to look along the trendline direction.
-        
-        This provides a view down the trendline axis, useful for seeing
-        how data points deviate from the trend.
-        """
-        if self.trendline_manager is None:
-            print("No trendline manager available")
-            return
-        
-        try:
-            # Get trendline parameters: z = ax + by + c
-            params = self.trendline_manager.params
-            if params is None:
-                print("No trendline calculated yet")
-                return
-            
-            import numpy as np
-            
-            a, b, c = params
-            
-            # Calculate azimuth perpendicular to the trendline direction
-            # Add 90 degrees to look across the trendline instead of along it
-            azim_rad = np.arctan2(b, a)
-            azim_deg = np.degrees(azim_rad) + 90  # Perpendicular view
-            
-            # Use moderate elevation to see the spread
-            elev_deg = 20
-            
-            print(f"Trendline params: a={a:.4f}, b={b:.4f}, c={c:.4f}")
-            print(f"View across trend: azim={azim_deg:.1f}, elev={elev_deg:.1f}")
-            
-            # Set flag to prevent recursive callbacks
-            self._updating_programmatically = True
-            
-            # Update internal state
-            self._elevation = elev_deg
-            self._azimuth = azim_deg
-            self._roll = 0
-            
-            # Convert to knob angles (0-360)
-            elev_knob = self._plot_to_knob_elevation(self._elevation)
-            azim_knob = self._plot_to_knob_azimuth(self._azimuth)
-            roll_knob = self._plot_to_knob_roll(self._roll)
-            
-            # Update spinbox variables
-            self.elevation_var.set(round(elev_knob))
-            self.azimuth_var.set(round(azim_knob))
-            self.roll_var.set(round(roll_knob))
-            
-            # Update knob positions
-            if self.elevation_knob:
-                self.elevation_knob.set_angle(elev_knob)
-            if self.azimuth_knob:
-                self.azimuth_knob.set_angle(azim_knob)
-            if self.roll_knob:
-                self.roll_knob.set_angle(roll_knob)
-            
-            print(f"Viewing along trendline: elev={self._elevation:.1f}, azim={self._azimuth:.1f}")
-            
-        except Exception as e:
-            print(f"Error setting view along trendline: {e}")
-        finally:
-            # Reset flag and trigger callback
-            self._updating_programmatically = False
-            self._trigger_callback()
-    
-    def _verticalize_trendline(self):
-        """Rotate view to make trendline appear vertical (aligned with Z/L* axis).
-        
-        This makes the trendline appear vertical on screen, matching the intuitive
-        representation of darker (low L*) at bottom and lighter (high L*) at top.
-        After setting this view, you can use azimuth rotation to spin 360° around
-        the trendline to see spatial relationships from all angles.
-        """
-        if self.trendline_manager is None:
-            print("No trendline manager available")
-            return
-        
-        try:
-            # Get trendline parameters: z = ax + by + c
-            params = self.trendline_manager.params
-            if params is None:
-                print("No trendline calculated yet")
-                return
-            
-            import numpy as np
-            
-            a, b, c = params
-            
-            # Keep Z-axis (L*) vertical: use high elevation (near 90 = top view)
-            # The trendline direction in XY plane is (a, b)
-            # Set azimuth perpendicular to this to see the trendline's path
-            azim_rad = np.arctan2(b, a) + np.pi/2
-            azim_deg = np.degrees(azim_rad)
-            
-            # Use high elevation to keep L* nearly vertical
-            # 90 = straight down (top view), 80 = slight tilt for perspective
-            elev_deg = 80  # Keeps Z vertical while showing depth
-            
-            # Set flag to prevent recursive callbacks
-            self._updating_programmatically = True
-            
-            # Update internal state
-            self._elevation = elev_deg
-            self._azimuth = azim_deg
-            self._roll = 0
-            
-            # Convert to knob angles (0-360)
-            elev_knob = self._plot_to_knob_elevation(self._elevation)
-            azim_knob = self._plot_to_knob_azimuth(self._azimuth)
-            roll_knob = self._plot_to_knob_roll(self._roll)
-            
-            # Update spinbox variables
-            self.elevation_var.set(round(elev_knob))
-            self.azimuth_var.set(round(azim_knob))
-            self.roll_var.set(round(roll_knob))
-            
-            # Update knob positions
-            if self.elevation_knob:
-                self.elevation_knob.set_angle(elev_knob)
-            if self.azimuth_knob:
-                self.azimuth_knob.set_angle(azim_knob)
-            if self.roll_knob:
-                self.roll_knob.set_angle(roll_knob)
-            
-            print(f"Trendline params: a={a:.4f}, b={b:.4f}, c={c:.4f}")
-            print(f"Verticalized trendline: azim={azim_deg:.1f}, elev={elev_deg:.1f}")
-            print(f"Tip: Use Azimuth knob to rotate 360° around the vertical trendline")
-            
-        except Exception as e:
-            print(f"Error verticalizing trendline: {e}")
         finally:
             # Reset flag and trigger callback
             self._updating_programmatically = False

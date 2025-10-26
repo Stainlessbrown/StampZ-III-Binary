@@ -1,11 +1,21 @@
 import tkinter as tk
 from tkinter import ttk
 
-def create_button_frame(parent, on_refresh):
-    """Create a frame with refresh button"""
+def create_button_frame(parent, on_refresh, on_plotly_view=None):
+    """Create a frame with refresh and plotly buttons"""
     button_frame = tk.Frame(parent)
     refresh_button = tk.Button(button_frame, text='Refresh Data', command=on_refresh)
     refresh_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2, pady=2)
+    
+    if on_plotly_view:
+        plotly_button = tk.Button(
+            button_frame, 
+            text='🔍 Interactive View', 
+            command=on_plotly_view,
+            bg='#E8F4F8'  # Light blue background
+        )
+        plotly_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2, pady=2)
+    
     return button_frame
 
 class AxisControls(tk.LabelFrame):
