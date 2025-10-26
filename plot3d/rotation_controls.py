@@ -5,12 +5,13 @@ from .rotary_knob import RotaryKnob
 class RotationControls(tk.LabelFrame):
     """Widget providing controls for 3D plot rotation using rotary knobs"""
     
-    def __init__(self, master, on_rotation_change=None):
+    def __init__(self, master, on_rotation_change=None, trendline_manager=None):
         """Initialize rotation controls
         
         Args:
             master: Parent widget
             on_rotation_change: Callback function to be called when rotation changes
+            trendline_manager: TrendlineManager instance for trendline-based views
         """
         super().__init__(master, text="◎ Rotation Controls - CLICK & DRAG KNOBS ◎", 
                        font=('Arial', 10, 'bold'), foreground='blue', borderwidth=2)
@@ -27,6 +28,9 @@ class RotationControls(tk.LabelFrame):
         
         # Set callback function
         self.on_rotation_change = on_rotation_change
+        
+        # Store trendline manager for trendline-based views
+        self.trendline_manager = trendline_manager
         
         # Flag to prevent recursive callbacks
         self._updating_programmatically = False
@@ -667,6 +671,24 @@ class RotationControls(tk.LabelFrame):
         )
         yz_btn.grid(row=0, column=2, padx=2, pady=2, sticky='ew')
         
+        # Add trendline view buttons in second row if trendline manager is available
+        if self.trendline_manager is not None:
+            # Create "Align to Trendline" button
+            align_btn = ttk.Button(
+                button_frame,
+                text="⟂ Align Trendline",
+                command=self._align_to_trendline
+            )
+            align_btn.grid(row=1, column=0, columnspan=2, padx=2, pady=2, sticky='ew')
+            
+            # Create "View Along Trendline" button  
+            along_btn = ttk.Button(
+                button_frame,
+                text="→ View Along Trend",
+                command=self._view_along_trendline
+            )
+            along_btn.grid(row=1, column=2, padx=2, pady=2, sticky='ew')
+        
         return plane_frame
         
     def _set_plane_view(self, plane):
@@ -716,6 +738,141 @@ class RotationControls(tk.LabelFrame):
                 
         except Exception as e:
             print(f"Error setting plane view: {e}")
+        finally:
+            # Reset flag and trigger callback
+            self._updating_programmatically = False
+            self._trigger_callback()
+    
+    def _align_to_trendline(self):
+        """Align the view to make the trendline visible and clear.
+        
+        This rotates the view so the trendline direction is prominent,
+        making it easier to see the relationship between data and trend.
+        """
+        if self.trendline_manager is None:
+            print("No trendline manager available")
+            return
+        
+        try:
+            # Get trendline parameters: z = ax + by + c
+            params = self.trendline_manager.params
+            if params is None:
+                print("No trendline calculated yet")
+                return
+            
+            import numpy as np
+            
+            # The trendline direction vector is (1, 0, a) in x-direction
+            # and (0, 1, b) in y-direction. We want to align the view
+            # to show the dominant slope direction.
+            a, b, c = params
+            
+            # Calculate azimuth based on the x,y components of the gradient
+            # atan2(b, a) gives the direction of steepest ascent in the XY plane
+            azim_rad = np.arctan2(b, a)
+            azim_deg = np.degrees(azim_rad)
+            
+            # Calculate elevation based on the magnitude of the gradient
+            # This tilts the view to show the slope
+            gradient_mag = np.sqrt(a**2 + b**2)
+            # Use moderate elevation to show both the slope and the spread
+            elev_deg = 30 + min(30, gradient_mag * 50)  # 30-60 degrees
+            
+            # Set flag to prevent recursive callbacks
+            self._updating_programmatically = True
+            
+            # Update internal state
+            self._elevation = elev_deg
+            self._azimuth = azim_deg
+            self._roll = 0
+            
+            # Convert to knob angles (0-360)
+            elev_knob = self._plot_to_knob_elevation(self._elevation)
+            azim_knob = self._plot_to_knob_azimuth(self._azimuth)
+            roll_knob = self._plot_to_knob_roll(self._roll)
+            
+            # Update spinbox variables
+            self.elevation_var.set(round(elev_knob))
+            self.azimuth_var.set(round(azim_knob))
+            self.roll_var.set(round(roll_knob))
+            
+            # Update knob positions
+            if self.elevation_knob:
+                self.elevation_knob.set_angle(elev_knob)
+            if self.azimuth_knob:
+                self.azimuth_knob.set_angle(azim_knob)
+            if self.roll_knob:
+                self.roll_knob.set_angle(roll_knob)
+            
+            print(f"Aligned to trendline: elev={self._elevation:.1f}, azim={self._azimuth:.1f}")
+            
+        except Exception as e:
+            print(f"Error aligning to trendline: {e}")
+        finally:
+            # Reset flag and trigger callback
+            self._updating_programmatically = False
+            self._trigger_callback()
+    
+    def _view_along_trendline(self):
+        """Set view to look along the trendline direction.
+        
+        This provides a view down the trendline axis, useful for seeing
+        how data points deviate from the trend.
+        """
+        if self.trendline_manager is None:
+            print("No trendline manager available")
+            return
+        
+        try:
+            # Get trendline parameters: z = ax + by + c
+            params = self.trendline_manager.params
+            if params is None:
+                print("No trendline calculated yet")
+                return
+            
+            import numpy as np
+            
+            a, b, c = params
+            
+            # Calculate azimuth to look along the trendline
+            # We want to look in the direction of (a, b, 1) projected to XY
+            azim_rad = np.arctan2(b, a)
+            azim_deg = np.degrees(azim_rad)
+            
+            # Set elevation to look nearly horizontally along the trend
+            # Use a slight elevation (10 degrees) to maintain some 3D perspective
+            elev_deg = 10
+            
+            # Set flag to prevent recursive callbacks
+            self._updating_programmatically = True
+            
+            # Update internal state
+            self._elevation = elev_deg
+            self._azimuth = azim_deg
+            self._roll = 0
+            
+            # Convert to knob angles (0-360)
+            elev_knob = self._plot_to_knob_elevation(self._elevation)
+            azim_knob = self._plot_to_knob_azimuth(self._azimuth)
+            roll_knob = self._plot_to_knob_roll(self._roll)
+            
+            # Update spinbox variables
+            self.elevation_var.set(round(elev_knob))
+            self.azimuth_var.set(round(azim_knob))
+            self.roll_var.set(round(roll_knob))
+            
+            # Update knob positions
+            if self.elevation_knob:
+                self.elevation_knob.set_angle(elev_knob)
+            if self.azimuth_knob:
+                self.azimuth_knob.set_angle(azim_knob)
+            if self.roll_knob:
+                self.roll_knob.set_angle(roll_knob)
+            
+            print(f"Viewing along trendline: elev={self._elevation:.1f}, azim={self._azimuth:.1f}")
+            
+        except Exception as e:
+            print(f"Error setting view along trendline: {e}")
         finally:
             # Reset flag and trigger callback
             self._updating_programmatically = False

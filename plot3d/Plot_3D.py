@@ -1210,7 +1210,8 @@ class Plot3DApp:
         # Initialize rotation controls early to ensure they're available for plot creation
         self.rotation_controls = RotationControls(
             self.control_frame,
-            on_rotation_change=self._rotation_changed_callback
+            on_rotation_change=self._rotation_changed_callback,
+            trendline_manager=self.trendline_manager
         )
         self.rotation_controls.grid(row=1, column=0, sticky='ew', padx=5, pady=5)
         
