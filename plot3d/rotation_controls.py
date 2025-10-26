@@ -912,14 +912,15 @@ class RotationControls(tk.LabelFrame):
             
             a, b, c = params
             
-            # To make the trendline vertical, we want to look at it from the side
-            # The trendline direction in XY plane is given by (a, b)
-            # We want to look perpendicular to this direction
-            azim_rad = np.arctan2(b, a) + np.pi/2  # Perpendicular to gradient
+            # Keep Z-axis (L*) vertical: use high elevation (near 90 = top view)
+            # The trendline direction in XY plane is (a, b)
+            # Set azimuth perpendicular to this to see the trendline's path
+            azim_rad = np.arctan2(b, a) + np.pi/2
             azim_deg = np.degrees(azim_rad)
             
-            # Set elevation to 0 to look horizontally, making the trendline appear vertical
-            elev_deg = 0
+            # Use high elevation to keep L* nearly vertical
+            # 90 = straight down (top view), 80 = slight tilt for perspective
+            elev_deg = 80  # Keeps Z vertical while showing depth
             
             # Set flag to prevent recursive callbacks
             self._updating_programmatically = True
