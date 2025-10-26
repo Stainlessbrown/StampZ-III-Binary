@@ -682,12 +682,20 @@ class RotationControls(tk.LabelFrame):
             align_btn.grid(row=1, column=0, columnspan=2, padx=2, pady=2, sticky='ew')
             
             # Create "View Across Trendline" button  
-            along_btn = ttk.Button(
+            across_btn = ttk.Button(
                 button_frame,
                 text="↔ View Across Trend",
                 command=self._view_along_trendline
             )
-            along_btn.grid(row=1, column=2, padx=2, pady=2, sticky='ew')
+            across_btn.grid(row=1, column=2, padx=2, pady=2, sticky='ew')
+            
+            # Create "Verticalize Trend" button in third row
+            vertical_btn = ttk.Button(
+                button_frame,
+                text="↕ Verticalize Trend",
+                command=self._verticalize_trendline
+            )
+            vertical_btn.grid(row=2, column=0, columnspan=3, padx=2, pady=2, sticky='ew')
         
         return plane_frame
         
@@ -876,6 +884,75 @@ class RotationControls(tk.LabelFrame):
             
         except Exception as e:
             print(f"Error setting view along trendline: {e}")
+        finally:
+            # Reset flag and trigger callback
+            self._updating_programmatically = False
+            self._trigger_callback()
+    
+    def _verticalize_trendline(self):
+        """Rotate view to make trendline appear vertical (aligned with Z/L* axis).
+        
+        This makes the trendline appear vertical on screen, matching the intuitive
+        representation of darker (low L*) at bottom and lighter (high L*) at top.
+        After setting this view, you can use azimuth rotation to spin 360° around
+        the trendline to see spatial relationships from all angles.
+        """
+        if self.trendline_manager is None:
+            print("No trendline manager available")
+            return
+        
+        try:
+            # Get trendline parameters: z = ax + by + c
+            params = self.trendline_manager.params
+            if params is None:
+                print("No trendline calculated yet")
+                return
+            
+            import numpy as np
+            
+            a, b, c = params
+            
+            # To make the trendline vertical, we want to look at it from the side
+            # The trendline direction in XY plane is given by (a, b)
+            # We want to look perpendicular to this direction
+            azim_rad = np.arctan2(b, a) + np.pi/2  # Perpendicular to gradient
+            azim_deg = np.degrees(azim_rad)
+            
+            # Set elevation to 0 to look horizontally, making the trendline appear vertical
+            elev_deg = 0
+            
+            # Set flag to prevent recursive callbacks
+            self._updating_programmatically = True
+            
+            # Update internal state
+            self._elevation = elev_deg
+            self._azimuth = azim_deg
+            self._roll = 0
+            
+            # Convert to knob angles (0-360)
+            elev_knob = self._plot_to_knob_elevation(self._elevation)
+            azim_knob = self._plot_to_knob_azimuth(self._azimuth)
+            roll_knob = self._plot_to_knob_roll(self._roll)
+            
+            # Update spinbox variables
+            self.elevation_var.set(round(elev_knob))
+            self.azimuth_var.set(round(azim_knob))
+            self.roll_var.set(round(roll_knob))
+            
+            # Update knob positions
+            if self.elevation_knob:
+                self.elevation_knob.set_angle(elev_knob)
+            if self.azimuth_knob:
+                self.azimuth_knob.set_angle(azim_knob)
+            if self.roll_knob:
+                self.roll_knob.set_angle(roll_knob)
+            
+            print(f"Trendline params: a={a:.4f}, b={b:.4f}, c={c:.4f}")
+            print(f"Verticalized trendline: azim={azim_deg:.1f}, elev={elev_deg:.1f}")
+            print(f"Tip: Use Azimuth knob to rotate 360° around the vertical trendline")
+            
+        except Exception as e:
+            print(f"Error verticalizing trendline: {e}")
         finally:
             # Reset flag and trigger callback
             self._updating_programmatically = False
