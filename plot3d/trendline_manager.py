@@ -169,13 +169,70 @@ class TrendlineManager:
         return self.color
     
     def set_color(self, color: str) -> None:
-        """
-        Set the color of the trendline.
+        """Set the color of the trendline.
         
         Args:
             color: Color string
         """
         self.color = color
+    
+    def get_trendline_direction(self) -> np.ndarray:
+        """Get the 3D direction vector of the trendline.
+        
+        For the trendline equation z = ax + by + c, the direction vector
+        is (a, b, 1) representing the slope in 3D space.
+        
+        Returns:
+            Normalized 3D direction vector as numpy array
+        """
+        if self.params is None:
+            return None
+        
+        a, b, c = self.params
+        # Direction vector: (a, b, 1)
+        direction = np.array([a, b, 1.0])
+        # Normalize to unit vector
+        direction = direction / np.linalg.norm(direction)
+        return direction
+    
+    def get_rotation_to_z_axis(self) -> np.ndarray:
+        """Calculate rotation matrix that aligns trendline direction with Z-axis.
+        
+        Returns:
+            3x3 rotation matrix, or None if no trendline calculated
+        """
+        direction = self.get_trendline_direction()
+        if direction is None:
+            return None
+        
+        # Target is Z-axis (0, 0, 1)
+        z_axis = np.array([0.0, 0.0, 1.0])
+        
+        # If already aligned, return identity
+        if np.allclose(direction, z_axis):
+            return np.eye(3)
+        
+        # Calculate rotation axis (cross product)
+        rotation_axis = np.cross(direction, z_axis)
+        rotation_axis = rotation_axis / np.linalg.norm(rotation_axis)
+        
+        # Calculate rotation angle
+        cos_angle = np.dot(direction, z_axis)
+        angle = np.arccos(np.clip(cos_angle, -1.0, 1.0))
+        
+        # Rodrigues' rotation formula
+        K = np.array([
+            [0, -rotation_axis[2], rotation_axis[1]],
+            [rotation_axis[2], 0, -rotation_axis[0]],
+            [-rotation_axis[1], rotation_axis[0], 0]
+        ])
+        
+        rotation_matrix = (np.eye(3) + 
+                          np.sin(angle) * K + 
+                          (1 - np.cos(angle)) * np.dot(K, K))
+        
+        return rotation_matrix
+    
     def calculate_polynomial_regression(self, df: pd.DataFrame) -> None:
         """
         Calculate 3D polynomial regression using the normalized coordinates.

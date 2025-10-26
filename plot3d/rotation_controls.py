@@ -32,6 +32,9 @@ class RotationControls(tk.LabelFrame):
         # Store trendline manager for trendline-based views
         self.trendline_manager = trendline_manager
         
+        # Trendline lock mode
+        self.lock_to_trendline = tk.BooleanVar(value=False)
+        
         # Flag to prevent recursive callbacks
         self._updating_programmatically = False
         
@@ -696,6 +699,15 @@ class RotationControls(tk.LabelFrame):
                 command=self._verticalize_trendline
             )
             vertical_btn.grid(row=2, column=0, columnspan=3, padx=2, pady=2, sticky='ew')
+            
+            # Add "Lock to Trendline" checkbox in fourth row
+            lock_check = ttk.Checkbutton(
+                button_frame,
+                text="⛓ Lock Rotation to Trendline",
+                variable=self.lock_to_trendline,
+                command=self._on_trendline_lock_changed
+            )
+            lock_check.grid(row=3, column=0, columnspan=3, padx=2, pady=5, sticky='w')
         
         return plane_frame
         
@@ -958,3 +970,13 @@ class RotationControls(tk.LabelFrame):
             # Reset flag and trigger callback
             self._updating_programmatically = False
             self._trigger_callback()
+    
+    def _on_trendline_lock_changed(self):
+        """Handle changes to the Lock to Trendline checkbox."""
+        is_locked = self.lock_to_trendline.get()
+        if is_locked:
+            print("Trendline lock enabled - setting vertical view")
+            # Automatically verticalize when locked
+            self._verticalize_trendline()
+        else:
+            print("Trendline lock disabled - use rotation controls freely")
