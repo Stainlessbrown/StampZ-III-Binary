@@ -469,16 +469,35 @@ class KmeansManager:
             kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
             cluster_labels = kmeans.fit_predict(X)
             
-            # Use cluster labels directly without adding 1
-            formatted_clusters = cluster_labels
+            # Get the centroids from the KMeans model
+            centroids = kmeans.cluster_centers_
+            self.logger.info(f"Calculated {len(centroids)} cluster centroids")
+            
+            # Sort clusters by L* (Xnorm) value in descending order (lightest to darkest)
+            # Xnorm is the first component (index 0) which corresponds to L* in Lab space
+            centroid_L_values = [(i, centroids[i][0]) for i in range(len(centroids))]
+            sorted_centroids = sorted(centroid_L_values, key=lambda x: x[1], reverse=True)
+            
+            # Create mapping from old cluster labels to new sorted labels
+            old_to_new_cluster_map = {old_idx: new_idx for new_idx, (old_idx, _) in enumerate(sorted_centroids)}
+            
+            self.logger.info(f"Cluster sorting by L* (descending): {old_to_new_cluster_map}")
+            for old_idx, new_idx in old_to_new_cluster_map.items():
+                L_star = centroids[old_idx][0] * 100  # Denormalize to L* range [0-100]
+                self.logger.info(f"  Cluster {old_idx} → {new_idx} (L*={L_star:.2f})")
+            
+            # Remap cluster labels to sorted order
+            formatted_clusters = np.array([old_to_new_cluster_map[label] for label in cluster_labels])
+            
+            # Reorder centroids array to match new cluster numbering
+            sorted_centroids_array = np.array([centroids[old_idx] for old_idx, _ in sorted_centroids])
+            centroids = sorted_centroids_array
             
             # Verify we have cluster assignments for all expected rows
             self.logger.info(f"Generated {len(formatted_clusters)} cluster assignments for {len(subset_data)} data points")
             if len(formatted_clusters) != len(subset_data):
                 self.logger.warning(f"Mismatch between data points ({len(subset_data)}) and cluster assignments ({len(formatted_clusters)})!")
-            # Get the centroids from the KMeans model
-            centroids = kmeans.cluster_centers_
-            self.logger.info(f"Calculated {len(centroids)} cluster centroids")
+            
             # Update the "Cluster" column in the original DataFrame
             # Make sure we have the right number of formatted clusters
             
