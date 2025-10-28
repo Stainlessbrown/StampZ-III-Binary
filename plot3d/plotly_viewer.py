@@ -45,11 +45,23 @@ def create_plotly_visualization(df, show_trendline=False, show_spheres=False, sp
     else:
         colors = ['blue'] * len(valid_df)
     
-    # Get markers
+    # Get markers - Plotly 3D only supports limited symbols
+    # Map matplotlib markers to Plotly-compatible ones
     marker_map = {
-        'o': 'circle', '.': 'circle', '*': 'diamond',
-        '^': 'triangle-up', 'v': 'triangle-down', '<': 'triangle-left', '>': 'triangle-right',
-        's': 'square', '+': 'cross', 'x': 'x', 'D': 'diamond'
+        'o': 'circle',
+        '.': 'circle', 
+        '*': 'diamond',
+        '^': 'diamond',  # triangle-up not supported, use diamond
+        'v': 'diamond-open',  # triangle-down not supported, use open diamond
+        '<': 'square',  # triangle-left not supported, use square
+        '>': 'square-open',  # triangle-right not supported, use open square
+        's': 'square',
+        '+': 'cross',
+        'x': 'x',
+        'D': 'diamond',
+        'p': 'square',  # pentagon not supported, use square
+        'h': 'diamond',  # hexagon not supported, use diamond
+        'H': 'diamond-open',  # hexagon2 not supported, use open diamond
     }
     if 'Marker' in valid_df.columns:
         markers = valid_df['Marker'].fillna('o').map(lambda m: marker_map.get(m, 'circle'))

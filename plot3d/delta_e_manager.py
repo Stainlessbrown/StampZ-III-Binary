@@ -35,10 +35,21 @@ class DeltaEManager:
     REF_WHITE_Y = 1.0
     REF_WHITE_Z = 1.0
     
+    # D65 white point for sRGB conversion (standard illuminant)
+    D65_X = 0.95047
+    D65_Y = 1.00000
+    D65_Z = 1.08883
+    
 
-    def __init__(self, on_data_update=None, logger=None):
-        """Initialize the manager."""
-        # Set up logging
+    def __init__(self, on_data_update=None, logger=None, color_space='LAB'):
+        """Initialize the manager.
+        
+        Args:
+            on_data_update: Callback function when data is updated
+            logger: Optional logger instance
+            color_space: Color space of the data ('LAB', 'RGB', or 'CMY')
+        """
+        # Set up logging first
         if logger is None:
             # Create our own logger
             self.logger = logging.getLogger("DeltaEManager")
@@ -52,7 +63,10 @@ class DeltaEManager:
             self.logger.setLevel(logging.INFO)
         else:
             self.logger = logger
-            
+        
+        # Store color space setting (after logger is initialized)
+        self.color_space = color_space.upper() if color_space else 'LAB'
+        
         self.data = None
         self.on_data_update = on_data_update
         self.file_path = None
@@ -64,7 +78,7 @@ class DeltaEManager:
         self.save_button = None
         self.parent = None  # Store the parent widget
         
-        self.logger.info("DeltaEManager initialized successfully")
+        self.logger.info(f"DeltaEManager initialized with color space: {self.color_space}")
     
     def load_data(self, dataframe: pd.DataFrame) -> None:
         """Load data into the manager."""
@@ -340,7 +354,61 @@ class DeltaEManager:
         
         return L, a, b
     
-    def calculate_delta_e_2000(self, lab1: Tuple[float, float, float], 
+    def rgb_to_lab(self, r: float, g: float, b: float) -> Tuple[float, float, float]:
+        """
+        Convert normalized sRGB values (0-1) to L*a*b* color space.
+        Assumes sRGB color space with D65 illuminant.
+        
+        Args:
+            r, g, b: Normalized RGB values (0.0-1.0)
+            
+        Returns:
+            Tuple of (L*, a*, b*) values
+        """
+        # Step 1: Remove gamma correction (sRGB → linear RGB)
+        def srgb_to_linear(c):
+            if c <= 0.04045:
+                return c / 12.92
+            else:
+                return ((c + 0.055) / 1.055) ** 2.4
+        
+        r_linear = srgb_to_linear(r)
+        g_linear = srgb_to_linear(g)
+        b_linear = srgb_to_linear(b)
+        
+        # Step 2: Convert linear RGB to XYZ using sRGB transformation matrix
+        x = r_linear * 0.4124564 + g_linear * 0.3575761 + b_linear * 0.1804375
+        y = r_linear * 0.2126729 + g_linear * 0.7151522 + b_linear * 0.0721750
+        z = r_linear * 0.0193339 + g_linear * 0.1191920 + b_linear * 0.9503041
+        
+        # Step 3: Normalize by D65 white point
+        x = x / self.D65_X
+        y = y / self.D65_Y
+        z = z / self.D65_Z
+        
+        # Step 4: Convert XYZ to L*a*b*
+        def f(t):
+            epsilon = 0.008856  # (6/29)^3
+            kappa = 903.3      # (29/3)^3
+            if t > epsilon:
+                return t ** (1/3)
+            else:
+                return (kappa * t + 16) / 116
+        
+        fx = f(x)
+        fy = f(y)
+        fz = f(z)
+        
+        L = 116 * fy - 16
+        a = 500 * (fx - fy)
+        b_star = 200 * (fy - fz)
+        
+        # Clamp L* to valid range
+        L = max(0.0, min(100.0, L))
+        
+        return L, a, b_star
+    
+    def calculate_delta_e_2000(self, lab1: Tuple[float, float, float],
                               lab2: Tuple[float, float, float]) -> float:
         """
         Calculate ΔE CIE2000 color difference between two L*a*b* colors.
@@ -1116,17 +1184,16 @@ class DeltaEManager:
                             
                             # Check color space and calculate appropriate difference metric
                             try:
-                                # Determine if we're using Lab or RGB/CMY based on plot settings
-                                # For Lab: use ΔE CIE2000
-                                # For RGB/CMY: use simple Euclidean distance
-                                use_lab = True  # Default to Lab
+                                # Color space is automatically detected from Plot_3D label_type
+                                # and passed to DeltaEManager during initialization
+                                color_space = self.color_space  # 'LAB', 'RGB', or 'CMY'
                                 
-                                # Check if plot has label_type setting (would indicate RGB/CMY)
-                                # This is a simplified check - in practice the color space should be
-                                # explicitly stored in the data file or passed as a parameter
-                                # For now, we'll always use Lab unless explicitly told otherwise
+                                # Distance calculation method:
+                                #   False - Use CIEDE2000 (perceptually accurate, recommended)
+                                #   True  - Use simple Euclidean distance (faster, backward compatible)
+                                use_simple_distance = False
                                 
-                                if use_lab:
+                                if color_space == 'LAB':
                                     # Data is in L*a*b* space (normalized 0-1)
                                     # Based on plot_utils.py: X=L*, Y=a*, Z=b*
                                     # Denormalize to standard L*a*b* ranges for ΔE CIE2000
@@ -1141,20 +1208,37 @@ class DeltaEManager:
                                         centroid_xyz[2] * 255 - 128   # b* (Z)
                                     )
                                     
-                                    # DEBUG first calculation
                                     if processed_count == 1:
-                                        self.logger.info(f"🔍 FIRST POINT FILE-BASED DEBUG (Lab):")
-                                        self.logger.info(f"  Normalized: point={point_xyz}, centroid={centroid_xyz}")
+                                        self.logger.info(f"🔍 FIRST POINT (L*a*b*): normalized={point_xyz}")
                                         self.logger.info(f"  Denormalized Lab: point={point_lab}, centroid={centroid_lab}")
+                                        
+                                elif color_space in ['RGB', 'CMY']:
+                                    if use_simple_distance:
+                                        # Use simple Euclidean distance (backward compatibility)
+                                        point_lab = point_xyz  # Keep normalized for distance calc
+                                        centroid_lab = centroid_xyz
+                                        
+                                        if processed_count == 1:
+                                            self.logger.info(f"🔍 FIRST POINT ({color_space} - Euclidean): point={point_xyz}")
+                                    else:
+                                        # Convert RGB/CMY to L*a*b* for accurate ΔE CIE2000
+                                        if color_space == 'CMY':
+                                            # Convert CMY to RGB first: RGB = 1 - CMY
+                                            point_rgb = (1 - point_xyz[0], 1 - point_xyz[1], 1 - point_xyz[2])
+                                            centroid_rgb = (1 - centroid_xyz[0], 1 - centroid_xyz[1], 1 - centroid_xyz[2])
+                                        else:
+                                            point_rgb = point_xyz
+                                            centroid_rgb = centroid_xyz
+                                        
+                                        # Convert sRGB to L*a*b*
+                                        point_lab = self.rgb_to_lab(*point_rgb)
+                                        centroid_lab = self.rgb_to_lab(*centroid_rgb)
+                                        
+                                        if processed_count == 1:
+                                            self.logger.info(f"🔍 FIRST POINT ({color_space}→Lab): normalized={point_xyz}")
+                                            self.logger.info(f"  Converted Lab: point={point_lab}, centroid={centroid_lab}")
                                 else:
-                                    # For RGB/CMY: values stay normalized
-                                    point_lab = point_xyz
-                                    centroid_lab = centroid_xyz
-                                    
-                                    if processed_count == 1:
-                                        self.logger.info(f"🔍 FIRST POINT FILE-BASED DEBUG (RGB/CMY):")
-                                        self.logger.info(f"  Using Euclidean distance for normalized RGB/CMY")
-                                        self.logger.info(f"  point={point_xyz}, centroid={centroid_xyz}")
+                                    raise ValueError(f"Unknown color space: {color_space}")
                                     
                             except Exception as e:
                                 self.logger.error(f"Error preparing color values: {str(e)}")
@@ -1163,10 +1247,7 @@ class DeltaEManager:
                             
                             # Calculate difference metric
                             try:
-                                if use_lab:
-                                    # Calculate ΔE CIE2000 for Lab
-                                    delta_e = self.calculate_delta_e_2000(point_lab, centroid_lab)
-                                else:
+                                if use_simple_distance and color_space in ['RGB', 'CMY']:
                                     # Calculate simple Euclidean distance for RGB/CMY
                                     # Scale by 100 to match typical ΔE ranges
                                     delta_e = math.sqrt(
@@ -1174,6 +1255,9 @@ class DeltaEManager:
                                         (point_xyz[1] - centroid_xyz[1])**2 +
                                         (point_xyz[2] - centroid_xyz[2])**2
                                     ) * 100
+                                else:
+                                    # Calculate ΔE CIE2000 (works for Lab or converted RGB/CMY)
+                                    delta_e = self.calculate_delta_e_2000(point_lab, centroid_lab)
                                 
                                 # DEBUG first result
                                 if processed_count == 1:

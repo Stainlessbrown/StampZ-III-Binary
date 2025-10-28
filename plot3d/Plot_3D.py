@@ -257,8 +257,8 @@ class Plot3DApp:
             self.kmeans_manager.set_file_path(self.file_path)
         self.kmeans_manager.load_data(self.df)
         
-        # Initialize Delta E manager with the same callback
-        self.delta_e_manager = DeltaEManager(on_data_update=on_kmeans_update)
+        # Initialize Delta E manager with the same callback and color space info
+        self.delta_e_manager = DeltaEManager(on_data_update=on_kmeans_update, color_space=self.label_type)
         if self.file_path:  # Only set file path if we're in file-based mode
             self.delta_e_manager.set_file_path(self.file_path)
         self.delta_e_manager.load_data(self.df)
