@@ -713,12 +713,35 @@ class DeltaEManager:
                     
                     if all(pd.notna(val) for val in [point_x, point_y, point_z, centroid_x, centroid_y, centroid_z]):
                         try:
-                            # Convert both points to L*a*b*
-                            point_lab = self.xyz_to_lab(point_x, point_y, point_z)
-                            centroid_lab = self.xyz_to_lab(centroid_x, centroid_y, centroid_z)
+                            # Data is already in L*a*b* space (normalized 0-1)
+                            # Based on plot_utils.py axis labels: X=L*, Y=a*, Z=b*
+                            # Denormalize to standard L*a*b* ranges:
+                            # - L*: 0-100 (from X)
+                            # - a*: -128 to +127 (from Y)
+                            # - b*: -128 to +127 (from Z)
+                            point_lab = (
+                                point_x * 100,              # L* (X)
+                                point_y * 255 - 128,        # a* (Y)
+                                point_z * 255 - 128         # b* (Z)
+                            )
+                            centroid_lab = (
+                                centroid_x * 100,           # L* (X)
+                                centroid_y * 255 - 128,     # a* (Y)
+                                centroid_z * 255 - 128      # b* (Z)
+                            )
                             
-                            # Calculate ΔE CIE2000
+                            # DEBUG: Print first calculation
+                            if successful_calculations == 0:
+                                self.logger.info(f"🔍 FIRST POINT DEBUG:")
+                                self.logger.info(f"  Normalized: point=({point_x:.4f}, {point_y:.4f}, {point_z:.4f}), centroid=({centroid_x:.4f}, {centroid_y:.4f}, {centroid_z:.4f})")
+                                self.logger.info(f"  Denormalized Lab: point={point_lab}, centroid={centroid_lab}")
+                            
+                            # Calculate ΔE CIE2000 directly with Lab values
                             delta_e = self.calculate_delta_e_2000(point_lab, centroid_lab)
+                            
+                            # DEBUG: Print first result
+                            if successful_calculations == 0:
+                                self.logger.info(f"  Calculated ΔE: {delta_e:.4f}")
                             
                             # Round to 4 decimal places
                             delta_e = round(delta_e, 4)
@@ -1091,18 +1114,70 @@ class DeltaEManager:
                             self.logger.debug(f"  Point XYZ: ({point_xyz[0]:.4f}, {point_xyz[1]:.4f}, {point_xyz[2]:.4f})")
                             self.logger.debug(f"  Centroid XYZ: ({centroid_xyz[0]:.4f}, {centroid_xyz[1]:.4f}, {centroid_xyz[2]:.4f})")
                             
-                            # Convert to Lab
+                            # Check color space and calculate appropriate difference metric
                             try:
-                                point_lab = self.xyz_to_lab(*point_xyz)
-                                centroid_lab = self.xyz_to_lab(*centroid_xyz)
+                                # Determine if we're using Lab or RGB/CMY based on plot settings
+                                # For Lab: use ΔE CIE2000
+                                # For RGB/CMY: use simple Euclidean distance
+                                use_lab = True  # Default to Lab
+                                
+                                # Check if plot has label_type setting (would indicate RGB/CMY)
+                                # This is a simplified check - in practice the color space should be
+                                # explicitly stored in the data file or passed as a parameter
+                                # For now, we'll always use Lab unless explicitly told otherwise
+                                
+                                if use_lab:
+                                    # Data is in L*a*b* space (normalized 0-1)
+                                    # Based on plot_utils.py: X=L*, Y=a*, Z=b*
+                                    # Denormalize to standard L*a*b* ranges for ΔE CIE2000
+                                    point_lab = (
+                                        point_xyz[0] * 100,           # L* (X)
+                                        point_xyz[1] * 255 - 128,     # a* (Y)
+                                        point_xyz[2] * 255 - 128      # b* (Z)
+                                    )
+                                    centroid_lab = (
+                                        centroid_xyz[0] * 100,        # L* (X)
+                                        centroid_xyz[1] * 255 - 128,  # a* (Y)
+                                        centroid_xyz[2] * 255 - 128   # b* (Z)
+                                    )
+                                    
+                                    # DEBUG first calculation
+                                    if processed_count == 1:
+                                        self.logger.info(f"🔍 FIRST POINT FILE-BASED DEBUG (Lab):")
+                                        self.logger.info(f"  Normalized: point={point_xyz}, centroid={centroid_xyz}")
+                                        self.logger.info(f"  Denormalized Lab: point={point_lab}, centroid={centroid_lab}")
+                                else:
+                                    # For RGB/CMY: values stay normalized
+                                    point_lab = point_xyz
+                                    centroid_lab = centroid_xyz
+                                    
+                                    if processed_count == 1:
+                                        self.logger.info(f"🔍 FIRST POINT FILE-BASED DEBUG (RGB/CMY):")
+                                        self.logger.info(f"  Using Euclidean distance for normalized RGB/CMY")
+                                        self.logger.info(f"  point={point_xyz}, centroid={centroid_xyz}")
+                                    
                             except Exception as e:
-                                self.logger.error(f"Error converting to Lab color space: {str(e)}")
+                                self.logger.error(f"Error preparing color values: {str(e)}")
                                 delta_e_values.append((i, None))
                                 continue
                             
-                            # Calculate delta E (CIE2000)
+                            # Calculate difference metric
                             try:
-                                delta_e = self.calculate_delta_e_2000(point_lab, centroid_lab)
+                                if use_lab:
+                                    # Calculate ΔE CIE2000 for Lab
+                                    delta_e = self.calculate_delta_e_2000(point_lab, centroid_lab)
+                                else:
+                                    # Calculate simple Euclidean distance for RGB/CMY
+                                    # Scale by 100 to match typical ΔE ranges
+                                    delta_e = math.sqrt(
+                                        (point_xyz[0] - centroid_xyz[0])**2 +
+                                        (point_xyz[1] - centroid_xyz[1])**2 +
+                                        (point_xyz[2] - centroid_xyz[2])**2
+                                    ) * 100
+                                
+                                # DEBUG first result
+                                if processed_count == 1:
+                                    self.logger.info(f"  Calculated ΔE: {delta_e:.4f}")
                                 
                                 # Delta E 2000 is already in an appropriate scale, no need to multiply by 100
                                 # The scale is typically 0-100 where:

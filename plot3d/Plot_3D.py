@@ -46,18 +46,19 @@ setup_logging()
 
 class Plot3DApp:
     # Dictionary of marker sizes for different marker types
+    # Sizes reduced to better show gaps between points and ΔE sphere boundaries
     MARKER_SIZES = {
-        '.': 25,  # Dot
-        'o': 25,  # Circle
-        '*': 60,  # Star
-        '^': 40,  # Triangle up
-        '<': 40,  # Triangle left
-        '>': 40,  # Triangle right
-        'v': 40,  # Triangle down
-        's': 40,  # Square
-        'D': 40,  # Diamond
-        '+': 50,  # Plus (increased for better visibility)
-        'x': 40,  # Cross (increased for better visibility)
+        '.': 12,  # Dot - smaller for precise positioning
+        'o': 15,  # Circle - reduced from 25
+        '*': 35,  # Star - reduced from 60
+        '^': 25,  # Triangle up - reduced from 40
+        '<': 25,  # Triangle left - reduced from 40
+        '>': 25,  # Triangle right - reduced from 40
+        'v': 25,  # Triangle down - reduced from 40
+        's': 25,  # Square - reduced from 40
+        'D': 25,  # Diamond - reduced from 40
+        '+': 30,  # Plus - reduced from 50
+        'x': 25,  # Cross - reduced from 40
     }
     
     def __init__(self, parent=None, data_path=None, dataframe=None, worksheet_update_callback=None, label_type='LAB'):
@@ -541,6 +542,8 @@ class Plot3DApp:
                 
                 # Get marker-specific size from dictionary
                 marker_size = self.MARKER_SIZES.get(marker, 25)
+                if idx == visible_df.index[0]:  # Debug: print first point's marker size
+                    print(f"DEBUG: Using marker size {marker_size} for marker '{marker}' (MARKER_SIZES={self.MARKER_SIZES})")
 
                 # Special handling for line-type markers (x and +)
                 if marker in ['x', '+']:

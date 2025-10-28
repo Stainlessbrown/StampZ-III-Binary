@@ -560,11 +560,24 @@ class DeltaECalculator:
                             continue
                         second_point = (row['Centroid_X'], row['Centroid_Y'], row['Centroid_Z'])
                     
-                    # Convert to Lab
-                    point_lab = self.xyz_to_lab(*point_xyz)
-                    second_point_lab = self.xyz_to_lab(*second_point)
+                    # Data is already in L*a*b* space (normalized 0-1)
+                    # Based on plot_utils.py axis labels: X=L*, Y=a*, Z=b*
+                    # Denormalize to standard L*a*b* ranges:
+                    # - L*: 0-100 (from X)
+                    # - a*: -128 to +127 (from Y)
+                    # - b*: -128 to +127 (from Z)
+                    point_lab = (
+                        point_xyz[0] * 100,           # L* (X)
+                        point_xyz[1] * 255 - 128,     # a* (Y)
+                        point_xyz[2] * 255 - 128      # b* (Z)
+                    )
+                    second_point_lab = (
+                        second_point[0] * 100,        # L* (X)
+                        second_point[1] * 255 - 128,  # a* (Y)
+                        second_point[2] * 255 - 128   # b* (Z)
+                    )
                     
-                    # Calculate ∆E CIE2000
+                    # Calculate ∆E CIE2000 directly with Lab values
                     delta_e = self.calculate_delta_e_2000(point_lab, second_point_lab)
                     
                     # Round to 2 decimal places
