@@ -1558,11 +1558,25 @@ class Plot3DApp:
                 initial_roll = self.rotation_controls.roll
                 print(f"Starting Plotly with matplotlib angles: elev={initial_elev:.1f}, azim={initial_azim:.1f}, roll={initial_roll:.1f}")
             
+            # Get current axis limits from matplotlib to match the zoom level
+            axis_ranges = None
+            if hasattr(self, 'current_ax') and self.current_ax:
+                try:
+                    axis_ranges = {
+                        'x': self.current_ax.get_xlim(),
+                        'y': self.current_ax.get_ylim(),
+                        'z': self.current_ax.get_zlim()
+                    }
+                    print(f"Syncing Plotly axis ranges with matplotlib: X={axis_ranges['x']}, Y={axis_ranges['y']}, Z={axis_ranges['z']}")
+                except Exception as e:
+                    print(f"Could not get axis limits: {e}")
+            
             # Open the interactive view
             print("Opening Plotly interactive view...")
             open_interactive_view(self.df, show_trendline=show_trendline, show_spheres=show_spheres, 
                                 sphere_data=sphere_data, initial_elev=initial_elev, 
-                                initial_azim=initial_azim, initial_roll=initial_roll)
+                                initial_azim=initial_azim, initial_roll=initial_roll,
+                                axis_ranges=axis_ranges)
             
         except Exception as e:
             print(f"Error opening Plotly view: {e}")

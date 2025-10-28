@@ -11,7 +11,7 @@ import numpy as np
 
 
 def create_plotly_visualization(df, show_trendline=False, show_spheres=False, sphere_data=None,
-                                initial_elev=30, initial_azim=-60, initial_roll=0):
+                                initial_elev=30, initial_azim=-60, initial_roll=0, axis_ranges=None):
     """Create an interactive Plotly 3D scatter plot from DataFrame.
     
     Args:
@@ -22,6 +22,7 @@ def create_plotly_visualization(df, show_trendline=False, show_spheres=False, sp
         initial_elev: Initial elevation angle from matplotlib (degrees)
         initial_azim: Initial azimuth angle from matplotlib (degrees)  
         initial_roll: Initial roll angle from matplotlib (degrees)
+        axis_ranges: Optional dict with 'x', 'y', 'z' keys containing (min, max) tuples for axis limits
     
     Returns:
         Plotly Figure object
@@ -148,8 +149,20 @@ def create_plotly_visualization(df, show_trendline=False, show_spheres=False, sp
     title_text = 'Interactive 3D Color Space Visualization<br><sub>Drag to rotate • Scroll to zoom • Shift+drag for box zoom</sub>'
     
     # Configure layout with improved hover label styling
+    # Build axis configuration - show all data but inform user about matplotlib zoom
+    xaxis_config = dict(showbackground=True, showgrid=True, showline=True)
+    yaxis_config = dict(showbackground=True, showgrid=True, showline=True)
+    zaxis_config = dict(showbackground=True, showgrid=True, showline=True)
+    
+    # Adjust title to show zoom info if matplotlib was zoomed
+    zoom_info = ""
+    if axis_ranges:
+        zoom_info = f"<br><sub style='color:#666;'>Matplotlib view: X={axis_ranges.get('x', 'N/A')}, Y={axis_ranges.get('y', 'N/A')}, Z={axis_ranges.get('z', 'N/A')}</sub>"
+        print(f"Matplotlib was zoomed to: X={axis_ranges.get('x')}, Y={axis_ranges.get('y')}, Z={axis_ranges.get('z')}")
+        print("Note: Plotly shows full data range - use scroll to zoom to match matplotlib view")
+    
     fig.update_layout(
-        title=title_text,
+        title=title_text + zoom_info,
         scene=dict(
             xaxis_title='a* (X)',
             yaxis_title='b* (Y)',
@@ -158,10 +171,10 @@ def create_plotly_visualization(df, show_trendline=False, show_spheres=False, sp
                 eye=dict(x=cam_x, y=cam_y, z=cam_z),
                 up=dict(x=0, y=0, z=1)
             ),
-            aspectmode='data',
-            xaxis=dict(showbackground=True, showgrid=True, showline=True),
-            yaxis=dict(showbackground=True, showgrid=True, showline=True),
-            zaxis=dict(showbackground=True, showgrid=True, showline=True),
+            aspectmode='data',  # Use 'data' to preserve true proportions and sphere shapes
+            xaxis=xaxis_config,
+            yaxis=yaxis_config,
+            zaxis=zaxis_config,
             # Use turntable mode for better hover compatibility
             dragmode='turntable'  # Allows rotation with hover, use scroll to zoom
         ),
@@ -259,7 +272,7 @@ def _add_spheres_to_plot(fig, df):
 
 
 def open_interactive_view(df, show_trendline=True, show_spheres=True, sphere_data=None,
-                         initial_elev=30, initial_azim=-60, initial_roll=0):
+                         initial_elev=30, initial_azim=-60, initial_roll=0, axis_ranges=None):
     """Open an interactive Plotly view of the data in the browser.
     
     Args:
@@ -270,10 +283,11 @@ def open_interactive_view(df, show_trendline=True, show_spheres=True, sphere_dat
         initial_elev: Initial elevation angle from matplotlib
         initial_azim: Initial azimuth angle from matplotlib
         initial_roll: Initial roll angle from matplotlib
+        axis_ranges: Optional dict with axis range limits from matplotlib
     """
     try:
         fig = create_plotly_visualization(df, show_trendline, show_spheres, sphere_data,
-                                         initial_elev, initial_azim, initial_roll)
+                                         initial_elev, initial_azim, initial_roll, axis_ranges)
         fig.show()
         print("Opened interactive Plotly view in browser")
     except Exception as e:
