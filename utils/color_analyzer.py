@@ -381,7 +381,10 @@ class ColorAnalyzer:
             (left, top, right, bottom) or None if out of bounds
         """
         width, height = coord.sample_size
-        x, y = coord.x, coord.y
+        
+        # Round anchor point to nearest pixel edge for consistent sampling
+        x = round(coord.x)
+        y = round(coord.y)
         
         # Convert from Cartesian coordinates (0,0 at bottom-left) to PIL coordinates (0,0 at top-left)
         pil_y = image.height - y
@@ -447,7 +450,10 @@ class ColorAnalyzer:
             (left, top, right, bottom) or None if out of bounds
         """
         radius = coord.sample_size[0] / 2  # Use width as diameter
-        x, y = coord.x, coord.y
+        
+        # Round anchor point to nearest pixel edge for consistent sampling
+        x = round(coord.x)
+        y = round(coord.y)
         
         # Convert from Cartesian coordinates (0,0 at bottom-left) to PIL coordinates (0,0 at top-left)
         pil_y = image.height - y
