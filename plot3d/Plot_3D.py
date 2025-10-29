@@ -61,7 +61,7 @@ class Plot3DApp:
         'x': 25,  # Cross - reduced from 40
     }
     
-    def __init__(self, parent=None, data_path=None, dataframe=None, worksheet_update_callback=None, label_type='LAB'):
+    def __init__(self, parent=None, data_path=None, dataframe=None, worksheet_update_callback=None, label_type='LAB', sheet_name=None):
         """Initialize the Plot3DApp
         
         Args:
@@ -70,6 +70,7 @@ class Plot3DApp:
             dataframe: Optional DataFrame for direct integration (no file needed)
             worksheet_update_callback: Optional callback to update parent worksheet with changes
             label_type: Type of axis labels - 'LAB' (L*a*b*), 'RGB', or 'CMY'
+            sheet_name: Optional sheet name for multi-sheet files (ODS/XLSX)
         """
         self._refresh_in_progress = False
         self.axis_range_changed = False  # Flag to track when axis ranges change
@@ -100,7 +101,10 @@ class Plot3DApp:
         elif data_path:
             # Use provided data path (file-based mode)
             self.file_path = data_path
+            self.sheet_name = sheet_name  # Store sheet name if provided
             print(f"Using provided data path: {self.file_path}")
+            if self.sheet_name:
+                print(f"Using provided sheet name: {self.sheet_name}")
         else:
             # Get file path from template selector (standalone mode)
             try:
@@ -129,10 +133,15 @@ class Plot3DApp:
                 
                 # Get sheet name from template selector if available (for multi-sheet files)
                 self.sheet_name = None
+                print(f"DEBUG: Checking for sheet_name on template_selector")
+                print(f"DEBUG: hasattr(template_selector, 'sheet_name'): {hasattr(template_selector, 'sheet_name')}")
                 if hasattr(template_selector, 'sheet_name'):
                     self.sheet_name = template_selector.sheet_name
+                    print(f"DEBUG: Got sheet_name from template_selector: '{self.sheet_name}'")
                     if self.sheet_name:
                         print(f"Using sheet: {self.sheet_name}")
+                else:
+                    print(f"DEBUG: template_selector has NO sheet_name attribute")
                 
                 # Get label type from template selector if available (for external files)
                 if hasattr(template_selector, 'label_type'):

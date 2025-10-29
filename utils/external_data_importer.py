@@ -408,12 +408,13 @@ class ExternalDataImporter:
         logger.info(f"Converted {len(rows)} rows to realtime format")
         return rows, warnings
     
-    def import_file(self, file_path: str, custom_mappings: Optional[Dict[str, str]] = None) -> ImportResult:
+    def import_file(self, file_path: str, custom_mappings: Optional[Dict[str, str]] = None, sheet_name: Optional[str] = None) -> ImportResult:
         """Import external file and convert to realtime datasheet format.
         
         Args:
             file_path: Path to the external file
             custom_mappings: Optional custom column mappings
+            sheet_name: Optional sheet name for multi-sheet files (ODS/XLSX)
             
         Returns:
             ImportResult object with results and any warnings/errors
@@ -421,8 +422,8 @@ class ExternalDataImporter:
         result = ImportResult(success=False)
         
         try:
-            # Read the file
-            df, read_warnings = self.read_external_file(file_path)
+            # Read the file with optional sheet name
+            df, read_warnings = self.read_external_file(file_path, sheet_name=sheet_name)
             result.warnings.extend(read_warnings)
             
             # Map columns

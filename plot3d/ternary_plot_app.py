@@ -35,6 +35,7 @@ class TernaryPlotWindow:
         self.manager = get_data_file_manager()
         self.current_database = tk.StringVar(value="No database loaded")
         self.current_database_name = None  # Track actual database name for viewer
+        self.current_sheet_name = None  # Track selected sheet name for multi-sheet files
         self.database_measurements = []  # Store raw database measurements for re-normalization
         self.data_source_type = None  # 'channel_rgb', 'channel_cmy', or 'color_analysis'
         
@@ -371,8 +372,10 @@ class TernaryPlotWindow:
                         print("User cancelled sheet selection")
                         return  # User cancelled
                     print(f"User selected sheet: {sheet_name}")
+                    self.current_sheet_name = sheet_name  # Store for viewer
                 elif sheet_names:
                     sheet_name = sheet_names[0]
+                    self.current_sheet_name = sheet_name  # Store for viewer
                     print(f"Using single sheet: {sheet_name}")
             except Exception as sheet_error:
                 print(f"Could not detect sheets: {sheet_error}. Using first sheet.")
@@ -483,7 +486,65 @@ class TernaryPlotWindow:
             
             self._render()
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to open file:\n\n{e}")
+            messagebox.showerror("Error", f"Failed to open file:\\n\\n{e}")
+    
+    def _open_file_by_path(self, path):
+        """Reload file from a known path (used for refresh after external edits)."""
+        try:
+            # Detect sheet name if multi-sheet file
+            sheet_name = None
+            if path.endswith(('.ods', '.xlsx', '.xls')):
+                try:
+                    from utils.external_data_importer import ExternalDataImporter
+                    importer = ExternalDataImporter()
+                    sheet_names = importer.get_sheet_names(path)
+                    if sheet_names:
+                        sheet_name = sheet_names[0]  # Use first sheet for refresh
+                except Exception:
+                    pass
+            
+            # Read file
+            if path.endswith('.ods'):
+                src_df = pd.read_excel(path, engine='odf', sheet_name=sheet_name or 0)
+            elif path.endswith(('.xlsx', '.xls')):
+                src_df = pd.read_excel(path, engine='openpyxl', sheet_name=sheet_name or 0)
+            elif path.endswith('.csv'):
+                src_df = pd.read_csv(path)
+            else:
+                return
+            
+            df = src_df.copy()
+            
+            # Process data (same logic as _open_file)
+            has_lab_columns = all(col in df.columns for col in ['L*', 'a*', 'b*'])
+            has_normalized_columns = all(col in df.columns for col in ['Xnorm', 'Ynorm', 'Znorm'])
+            
+            if has_lab_columns:
+                l_values = pd.to_numeric(df['L*'], errors='coerce')
+                a_values = pd.to_numeric(df['a*'], errors='coerce')
+                b_values = pd.to_numeric(df['b*'], errors='coerce')
+                df['L*'] = l_values
+                df['a*'] = a_values
+                df['b*'] = b_values
+            elif has_normalized_columns:
+                df['L*'] = pd.to_numeric(df['Xnorm'], errors='coerce') * 100.0
+                df['a*'] = pd.to_numeric(df['Ynorm'], errors='coerce') * 255.0 - 128.0
+                df['b*'] = pd.to_numeric(df['Znorm'], errors='coerce') * 255.0 - 128.0
+            
+            # Set defaults
+            if 'Marker' not in df.columns:
+                df['Marker'] = '.'
+            if 'Color' not in df.columns:
+                df['Color'] = 'blue'
+            if 'DataID' not in df.columns:
+                df['DataID'] = [f"Point_{i+1}" for i in range(len(df))]
+            
+            self.df = df[['L*', 'a*', 'b*', 'DataID', 'Marker', 'Color']].copy()
+            self._render()
+            
+        except Exception as e:
+            print(f"ERROR: Failed to reload file: {e}")
+            raise
 
     def _load_from_realtime_db(self):
         """Load data from the realtime datasheet database."""
@@ -605,6 +666,54 @@ class TernaryPlotWindow:
             return
         
         try:
+            # Check if this is an external file (not a database)
+            import os
+            print(f"\n=== VIEW DATABASE DEBUG ===")
+            print(f"current_database_name: {self.current_database_name}")
+            print(f"Type: {type(self.current_database_name)}")
+            
+            is_external_file = self.current_database_name and (
+                self.current_database_name.endswith(('.ods', '.xlsx', '.xls', '.csv')) or 
+                '/' in self.current_database_name  # Full file path
+            )
+            print(f"is_external_file: {is_external_file}")
+            print(f"==========================\n")
+            
+            if is_external_file:
+                # External file - open in system's default spreadsheet application
+                print(f"DEBUG: Opening external file in system application: {self.current_database_name}")
+                
+                import subprocess
+                import sys
+                
+                try:
+                    if sys.platform == 'darwin':  # macOS
+                        subprocess.run(['open', self.current_database_name], check=True)
+                    elif sys.platform == 'win32':  # Windows
+                        os.startfile(self.current_database_name)
+                    else:  # Linux
+                        subprocess.run(['xdg-open', self.current_database_name], check=True)
+                    
+                    sheet_info = f" (Sheet: {self.current_sheet_name})" if self.current_sheet_name else ""
+                    messagebox.showinfo(
+                        "External File Opened",
+                        f"Opened {os.path.basename(self.current_database_name)}{sheet_info} in your default spreadsheet application.\n\n"
+                        f"Note: The spreadsheet app will open to its default sheet.\n"
+                        f"You selected: {self.current_sheet_name or 'first sheet'}\n\n"
+                        f"After making changes:\n"
+                        f"1. Save the file in your spreadsheet app\n"
+                        f"2. Click 'Open Data (ODS/XLSX/CSV)' and reselect the same sheet to reload"
+                    )
+                    
+                except Exception as e:
+                    messagebox.showerror(
+                        "Open Error",
+                        f"Could not open file in system application:\n\n{e}\n\n"
+                        f"Please open the file manually:\n{self.current_database_name}"
+                    )
+                
+                return
+            
             # Import the RealtimePlot3DSheet interface
             from gui.realtime_plot3d_sheet import RealtimePlot3DSheet
             

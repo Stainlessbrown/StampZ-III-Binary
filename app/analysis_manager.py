@@ -2749,32 +2749,8 @@ class AnalysisManager:
         try:
             from plot3d.Plot_3D import Plot3DApp
             
-            # Create a modified version of Plot3DApp that accepts sheet_name
-            # We need to temporarily set sheet_name as an attribute so Plot_3D can use it
-            
-            # Store sheet_name in a way that Plot_3D can access it
-            if sheet_name:
-                # Pass sheet_name through the data_path (Plot_3D will need to parse it)
-                # Actually, let's modify the approach - we'll inject it into the load_data call
-                import plot3d.data_processor as dp
-                original_load_data = dp.load_data
-                
-                def load_data_with_sheet(file_path, use_rgb=False, handle_blank_rows=True, sheet_name_param=None):
-                    # Use our sheet_name if not provided
-                    return original_load_data(file_path, use_rgb, handle_blank_rows, sheet_name_param or sheet_name)
-                
-                # Temporarily replace load_data
-                dp.load_data = load_data_with_sheet
-                
-                try:
-                    # Launch Plot_3D with the specified file
-                    plot_app = Plot3DApp(parent=self.root, data_path=file_path)
-                finally:
-                    # Restore original load_data
-                    dp.load_data = original_load_data
-            else:
-                # No sheet specified, use normal launch
-                plot_app = Plot3DApp(parent=self.root, data_path=file_path)
+            # Launch Plot_3D with the specified file and sheet name
+            plot_app = Plot3DApp(parent=self.root, data_path=file_path, sheet_name=sheet_name)
             
             sheet_info = f" (sheet: {sheet_name})" if sheet_name else ""
             messagebox.showinfo(

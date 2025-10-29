@@ -20,6 +20,10 @@ def load_data(file_path, use_rgb=False, handle_blank_rows=True, sheet_name=None)
     logging.debug(f"Loading data from file: {file_path}")
     if sheet_name:
         logging.debug(f"Requesting specific sheet: {sheet_name}")
+    print(f"\n=== DATA LOAD DEBUG ===")
+    print(f"File: {file_path}")
+    print(f"Requested sheet_name parameter: {sheet_name}")
+    print(f"Will load sheet: {sheet_name if sheet_name else 'first sheet (index 0)'}")
     
     try:
         # Get file extension
@@ -28,8 +32,13 @@ def load_data(file_path, use_rgb=False, handle_blank_rows=True, sheet_name=None)
         # Load the raw data
         if file_extension == 'ods':
             df = pd.read_excel(file_path, engine='odf', sheet_name=sheet_name or 0)
+            print(f"Loaded {len(df)} rows from file")
             if sheet_name:
                 logger.info(f"Loaded sheet '{sheet_name}' from {file_path}")
+                print(f"Successfully loaded sheet: {sheet_name}")
+            else:
+                print(f"Loaded first sheet (default)")
+            print(f"======================\n")
         else:
             raise ValueError(f"Unsupported file format: {file_extension}. Only .ods files are supported.")
         
