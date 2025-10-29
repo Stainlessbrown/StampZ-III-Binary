@@ -8,9 +8,18 @@ logger = logging.getLogger(__name__)
 # Set pandas display options for floating-point precision
 pd.set_option('display.float_format', lambda x: '{:.4f}'.format(x))
 pd.set_option('display.precision', 4)
-def load_data(file_path, use_rgb=False, handle_blank_rows=True):
-    """Load data from various file formats and process it"""
+def load_data(file_path, use_rgb=False, handle_blank_rows=True, sheet_name=None):
+    """Load data from various file formats and process it
+    
+    Args:
+        file_path: Path to the file to load
+        use_rgb: Whether to use RGB data (unused currently)
+        handle_blank_rows: Whether to remove blank rows
+        sheet_name: Optional sheet name to load (for multi-sheet files). If None, loads first sheet.
+    """
     logging.debug(f"Loading data from file: {file_path}")
+    if sheet_name:
+        logging.debug(f"Requesting specific sheet: {sheet_name}")
     
     try:
         # Get file extension
@@ -18,7 +27,9 @@ def load_data(file_path, use_rgb=False, handle_blank_rows=True):
         
         # Load the raw data
         if file_extension == 'ods':
-            df = pd.read_excel(file_path, engine='odf')
+            df = pd.read_excel(file_path, engine='odf', sheet_name=sheet_name or 0)
+            if sheet_name:
+                logger.info(f"Loaded sheet '{sheet_name}' from {file_path}")
         else:
             raise ValueError(f"Unsupported file format: {file_extension}. Only .ods files are supported.")
         

@@ -2739,18 +2739,48 @@ class AnalysisManager:
                 f"Failed to create worksheet:\\n\\n{str(e)}"
             )
     
-    def _launch_plot3d_with_file(self, file_path):
-        """Launch Plot_3D with a specific data file."""
+    def _launch_plot3d_with_file(self, file_path, sheet_name=None):
+        """Launch Plot_3D with a specific data file.
+        
+        Args:
+            file_path: Path to the data file
+            sheet_name: Optional sheet name for multi-sheet files
+        """
         try:
             from plot3d.Plot_3D import Plot3DApp
             
-            # Launch Plot_3D with the specified file
-            plot_app = Plot3DApp(parent=self.root, data_path=file_path)
+            # Create a modified version of Plot3DApp that accepts sheet_name
+            # We need to temporarily set sheet_name as an attribute so Plot_3D can use it
             
+            # Store sheet_name in a way that Plot_3D can access it
+            if sheet_name:
+                # Pass sheet_name through the data_path (Plot_3D will need to parse it)
+                # Actually, let's modify the approach - we'll inject it into the load_data call
+                import plot3d.data_processor as dp
+                original_load_data = dp.load_data
+                
+                def load_data_with_sheet(file_path, use_rgb=False, handle_blank_rows=True, sheet_name_param=None):
+                    # Use our sheet_name if not provided
+                    return original_load_data(file_path, use_rgb, handle_blank_rows, sheet_name_param or sheet_name)
+                
+                # Temporarily replace load_data
+                dp.load_data = load_data_with_sheet
+                
+                try:
+                    # Launch Plot_3D with the specified file
+                    plot_app = Plot3DApp(parent=self.root, data_path=file_path)
+                finally:
+                    # Restore original load_data
+                    dp.load_data = original_load_data
+            else:
+                # No sheet specified, use normal launch
+                plot_app = Plot3DApp(parent=self.root, data_path=file_path)
+            
+            sheet_info = f" (sheet: {sheet_name})" if sheet_name else ""
             messagebox.showinfo(
                 "Plot_3D Launched",
                 f"Plot_3D opened with your worksheet:\\n\\n"
-                f"{os.path.basename(file_path)}\\n\\n"
+                f"{os.path.basename(file_path)}{sheet_info}\\n\\n"
                 f"You can now analyze your data in 3D space!"
             )
             
@@ -2783,6 +2813,105 @@ class AnalysisManager:
         else:
             return self._legacy_create_and_launch_from_database(sample_set_name)
     
+    def _ask_sheet_selection(self, sheet_names):
+        """Ask user to select a sheet from a multi-sheet file.
+        
+        Args:
+            sheet_names: List of available sheet names
+            
+        Returns:
+            Selected sheet name, or None if cancelled
+        """
+        from tkinter import Toplevel, Listbox, Scrollbar, Button, Label, Frame, StringVar
+        
+        if not sheet_names:
+            return None
+        
+        # If only one sheet, return it automatically
+        if len(sheet_names) == 1:
+            return sheet_names[0]
+        
+        logger.debug(f"Creating sheet selection dialog for {len(sheet_names)} sheets")
+        
+        dialog = Toplevel(self.root)
+        dialog.title("Select Sheet")
+        dialog.geometry("400x300")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Center the dialog
+        dialog.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (dialog.winfo_width() // 2)
+        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+        
+        # Add heading
+        heading = Label(dialog, 
+                          text=f"This file contains {len(sheet_names)} sheets.\nWhich sheet would you like to open?", 
+                          font=("Arial", 11, "bold"),
+                          justify="left")
+        heading.pack(pady=15, padx=10)
+        
+        # Variable to store selection
+        result = StringVar(value="")
+        
+        # Create scrollable listbox for sheet names
+        list_frame = Frame(dialog)
+        list_frame.pack(pady=10, padx=20, fill="both", expand=True)
+        
+        scrollbar = Scrollbar(list_frame)
+        scrollbar.pack(side="right", fill="y")
+        
+        listbox = Listbox(list_frame, 
+                            font=("Arial", 10),
+                            yscrollcommand=scrollbar.set,
+                            selectmode="single",
+                            height=8)
+        listbox.pack(side="left", fill="both", expand=True)
+        scrollbar.config(command=listbox.yview)
+        
+        # Populate listbox with sheet names
+        for sheet in sheet_names:
+            listbox.insert("end", sheet)
+        
+        # Select first item by default
+        listbox.selection_set(0)
+        listbox.activate(0)
+        
+        def on_ok():
+            selection_idx = listbox.curselection()
+            if selection_idx:
+                result.set(sheet_names[selection_idx[0]])
+            else:
+                result.set(sheet_names[0])  # Default to first sheet
+            dialog.destroy()
+        
+        def on_cancel():
+            result.set("")  # Empty means cancelled
+            dialog.destroy()
+        
+        def on_double_click(event):
+            on_ok()  # Double-click acts as OK
+        
+        listbox.bind('<Double-Button-1>', on_double_click)
+        
+        # Button frame
+        btn_frame = Frame(dialog)
+        btn_frame.pack(pady=10)
+        
+        ok_btn = Button(btn_frame, text="Open", command=on_ok, width=12, font=("Arial", 10, "bold"))
+        ok_btn.pack(side="left", padx=5)
+        
+        cancel_btn = Button(btn_frame, text="Cancel", command=on_cancel, width=12, font=("Arial", 10))
+        cancel_btn.pack(side="right", padx=5)
+        
+        # Wait for dialog to close
+        dialog.wait_window()
+        
+        final_result = result.get() if result.get() else None
+        logger.debug(f"Sheet selection dialog closed, returning: {final_result}")
+        return final_result
+    
     def _load_existing_file_in_plot3d(self):
         """Load existing Plot_3D file directly."""
         filepath = filedialog.askopenfilename(
@@ -2796,7 +2925,27 @@ class AnalysisManager:
         )
         
         if filepath:
-            self._launch_plot3d_with_file(filepath)
+            # Detect available sheets and ask user to select one (for multi-sheet files)
+            sheet_name = None
+            if filepath.endswith(('.ods', '.xlsx')):
+                try:
+                    from utils.external_data_importer import ExternalDataImporter
+                    importer = ExternalDataImporter()
+                    sheet_names = importer.get_sheet_names(filepath)
+                    
+                    if sheet_names and len(sheet_names) > 1:
+                        sheet_name = self._ask_sheet_selection(sheet_names)
+                        if not sheet_name:
+                            logger.info("User cancelled sheet selection")
+                            return  # User cancelled
+                        logger.info(f"User selected sheet: {sheet_name}")
+                    elif sheet_names:
+                        sheet_name = sheet_names[0]
+                        logger.info(f"Using single sheet: {sheet_name}")
+                except Exception as sheet_error:
+                    logger.warning(f"Could not detect sheets: {sheet_error}. Using first sheet.")
+            
+            self._launch_plot3d_with_file(filepath, sheet_name=sheet_name)
     
     def _import_and_launch_csv(self):
         """Import CSV and launch Plot_3D."""

@@ -97,11 +97,44 @@ class ExternalDataImporter:
         }
         return format_map.get(ext, 'unknown')
     
-    def read_external_file(self, file_path: str) -> Tuple[pd.DataFrame, List[str]]:
+    def get_sheet_names(self, file_path: str) -> List[str]:
+        """Get list of sheet names from an Excel or ODS file.
+        
+        Args:
+            file_path: Path to the file
+            
+        Returns:
+            List of sheet names, or empty list if not applicable/error
+        """
+        file_format = self.detect_file_format(file_path)
+        
+        if file_format == 'csv':
+            return []  # CSV files don't have sheets
+        
+        try:
+            if file_format == 'ods':
+                # For ODS files, use ExcelFile with odf engine
+                xl_file = pd.ExcelFile(file_path, engine='odf')
+            elif file_format == 'xlsx':
+                # For Excel files, use default engine
+                xl_file = pd.ExcelFile(file_path)
+            else:
+                return []
+            
+            sheet_names = xl_file.sheet_names
+            logger.info(f"Found {len(sheet_names)} sheets in {file_path}: {sheet_names}")
+            return sheet_names
+            
+        except Exception as e:
+            logger.warning(f"Could not read sheet names from {file_path}: {e}")
+            return []
+    
+    def read_external_file(self, file_path: str, sheet_name: Optional[str] = None) -> Tuple[pd.DataFrame, List[str]]:
         """Read external file and return DataFrame with warnings.
         
         Args:
             file_path: Path to the external file
+            sheet_name: Optional sheet name to read (for ODS/XLSX files). If None, reads first sheet.
             
         Returns:
             Tuple of (DataFrame, list of warnings)
@@ -127,10 +160,16 @@ class ExternalDataImporter:
                     warnings.append("Used semicolon separator for CSV file")
                     
             elif file_format == 'ods':
-                df = pd.read_excel(file_path, engine='odf')
+                # Use sheet_name parameter if provided, otherwise default to first sheet
+                df = pd.read_excel(file_path, engine='odf', sheet_name=sheet_name or 0)
+                if sheet_name:
+                    warnings.append(f"Reading sheet: {sheet_name}")
                 
             elif file_format == 'xlsx':
-                df = pd.read_excel(file_path)
+                # Use sheet_name parameter if provided, otherwise default to first sheet
+                df = pd.read_excel(file_path, sheet_name=sheet_name or 0)
+                if sheet_name:
+                    warnings.append(f"Reading sheet: {sheet_name}")
                 
             else:
                 raise ValueError(f"Unsupported file format: {file_format}")

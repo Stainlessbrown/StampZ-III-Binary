@@ -2048,7 +2048,12 @@ class RealtimePlot3DSheet:
             if os.path.exists(file_path):
                 # Check if it's a Plot_3D compatible file by looking for existing data
                 try:
-                    existing_df = pd.read_excel(file_path, engine='odf')
+                    # For multi-sheet files, just check the first sheet
+                    file_ext = os.path.splitext(file_path)[1].lower()
+                    if file_ext == '.ods':
+                        existing_df = pd.read_excel(file_path, engine='odf', sheet_name=0)
+                    else:
+                        existing_df = pd.read_excel(file_path, sheet_name=0)
                     has_plot3d_data = ('Xnorm' in existing_df.columns and 
                                      'DataID' in existing_df.columns and 
                                      len(existing_df) > 0)
@@ -2200,9 +2205,35 @@ class RealtimePlot3DSheet:
             
             logger.info(f"Starting merge operation with existing file: {file_path}")
             
+            # Detect available sheets and ask user to select one
+            selected_sheet = None
+            file_ext = os.path.splitext(file_path)[1].lower()
+            if file_ext in ['.xlsx', '.ods']:
+                try:
+                    from utils.external_data_importer import ExternalDataImporter
+                    importer = ExternalDataImporter()
+                    sheet_names = importer.get_sheet_names(file_path)
+                    
+                    if sheet_names and len(sheet_names) > 1:
+                        selected_sheet = self._ask_sheet_selection(sheet_names)
+                        if not selected_sheet:
+                            logger.info("User cancelled sheet selection for merge")
+                            return False  # User cancelled
+                        logger.info(f"User selected sheet for merge: {selected_sheet}")
+                    elif sheet_names:
+                        selected_sheet = sheet_names[0]
+                        logger.info(f"Using single sheet for merge: {selected_sheet}")
+                except Exception as sheet_error:
+                    logger.warning(f"Could not detect sheets for merge: {sheet_error}. Using first sheet.")
+            
             # Read existing file
-            existing_df = pd.read_excel(file_path, engine='odf')
-            logger.info(f"Existing file has {len(existing_df)} rows")
+            if file_ext == '.ods':
+                existing_df = pd.read_excel(file_path, engine='odf', sheet_name=selected_sheet or 0)
+            else:
+                existing_df = pd.read_excel(file_path, sheet_name=selected_sheet or 0)
+            
+            sheet_info = f" (sheet: {selected_sheet})" if selected_sheet else ""
+            logger.info(f"Existing file has {len(existing_df)} rows{sheet_info}")
             
             # Get existing DataIDs
             existing_dataids = set()
@@ -2743,6 +2774,113 @@ class RealtimePlot3DSheet:
         print(f"DEBUG: Dialog closed, returning: {final_result}")
         return final_result
     
+    def _ask_sheet_selection(self, sheet_names: List[str]) -> Optional[str]:
+        """Ask user to select a sheet from a multi-sheet file.
+        
+        Args:
+            sheet_names: List of available sheet names
+            
+        Returns:
+            Selected sheet name, or None if cancelled
+        """
+        if not sheet_names:
+            return None
+        
+        # If only one sheet, return it automatically
+        if len(sheet_names) == 1:
+            return sheet_names[0]
+        
+        print(f"DEBUG: Creating sheet selection dialog for {len(sheet_names)} sheets")
+        
+        dialog = tk.Toplevel(self.window)
+        dialog.title("Select Sheet")
+        dialog.geometry("400x300")
+        
+        # Make dialog modal and on top
+        dialog.transient(self.window)
+        dialog.grab_set()
+        dialog.attributes('-topmost', True)
+        dialog.focus_force()
+        
+        # Center the dialog
+        dialog.update_idletasks()
+        x = self.window.winfo_x() + (self.window.winfo_width() // 2) - (dialog.winfo_width() // 2)
+        y = self.window.winfo_y() + (self.window.winfo_height() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+        
+        # Add heading
+        heading = tk.Label(dialog, 
+                          text=f"This file contains {len(sheet_names)} sheets.\nWhich sheet would you like to import?", 
+                          font=("Arial", 11, "bold"),
+                          justify=tk.LEFT)
+        heading.pack(pady=15, padx=10)
+        
+        # Variable to store selection
+        selected_sheet = tk.StringVar(value=sheet_names[0])
+        result = tk.StringVar(value="")  # Empty means cancelled
+        
+        # Create scrollable listbox for sheet names
+        list_frame = tk.Frame(dialog)
+        list_frame.pack(pady=10, padx=20, fill=tk.BOTH, expand=True)
+        
+        scrollbar = tk.Scrollbar(list_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        listbox = tk.Listbox(list_frame, 
+                            font=("Arial", 10),
+                            yscrollcommand=scrollbar.set,
+                            selectmode=tk.SINGLE,
+                            height=8)
+        listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=listbox.yview)
+        
+        # Populate listbox with sheet names
+        for sheet in sheet_names:
+            listbox.insert(tk.END, sheet)
+        
+        # Select first item by default
+        listbox.selection_set(0)
+        listbox.activate(0)
+        
+        def on_ok():
+            selection_idx = listbox.curselection()
+            if selection_idx:
+                result.set(sheet_names[selection_idx[0]])
+            else:
+                result.set(sheet_names[0])  # Default to first sheet
+            dialog.destroy()
+        
+        def on_cancel():
+            result.set("")  # Empty means cancelled
+            dialog.destroy()
+        
+        def on_double_click(event):
+            on_ok()  # Double-click acts as OK
+        
+        listbox.bind('<Double-Button-1>', on_double_click)
+        
+        # Button frame
+        btn_frame = tk.Frame(dialog)
+        btn_frame.pack(pady=10)
+        
+        ok_btn = tk.Button(btn_frame, text="Import", command=on_ok, width=12, font=("Arial", 10, "bold"))
+        ok_btn.pack(side=tk.LEFT, padx=5)
+        
+        cancel_btn = tk.Button(btn_frame, text="Cancel", command=on_cancel, width=12, font=("Arial", 10))
+        cancel_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Make sure dialog is visible
+        dialog.deiconify()
+        dialog.lift()
+        dialog.focus_force()
+        
+        # Wait for dialog to close
+        dialog.wait_window()
+        
+        final_result = result.get() if result.get() else None
+        print(f"DEBUG: Sheet selection dialog closed, returning: {final_result}")
+        return final_result
+    
     def _import_from_plot3d(self):
         """Import changes back from a Plot_3D external file.
         
@@ -2792,19 +2930,40 @@ class RealtimePlot3DSheet:
             if not file_path:
                 return  # User cancelled
             
+            # Detect available sheets and ask user to select one
+            selected_sheet = None
+            file_ext = os.path.splitext(file_path)[1].lower()
+            if file_ext in ['.xlsx', '.ods']:
+                try:
+                    from utils.external_data_importer import ExternalDataImporter
+                    importer = ExternalDataImporter()
+                    sheet_names = importer.get_sheet_names(file_path)
+                    
+                    if sheet_names and len(sheet_names) > 1:
+                        selected_sheet = self._ask_sheet_selection(sheet_names)
+                        if not selected_sheet:
+                            logger.info("User cancelled sheet selection")
+                            return  # User cancelled
+                        logger.info(f"User selected sheet: {selected_sheet}")
+                    elif sheet_names:
+                        selected_sheet = sheet_names[0]
+                        logger.info(f"Using single sheet: {selected_sheet}")
+                except Exception as sheet_error:
+                    logger.warning(f"Could not detect sheets: {sheet_error}. Using first sheet.")
+            
             # Load the external file
             try:
-                file_ext = os.path.splitext(file_path)[1].lower()
                 if file_ext == '.xlsx':
-                    imported_df = pd.read_excel(file_path)
+                    imported_df = pd.read_excel(file_path, sheet_name=selected_sheet or 0)
                 else:
                     # Try to read as ODS first, fallback to Excel
                     try:
-                        imported_df = pd.read_excel(file_path, engine='odf')
+                        imported_df = pd.read_excel(file_path, engine='odf', sheet_name=selected_sheet or 0)
                     except:
-                        imported_df = pd.read_excel(file_path)
+                        imported_df = pd.read_excel(file_path, sheet_name=selected_sheet or 0)
                 
-                logger.info(f"Imported DataFrame with {len(imported_df)} rows from {file_path}")
+                sheet_info = f" (sheet: {selected_sheet})" if selected_sheet else ""
+                logger.info(f"Imported DataFrame with {len(imported_df)} rows from {file_path}{sheet_info}")
                 
             except Exception as read_error:
                 logger.error(f"Error reading file: {read_error}")

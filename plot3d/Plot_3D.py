@@ -127,6 +127,13 @@ class Plot3DApp:
                 # Get the file path with proper null checking
                 self.file_path = template_selector.file_path if template_selector.file_path else None
                 
+                # Get sheet name from template selector if available (for multi-sheet files)
+                self.sheet_name = None
+                if hasattr(template_selector, 'sheet_name'):
+                    self.sheet_name = template_selector.sheet_name
+                    if self.sheet_name:
+                        print(f"Using sheet: {self.sheet_name}")
+                
                 # Get label type from template selector if available (for external files)
                 if hasattr(template_selector, 'label_type'):
                     label_type = template_selector.label_type
@@ -208,7 +215,9 @@ class Plot3DApp:
         
         # Load initial data (only if not already provided as DataFrame)
         if not hasattr(self, 'df') or self.df is None:
-            self.df = load_data(self.file_path)
+            # Pass sheet_name if available (from template selector)
+            sheet_name = getattr(self, 'sheet_name', None)
+            self.df = load_data(self.file_path, sheet_name=sheet_name)
             if self.df is None:
                 messagebox.showerror("Error", "Failed to load data")
                 sys.exit(1)
@@ -314,7 +323,8 @@ class Plot3DApp:
             
             # Load and process data (only if in file-based mode)
             if self.file_path:
-                self.df = load_data(self.file_path)
+                sheet_name = getattr(self, 'sheet_name', None)
+                self.df = load_data(self.file_path, sheet_name=sheet_name)
                 if self.df is None:
                     self._refresh_in_progress = False
                     return

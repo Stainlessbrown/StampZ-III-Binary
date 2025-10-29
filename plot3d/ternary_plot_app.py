@@ -246,6 +246,103 @@ class TernaryPlotWindow:
         self.df = pd.DataFrame(df_data)
         print(f"DEBUG: Converted {len(df_data)} measurements to dataframe (RGB mode: {use_rgb}, source type: {self.data_source_type})")
     
+    def _ask_sheet_selection(self, sheet_names):
+        """Ask user to select a sheet from a multi-sheet file.
+        
+        Args:
+            sheet_names: List of available sheet names
+            
+        Returns:
+            Selected sheet name, or None if cancelled
+        """
+        if not sheet_names:
+            return None
+        
+        # If only one sheet, return it automatically
+        if len(sheet_names) == 1:
+            return sheet_names[0]
+        
+        print(f"Creating sheet selection dialog for {len(sheet_names)} sheets")
+        
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Select Sheet")
+        dialog.geometry("400x300")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Center the dialog
+        dialog.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (dialog.winfo_width() // 2)
+        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+        
+        # Add heading
+        heading = tk.Label(dialog, 
+                          text=f"This file contains {len(sheet_names)} sheets.\nWhich sheet would you like to open?", 
+                          font=("Arial", 11, "bold"),
+                          justify=tk.LEFT)
+        heading.pack(pady=15, padx=10)
+        
+        # Variable to store selection
+        result = tk.StringVar(value="")
+        
+        # Create scrollable listbox for sheet names
+        list_frame = tk.Frame(dialog)
+        list_frame.pack(pady=10, padx=20, fill=tk.BOTH, expand=True)
+        
+        scrollbar = tk.Scrollbar(list_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        listbox = tk.Listbox(list_frame, 
+                            font=("Arial", 10),
+                            yscrollcommand=scrollbar.set,
+                            selectmode=tk.SINGLE,
+                            height=8)
+        listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=listbox.yview)
+        
+        # Populate listbox with sheet names
+        for sheet in sheet_names:
+            listbox.insert(tk.END, sheet)
+        
+        # Select first item by default
+        listbox.selection_set(0)
+        listbox.activate(0)
+        
+        def on_ok():
+            selection_idx = listbox.curselection()
+            if selection_idx:
+                result.set(sheet_names[selection_idx[0]])
+            else:
+                result.set(sheet_names[0])  # Default to first sheet
+            dialog.destroy()
+        
+        def on_cancel():
+            result.set("")  # Empty means cancelled
+            dialog.destroy()
+        
+        def on_double_click(event):
+            on_ok()  # Double-click acts as OK
+        
+        listbox.bind('<Double-Button-1>', on_double_click)
+        
+        # Button frame
+        btn_frame = tk.Frame(dialog)
+        btn_frame.pack(pady=10)
+        
+        ok_btn = tk.Button(btn_frame, text="Open", command=on_ok, width=12, font=("Arial", 10, "bold"))
+        ok_btn.pack(side=tk.LEFT, padx=5)
+        
+        cancel_btn = tk.Button(btn_frame, text="Cancel", command=on_cancel, width=12, font=("Arial", 10))
+        cancel_btn.pack(side=tk.RIGHT, padx=5)
+        
+        # Wait for dialog to close
+        dialog.wait_window()
+        
+        final_result = result.get() if result.get() else None
+        print(f"Sheet selection dialog closed, returning: {final_result}")
+        return final_result
+    
     # === File handling ===
     def _open_file(self):
         path = filedialog.askopenfilename(
@@ -259,9 +356,37 @@ class TernaryPlotWindow:
         )
         if not path:
             return
+        
+        # Detect available sheets and ask user to select one (for multi-sheet files)
+        sheet_name = None
+        if path.endswith(('.ods', '.xlsx', '.xls')):
+            try:
+                from utils.external_data_importer import ExternalDataImporter
+                importer = ExternalDataImporter()
+                sheet_names = importer.get_sheet_names(path)
+                
+                if sheet_names and len(sheet_names) > 1:
+                    sheet_name = self._ask_sheet_selection(sheet_names)
+                    if not sheet_name:
+                        print("User cancelled sheet selection")
+                        return  # User cancelled
+                    print(f"User selected sheet: {sheet_name}")
+                elif sheet_names:
+                    sheet_name = sheet_names[0]
+                    print(f"Using single sheet: {sheet_name}")
+            except Exception as sheet_error:
+                print(f"Could not detect sheets: {sheet_error}. Using first sheet.")
+        
         try:
-            # Read using DataFileManager and standardize to Plot3D first
-            src_df = self.manager.read_external_file(path, DataFormat.PLOT3D)
+            # Read using pandas directly with sheet support, then let DataFileManager standardize
+            if path.endswith('.ods'):
+                src_df = pd.read_excel(path, engine='odf', sheet_name=sheet_name or 0)
+            elif path.endswith(('.xlsx', '.xls')):
+                src_df = pd.read_excel(path, engine='openpyxl', sheet_name=sheet_name or 0)
+            elif path.endswith('.csv'):
+                src_df = pd.read_csv(path)
+            else:
+                src_df = self.manager.read_external_file(path, DataFormat.PLOT3D)
             if src_df is None:
                 messagebox.showerror("Error", "Failed to read file. Ensure dependencies for ODS/XLSX are installed.")
                 return

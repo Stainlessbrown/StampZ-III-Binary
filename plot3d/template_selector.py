@@ -139,6 +139,26 @@ class TemplateSelector:
             self.file_path = os.path.abspath(selected_file)
             logging.info(f"Selected file (absolute path): {self.file_path}")
             
+            # Detect available sheets and ask user to select one (for multi-sheet files)
+            self.sheet_name = None
+            if selected_file.endswith(('.ods', '.xlsx')):
+                try:
+                    from utils.external_data_importer import ExternalDataImporter
+                    importer = ExternalDataImporter()
+                    sheet_names = importer.get_sheet_names(self.file_path)
+                    
+                    if sheet_names and len(sheet_names) > 1:
+                        self.sheet_name = self._ask_sheet_selection(sheet_names)
+                        if not self.sheet_name:
+                            logging.info("User cancelled sheet selection")
+                            return  # User cancelled
+                        logging.info(f"User selected sheet: {self.sheet_name}")
+                    elif sheet_names:
+                        self.sheet_name = sheet_names[0]
+                        logging.info(f"Using single sheet: {self.sheet_name}")
+                except Exception as sheet_error:
+                    logging.warning(f"Could not detect sheets: {sheet_error}. Using first sheet.")
+            
             # Ask user what type of color data the file contains
             self.label_type = self._ask_data_type()
             logging.info(f"User selected data type: {self.label_type}")
@@ -146,6 +166,103 @@ class TemplateSelector:
             self.root.destroy()
         else:
             logging.warning("No file selected")
+    
+    def _ask_sheet_selection(self, sheet_names):
+        """Ask user to select a sheet from a multi-sheet file.
+        
+        Args:
+            sheet_names: List of available sheet names
+            
+        Returns:
+            Selected sheet name, or None if cancelled
+        """
+        if not sheet_names:
+            return None
+        
+        # If only one sheet, return it automatically
+        if len(sheet_names) == 1:
+            return sheet_names[0]
+        
+        logging.debug(f"Creating sheet selection dialog for {len(sheet_names)} sheets")
+        
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Select Sheet")
+        dialog.geometry("400x300")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Center the dialog
+        dialog.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (dialog.winfo_width() // 2)
+        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+        
+        # Add heading
+        heading = tk.Label(dialog, 
+                          text=f"This file contains {len(sheet_names)} sheets.\nWhich sheet would you like to open?", 
+                          font=("Arial", 11, "bold"),
+                          justify=tk.LEFT)
+        heading.pack(pady=15, padx=10)
+        
+        # Variable to store selection
+        result = tk.StringVar(value="")
+        
+        # Create scrollable listbox for sheet names
+        list_frame = tk.Frame(dialog)
+        list_frame.pack(pady=10, padx=20, fill=tk.BOTH, expand=True)
+        
+        scrollbar = tk.Scrollbar(list_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        listbox = tk.Listbox(list_frame, 
+                            font=("Arial", 10),
+                            yscrollcommand=scrollbar.set,
+                            selectmode=tk.SINGLE,
+                            height=8)
+        listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=listbox.yview)
+        
+        # Populate listbox with sheet names
+        for sheet in sheet_names:
+            listbox.insert(tk.END, sheet)
+        
+        # Select first item by default
+        listbox.selection_set(0)
+        listbox.activate(0)
+        
+        def on_ok():
+            selection_idx = listbox.curselection()
+            if selection_idx:
+                result.set(sheet_names[selection_idx[0]])
+            else:
+                result.set(sheet_names[0])  # Default to first sheet
+            dialog.destroy()
+        
+        def on_cancel():
+            result.set("")  # Empty means cancelled
+            dialog.destroy()
+        
+        def on_double_click(event):
+            on_ok()  # Double-click acts as OK
+        
+        listbox.bind('<Double-Button-1>', on_double_click)
+        
+        # Button frame
+        btn_frame = tk.Frame(dialog)
+        btn_frame.pack(pady=10)
+        
+        ok_btn = tk.Button(btn_frame, text="Open", command=on_ok, width=12, font=("Arial", 10, "bold"))
+        ok_btn.pack(side=tk.LEFT, padx=5)
+        
+        cancel_btn = tk.Button(btn_frame, text="Cancel", command=on_cancel, width=12, font=("Arial", 10))
+        cancel_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Wait for dialog to close
+        dialog.wait_window()
+        
+        final_result = result.get() if result.get() else None
+        logging.debug(f"Sheet selection dialog closed, returning: {final_result}")
+        return final_result
     
     def _ask_data_type(self):
         """Ask user what type of color data is in the selected file."""
