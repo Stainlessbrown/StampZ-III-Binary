@@ -382,19 +382,24 @@ class SampleResultsManager(tk.Frame):
         # Add some vertical space
         ttk.Frame(values_frame, height=15).pack()
         
-        # Add buttons frame for the two buttons
+        # Add buttons frame - vertically stacked for better space management
         buttons_frame = ttk.Frame(values_frame)
         buttons_frame.pack(anchor='se', pady=(0, 5))
 
         # Add color to library button
         add_button = ttk.Button(buttons_frame, text="Add color to library", 
                               command=lambda: self._add_color_to_library(avg_rgb, avg_lab))
-        add_button.pack(side=tk.LEFT, padx=(0, 5))
+        add_button.pack(fill=tk.X, pady=2)
 
-        # Add Save Results button
-        save_button = ttk.Button(buttons_frame, text="Save Results",
+        # Add Save to DB button (renamed from "Save Results")
+        save_db_button = ttk.Button(buttons_frame, text="Save to DB",
                               command=lambda: self._show_save_results_dialog(avg_rgb, avg_lab, enabled_samples))
-        save_button.pack(side=tk.LEFT)
+        save_db_button.pack(fill=tk.X, pady=2)
+        
+        # Add Save to File button (new - saves to unified data logger)
+        save_file_button = ttk.Button(buttons_frame, text="Save to File",
+                              command=lambda: self._save_to_text_file(avg_rgb, avg_lab, enabled_samples))
+        save_file_button.pack(fill=tk.X, pady=2)
     
     def _on_sample_toggle(self):
         """Handle sample toggle events."""
@@ -983,3 +988,191 @@ class SampleResultsManager(tk.Frame):
             
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open save dialog: {str(e)}")
+    
+    def _save_to_text_file(self, avg_rgb, avg_lab, enabled_samples):
+        """Save analysis results to unified data logger text file.
+        
+        Args:
+            avg_rgb: Average RGB tuple
+            avg_lab: Average Lab tuple
+            enabled_samples: List of enabled sample dictionaries
+        """
+        try:
+            # Check if we have a current file path
+            if not hasattr(self, 'current_file_path') or not self.current_file_path:
+                messagebox.showerror(
+                    "No Image File",
+                    "Cannot save to text file without an associated image file.\n\n"
+                    "Please load an image before saving analysis results."
+                )
+                return
+            
+            # Import unified data logger
+            from utils.unified_data_logger import UnifiedDataLogger
+            from utils.color_analyzer import ColorAnalyzer
+            
+            # Create logger instance for current image
+            logger = UnifiedDataLogger(self.current_file_path)
+            analyzer = ColorAnalyzer()
+            
+            # Prepare individual measurements data
+            sample_measurements = []
+            for i, sample in enumerate(enabled_samples, 1):
+                sample_rgb = sample['rgb']
+                sample_lab = self.library.rgb_to_lab(sample_rgb) if hasattr(self, 'library') and self.library else analyzer.rgb_to_lab(sample_rgb)
+                
+                measurement = {
+                    'coordinate_point': i,
+                    'x_position': sample['position'][0],
+                    'y_position': sample['position'][1],
+                    'l_value': sample_lab[0],
+                    'a_value': sample_lab[1],
+                    'b_value': sample_lab[2],
+                    'rgb_r': sample_rgb[0],
+                    'rgb_g': sample_rgb[1],
+                    'rgb_b': sample_rgb[2],
+                    'sample_type': sample['type'],
+                    'sample_width': sample['size'][0],
+                    'sample_height': sample['size'][1],
+                    'anchor': sample['anchor']
+                }
+                sample_measurements.append(measurement)
+            
+            # Get image name for the logger
+            import os
+            image_name = os.path.splitext(os.path.basename(self.current_file_path))[0]
+            
+            # Log individual measurements
+            individual_result = logger.log_individual_color_measurements(
+                measurements=sample_measurements,
+                sample_set_name="Color_Analysis_Results",
+                image_name=image_name
+            )
+            
+            # Prepare averaged measurement data
+            averaged_data = {
+                'l_value': avg_lab[0],
+                'a_value': avg_lab[1],
+                'b_value': avg_lab[2],
+                'rgb_r': avg_rgb[0],
+                'rgb_g': avg_rgb[1],
+                'rgb_b': avg_rgb[2],
+                'notes': f"Averaged from {len(enabled_samples)} samples via Results Manager"
+            }
+            
+            # Log averaged measurement
+            averaged_result = logger.log_averaged_color_measurement(
+                averaged_data=averaged_data,
+                sample_set_name="Color_Analysis_Results",
+                image_name=image_name,
+                source_count=len(enabled_samples)
+            )
+            
+            # Check for crop-related files and auto-merge
+            data_file_path = logger.get_data_file_path()
+            merge_info = self._auto_merge_crop_files(data_file_path)
+            
+            # Show success message
+            if individual_result and averaged_result:
+                success_msg = (
+                    f"Color analysis results saved successfully!\n\n"
+                    f"File: {data_file_path.name}\n"
+                    f"Location: {data_file_path.parent}\n\n"
+                    f"Saved:\n"
+                    f"• {len(enabled_samples)} individual samples\n"
+                    f"• 1 averaged result\n\n"
+                )
+                if merge_info:
+                    success_msg += f"\n{merge_info}\n\n"
+                success_msg += "Data has been appended to your unified analysis log."
+                
+                messagebox.showinfo("Saved to File", success_msg)
+            else:
+                messagebox.showerror(
+                    "Save Error",
+                    "Failed to save some or all data to text file."
+                )
+            
+        except Exception as e:
+            messagebox.showerror(
+                "Save Error",
+                f"Failed to save to text file:\n\n{str(e)}"
+            )
+    
+    def _auto_merge_crop_files(self, current_data_file):
+        """Auto-merge data from original and cropped image files.
+        
+        The cropped version (-crp) is always the master file.
+        
+        Args:
+            current_data_file: Path to the current data file
+            
+        Returns:
+            String describing merge action, or None if no merge occurred
+        """
+        try:
+            from pathlib import Path
+            import os
+            from datetime import datetime
+            
+            current_path = Path(current_data_file)
+            current_stem = current_path.stem
+            
+            # Remove _StampZ_Data suffix to get image name
+            if current_stem.endswith('_StampZ_Data'):
+                image_name = current_stem[:-len('_StampZ_Data')]
+            else:
+                return None
+            
+            # Check if this is a cropped file (ends with -crp)
+            if image_name.endswith('-crp'):
+                # This is cropped - look for original and merge it in
+                original_image_name = image_name[:-len('-crp')]
+                original_data_file = current_path.parent / f"{original_image_name}_StampZ_Data.txt"
+                
+                if original_data_file.exists():
+                    # Merge: append original data to cropped file
+                    with open(original_data_file, 'r', encoding='utf-8') as orig:
+                        original_content = orig.read()
+                    
+                    with open(current_path, 'a', encoding='utf-8') as current:
+                        current.write("\n" + "=" * 50 + "\n")
+                        current.write("DATA MERGED FROM ORIGINAL (UNCROPPED) IMAGE\n")
+                        current.write(f"Merged from: {original_data_file.name}\n")
+                        current.write(f"Merge timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                        current.write("=" * 50 + "\n")
+                        current.write(original_content)
+                    
+                    # Delete the original file after successful merge
+                    os.remove(original_data_file)
+                    
+                    return f"✓ Merged & consolidated data:\n- From: {original_data_file.name} (deleted)\n- Into: {current_path.name}"
+            
+            else:
+                # This is original - check if cropped version exists
+                cropped_image_name = f"{image_name}-crp"
+                cropped_data_file = current_path.parent / f"{cropped_image_name}_StampZ_Data.txt"
+                
+                if cropped_data_file.exists():
+                    # Merge: append current data to cropped file (master)
+                    with open(current_path, 'r', encoding='utf-8') as curr:
+                        current_content = curr.read()
+                    
+                    with open(cropped_data_file, 'a', encoding='utf-8') as cropped:
+                        cropped.write("\n" + "=" * 50 + "\n")
+                        cropped.write("DATA MERGED FROM ORIGINAL (UNCROPPED) IMAGE\n")
+                        cropped.write(f"Merged from: {current_path.name}\n")
+                        cropped.write(f"Merge timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                        cropped.write("=" * 50 + "\n")
+                        cropped.write(current_content)
+                    
+                    # Delete the original file after successful merge
+                    os.remove(current_path)
+                    
+                    return f"✓ Merged & consolidated data:\n- From: {current_path.name} (deleted)\n- Into: {cropped_data_file.name} (master)"
+            
+            return None
+            
+        except Exception as e:
+            print(f"Warning: Auto-merge failed: {e}")
+            return None

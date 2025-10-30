@@ -1037,9 +1037,9 @@ class PrecisionMeasurementTool:
                 )
             
             data = {
-                "DPI": f"{float(self.measurement_engine.dpi):.1f}",
-                "Calibration Source": self.measurement_engine.calibration_source,
-                "Precision": f"±{self.measurement_engine.precision_um:.1f}µm",
+                "DPI": f"{float(self.measurement_engine.dpi):.1f}" if self.measurement_engine.dpi else "Not calibrated",
+                "Calibration Source": self.measurement_engine.calibration_source if self.measurement_engine.calibration_source else "Unknown",
+                "Precision": f"±{self.measurement_engine.precision_um:.1f}µm" if self.measurement_engine.precision_um else "Not calculated",
                 "Number of Measurements": len(self.measurements),
                 "Measurements": "\n" + "\n".join(measurement_lines)
             }
@@ -1047,11 +1047,19 @@ class PrecisionMeasurementTool:
             data_file = logger.log_section("Precision Measurements", data)
             
             if data_file:
+                # Check for crop-related files and auto-merge
+                merge_info = self._auto_merge_crop_files(data_file)
+                
                 self.data_logged = True  # Mark as logged
-                messagebox.showinfo("Data Logged", 
-                                  f"Measurements logged to unified data file:\n\n"
-                                  f"{data_file}\n\n"
-                                  f"This file consolidates all StampZ analysis data for this image.")
+                success_msg = (
+                    f"Measurements logged to unified data file:\n\n"
+                    f"{data_file}\n\n"
+                )
+                if merge_info:
+                    success_msg += f"{merge_info}\n\n"
+                success_msg += "This file consolidates all StampZ analysis data for this image."
+                
+                messagebox.showinfo("Data Logged", success_msg)
             else:
                 messagebox.showerror("Log Error", "Failed to log measurements to unified data file.")
                 
@@ -1059,6 +1067,84 @@ class PrecisionMeasurementTool:
             messagebox.showerror("Module Error", "Unified data logger not found.")
         except Exception as e:
             messagebox.showerror("Log Error", f"Failed to log measurements:\n{e}")
+    
+    def _auto_merge_crop_files(self, current_data_file):
+        """Auto-merge data from original and cropped image files.
+        
+        The cropped version (-crp) is always the master file.
+        
+        Args:
+            current_data_file: Path to the current data file
+            
+        Returns:
+            String describing merge action, or None if no merge occurred
+        """
+        try:
+            from pathlib import Path
+            import os
+            from datetime import datetime
+            
+            current_path = Path(current_data_file)
+            current_stem = current_path.stem
+            
+            # Remove _StampZ_Data suffix to get image name
+            if current_stem.endswith('_StampZ_Data'):
+                image_name = current_stem[:-len('_StampZ_Data')]
+            else:
+                return None
+            
+            # Check if this is a cropped file (ends with -crp)
+            if image_name.endswith('-crp'):
+                # This is cropped - look for original and merge it in
+                original_image_name = image_name[:-len('-crp')]
+                original_data_file = current_path.parent / f"{original_image_name}_StampZ_Data.txt"
+                
+                if original_data_file.exists():
+                    # Merge: append original data to cropped file
+                    with open(original_data_file, 'r', encoding='utf-8') as orig:
+                        original_content = orig.read()
+                    
+                    with open(current_path, 'a', encoding='utf-8') as current:
+                        current.write("\n" + "=" * 50 + "\n")
+                        current.write("DATA MERGED FROM ORIGINAL (UNCROPPED) IMAGE\n")
+                        current.write(f"Merged from: {original_data_file.name}\n")
+                        current.write(f"Merge timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                        current.write("=" * 50 + "\n")
+                        current.write(original_content)
+                    
+                    # Delete the original file after successful merge
+                    os.remove(original_data_file)
+                    
+                    return f"✓ Merged & consolidated:\n  From: {original_data_file.name} (deleted)\n  Into: {current_path.name}"
+            
+            else:
+                # This is original - check if cropped version exists
+                cropped_image_name = f"{image_name}-crp"
+                cropped_data_file = current_path.parent / f"{cropped_image_name}_StampZ_Data.txt"
+                
+                if cropped_data_file.exists():
+                    # Merge: append current data to cropped file (master)
+                    with open(current_path, 'r', encoding='utf-8') as curr:
+                        current_content = curr.read()
+                    
+                    with open(cropped_data_file, 'a', encoding='utf-8') as cropped:
+                        cropped.write("\n" + "=" * 50 + "\n")
+                        cropped.write("DATA MERGED FROM ORIGINAL (UNCROPPED) IMAGE\n")
+                        cropped.write(f"Merged from: {current_path.name}\n")
+                        cropped.write(f"Merge timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                        cropped.write("=" * 50 + "\n")
+                        cropped.write(current_content)
+                    
+                    # Delete the original file after successful merge
+                    os.remove(current_path)
+                    
+                    return f"✓ Merged & consolidated:\n  From: {current_path.name} (deleted)\n  Into: {cropped_data_file.name} (master)"
+            
+            return None
+            
+        except Exception as e:
+            print(f"Warning: Auto-merge failed: {e}")
+            return None
         
     def delete_selected_measurement(self):
         """Delete selected measurement"""

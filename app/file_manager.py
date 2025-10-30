@@ -155,8 +155,12 @@ class FileManager:
             from utils.user_preferences import get_preferences_manager
             prefs_manager = get_preferences_manager()
             
-            # Get the last used directory for saving files
-            initial_dir = prefs_manager.get_last_save_directory()
+            # Default to the same directory as the original image for easier data file merging
+            if self.app.current_file:
+                initial_dir = os.path.dirname(self.app.current_file)
+            else:
+                # Fallback to last used directory if no current file
+                initial_dir = prefs_manager.get_last_save_directory()
             
             filepath = filedialog.asksaveasfilename(
                 title="Save Cropped Image",

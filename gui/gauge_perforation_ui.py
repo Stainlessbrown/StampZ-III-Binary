@@ -187,24 +187,24 @@ class GaugePerforationDialog:
         self.entry_frame = ttk.LabelFrame(self.control_frame, text="Quick Entry")
         
         # Horizontal entry
-        h_entry_frame = ttk.Frame(self.entry_frame)
-        ttk.Label(h_entry_frame, text="Horizontal:").pack(side=tk.LEFT, padx=(0,5))
+        self.h_entry_frame = ttk.Frame(self.entry_frame)
+        ttk.Label(self.h_entry_frame, text="Horizontal:").pack(side=tk.LEFT, padx=(0,5))
         self.h_entry_var = tk.StringVar()
         self.h_entry_var.trace_add('write', self._on_entry_change)
-        self.h_entry = ttk.Entry(h_entry_frame, textvariable=self.h_entry_var, width=10)
+        self.h_entry = ttk.Entry(self.h_entry_frame, textvariable=self.h_entry_var, width=10)
         self.h_entry.pack(side=tk.LEFT)
         
         # Vertical entry  
-        v_entry_frame = ttk.Frame(self.entry_frame)
-        ttk.Label(v_entry_frame, text="Vertical:").pack(side=tk.LEFT, padx=(0,5))
+        self.v_entry_frame = ttk.Frame(self.entry_frame)
+        ttk.Label(self.v_entry_frame, text="Vertical:").pack(side=tk.LEFT, padx=(0,5))
         self.v_entry_var = tk.StringVar()
         self.v_entry_var.trace_add('write', self._on_entry_change)
-        self.v_entry = ttk.Entry(v_entry_frame, textvariable=self.v_entry_var, width=10)
+        self.v_entry = ttk.Entry(self.v_entry_frame, textvariable=self.v_entry_var, width=10)
         self.v_entry.pack(side=tk.LEFT)
         
         # Notes field
-        notes_label_frame = ttk.Frame(self.entry_frame)
-        ttk.Label(notes_label_frame, text="Notes:").pack(anchor=tk.W)
+        self.notes_label_frame = ttk.Frame(self.entry_frame)
+        ttk.Label(self.notes_label_frame, text="Notes:").pack(anchor=tk.W)
         self.notes_text = tk.Text(self.entry_frame, height=3, width=30, wrap=tk.WORD)
         
         # Results display
@@ -283,9 +283,9 @@ class GaugePerforationDialog:
         
         # Quick entry fields
         self.entry_frame.pack(fill=tk.X, pady=5)
-        h_entry_frame.pack(fill=tk.X, pady=2)
-        v_entry_frame.pack(fill=tk.X, pady=2)
-        notes_label_frame.pack(fill=tk.X, pady=(5,2))
+        self.h_entry_frame.pack(fill=tk.X, pady=2)
+        self.v_entry_frame.pack(fill=tk.X, pady=2)
+        self.notes_label_frame.pack(fill=tk.X, pady=(5,2))
         self.notes_text.pack(fill=tk.X, pady=2)
         
         # Results summary
