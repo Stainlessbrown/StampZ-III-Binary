@@ -116,6 +116,29 @@ class GaugePerforationDialog:
                        variable=self.orientation_var, value="vertical",
                        command=self._change_orientation).pack(side=tk.LEFT, padx=5)
         
+        # File Operations (moved to top for better workflow)
+        self.file_frame = ttk.Frame(self.control_frame)
+        self.load_image_btn = ttk.Button(
+            self.file_frame,
+            text="📁 Load Image", 
+            command=self._load_image
+        )
+        self.fit_window_btn = ttk.Button(
+            self.file_frame,
+            text="🔍 Fit to Window (before gauge)",
+            command=self._fit_to_window,
+            state='disabled'
+        )
+        
+        # Auto-fit checkbox
+        self.auto_fit_var = tk.BooleanVar(value=False)  # Disable auto-fit by default to avoid scaling issues
+        self.auto_fit_check = ttk.Checkbutton(
+            self.file_frame,
+            text="Auto-fit on resize",
+            variable=self.auto_fit_var,
+            command=self._toggle_auto_fit
+        )
+        
         # Gauge Control Buttons
         self.gauge_button_frame = ttk.Frame(self.control_frame)
         self.show_gauge_btn = ttk.Button(
@@ -151,50 +174,54 @@ class GaugePerforationDialog:
             state='disabled'
         )
         
-        # File Operations
-        self.file_frame = ttk.Frame(self.control_frame)
-        self.load_image_btn = ttk.Button(
-            self.file_frame,
-            text="📁 Load Image", 
-            command=self._load_image
-        )
-        self.fit_window_btn = ttk.Button(
-            self.file_frame,
-            text="🔍 Fit to Window",
-            command=self._fit_to_window,
-            state='disabled'
-        )
-        
-        # Auto-fit checkbox
-        self.auto_fit_var = tk.BooleanVar(value=False)  # Disable auto-fit by default to avoid scaling issues
-        self.auto_fit_check = ttk.Checkbutton(
-            self.file_frame,
-            text="Auto-fit on resize",
-            variable=self.auto_fit_var,
-            command=self._toggle_auto_fit
-        )
+        # Save button
+        self.save_frame = ttk.Frame(self.control_frame)
         self.save_data_btn = ttk.Button(
-            self.file_frame,
+            self.save_frame,
             text="💾 Save Measurements",
             command=self._save_measurements,
             state='disabled'
         )
         
+        # Direct entry fields for measurements
+        self.entry_frame = ttk.LabelFrame(self.control_frame, text="Quick Entry")
+        
+        # Horizontal entry
+        h_entry_frame = ttk.Frame(self.entry_frame)
+        ttk.Label(h_entry_frame, text="Horizontal:").pack(side=tk.LEFT, padx=(0,5))
+        self.h_entry_var = tk.StringVar()
+        self.h_entry_var.trace_add('write', self._on_entry_change)
+        self.h_entry = ttk.Entry(h_entry_frame, textvariable=self.h_entry_var, width=10)
+        self.h_entry.pack(side=tk.LEFT)
+        
+        # Vertical entry  
+        v_entry_frame = ttk.Frame(self.entry_frame)
+        ttk.Label(v_entry_frame, text="Vertical:").pack(side=tk.LEFT, padx=(0,5))
+        self.v_entry_var = tk.StringVar()
+        self.v_entry_var.trace_add('write', self._on_entry_change)
+        self.v_entry = ttk.Entry(v_entry_frame, textvariable=self.v_entry_var, width=10)
+        self.v_entry.pack(side=tk.LEFT)
+        
+        # Notes field
+        notes_label_frame = ttk.Frame(self.entry_frame)
+        ttk.Label(notes_label_frame, text="Notes:").pack(anchor=tk.W)
+        self.notes_text = tk.Text(self.entry_frame, height=3, width=30, wrap=tk.WORD)
+        
         # Results display
-        self.results_frame = ttk.LabelFrame(self.control_frame, text="Measurements")
-        self.results_text = tk.Text(self.results_frame, height=15, width=35, wrap=tk.WORD)
+        self.results_frame = ttk.LabelFrame(self.control_frame, text="Summary")
+        self.results_text = tk.Text(self.results_frame, height=10, width=35, wrap=tk.WORD)
         self.results_scrollbar = ttk.Scrollbar(self.results_frame, orient=tk.VERTICAL, command=self.results_text.yview)
         self.results_text.configure(yscrollcommand=self.results_scrollbar.set)
         
         # Instructions
-        self.instructions_frame = ttk.LabelFrame(self.control_frame, text="Instructions")
+        self.instructions_frame = ttk.LabelFrame(self.control_frame, text="Workflow")
         instructions = (
-            "1. Load image & use 'Fit to Window'\n"
-            "2. Show the gauge overlay\n"
-            "3. Drag it to align with perforations\n" 
-            "4. Switch between H/V orientations\n"
-            "5. Record measurements for both\n"
-            "6. Save data to unified log files"
+            "1. Load image\n"
+            "2. Fit to Window (important!)\n"
+            "3. Show gauge overlay\n" 
+            "4. Drag to align with perforations\n"
+            "5. Switch H/V & record both\n"
+            "6. Save measurements"
         )
         self.instructions_label = ttk.Label(self.instructions_frame, text=instructions, 
                                           justify=tk.LEFT, font=("TkDefaultFont", 9))
@@ -221,29 +248,47 @@ class GaugePerforationDialog:
         # Right side - controls
         self.control_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=(5, 0), ipadx=5)
         
-        # Pack control sections
+        # Pack control sections in workflow order
+        # File operations first (workflow steps 1-2)
+        self.file_frame.pack(fill=tk.X, pady=5)
+        self.load_image_btn.pack(fill=tk.X, pady=1)
+        self.fit_window_btn.pack(fill=tk.X, pady=1)
+        self.auto_fit_check.pack(fill=tk.X, pady=1)
+        
+        ttk.Separator(self.control_frame, orient='horizontal').pack(fill=tk.X, pady=5)
+        
         self.dpi_frame.pack(fill=tk.X, pady=3)
         self.orientation_frame.pack(fill=tk.X, pady=5)
         
-        # Gauge buttons
+        # Gauge buttons (workflow step 3)
         self.gauge_button_frame.pack(fill=tk.X, pady=5)
         self.show_gauge_btn.pack(fill=tk.X, pady=1)
         self.hide_gauge_btn.pack(fill=tk.X, pady=1)
         self.center_gauge_btn.pack(fill=tk.X, pady=1)
         
-        # Measurement buttons
+        ttk.Separator(self.control_frame, orient='horizontal').pack(fill=tk.X, pady=5)
+        
+        # Measurement buttons (workflow steps 4-5)
         self.measure_frame.pack(fill=tk.X, pady=5)
         self.record_h_btn.pack(fill=tk.X, pady=1)
         self.record_v_btn.pack(fill=tk.X, pady=1)
         
-        # File operations
-        self.file_frame.pack(fill=tk.X, pady=5)
-        self.load_image_btn.pack(fill=tk.X, pady=1)
-        self.fit_window_btn.pack(fill=tk.X, pady=1)
-        self.auto_fit_check.pack(fill=tk.X, pady=1)
+        ttk.Separator(self.control_frame, orient='horizontal').pack(fill=tk.X, pady=5)
+        
+        # Save button (workflow step 6)
+        self.save_frame.pack(fill=tk.X, pady=5)
         self.save_data_btn.pack(fill=tk.X, pady=1)
         
-        # Results
+        ttk.Separator(self.control_frame, orient='horizontal').pack(fill=tk.X, pady=5)
+        
+        # Quick entry fields
+        self.entry_frame.pack(fill=tk.X, pady=5)
+        h_entry_frame.pack(fill=tk.X, pady=2)
+        v_entry_frame.pack(fill=tk.X, pady=2)
+        notes_label_frame.pack(fill=tk.X, pady=(5,2))
+        self.notes_text.pack(fill=tk.X, pady=2)
+        
+        # Results summary
         self.results_frame.pack(fill=tk.BOTH, expand=True, pady=5)
         self.results_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.results_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -501,17 +546,13 @@ class GaugePerforationDialog:
             
             # Update display based on current state
             if self.current_gauge_overlay is not None:
-                # If gauge is active, recreate the composite with new scale
-                composite = Image.new('RGBA', self.base_image.size)
-                composite.paste(self.base_image.convert('RGBA'), (0, 0))
-                composite.paste(self.current_gauge_overlay, self.overlay_position, self.current_gauge_overlay)
-                
-                display_size = (int(img_width * self.scale_factor), int(img_height * self.scale_factor))
-                self.display_image = composite.resize(display_size, Image.LANCZOS)
+                # If gauge is active, regenerate it at the new scale
+                self._show_gauge()
             else:
                 # No gauge active, just scale the base image
                 display_size = (int(img_width * self.scale_factor), int(img_height * self.scale_factor))
                 self.display_image = self.base_image.resize(display_size, Image.LANCZOS)
+                self._update_canvas_display()
             
             self._update_canvas_display()
             
@@ -526,6 +567,49 @@ class GaugePerforationDialog:
         if self._auto_fit_enabled and hasattr(self, 'base_image'):
             # If just enabled, fit to current window size
             self._fit_to_window()
+    
+    def _on_entry_change(self, *args):
+        """Handle changes to direct entry fields."""
+        # Parse horizontal entry
+        h_text = self.h_entry_var.get().strip()
+        if h_text:
+            try:
+                # Handle fractional notation
+                if '¼' in h_text:
+                    h_text = h_text.replace('¼', '.25')
+                elif '½' in h_text:
+                    h_text = h_text.replace('½', '.5')
+                elif '¾' in h_text:
+                    h_text = h_text.replace('¾', '.75')
+                self.horizontal_measurement = float(h_text)
+            except ValueError:
+                self.horizontal_measurement = None
+        else:
+            self.horizontal_measurement = None
+        
+        # Parse vertical entry
+        v_text = self.v_entry_var.get().strip()
+        if v_text:
+            try:
+                # Handle fractional notation
+                if '¼' in v_text:
+                    v_text = v_text.replace('¼', '.25')
+                elif '½' in v_text:
+                    v_text = v_text.replace('½', '.5')
+                elif '¾' in v_text:
+                    v_text = v_text.replace('¾', '.75')
+                self.vertical_measurement = float(v_text)
+            except ValueError:
+                self.vertical_measurement = None
+        else:
+            self.vertical_measurement = None
+        
+        # Update results display and enable save if we have any measurement
+        self._update_results_display()
+        if self.horizontal_measurement is not None or self.vertical_measurement is not None:
+            self.save_data_btn.configure(state='normal')
+        else:
+            self.save_data_btn.configure(state='disabled')
     
     def _on_canvas_click(self, event):
         """Handle canvas click for gauge dragging."""
@@ -599,10 +683,11 @@ class GaugePerforationDialog:
             messagebox.showwarning("No Gauge", "Please show the gauge overlay first")
             return
         
-        # For now, prompt user to visually read the gauge
+        # Prompt user to visually read the gauge
         result = self._prompt_gauge_reading("Horizontal")
         if result:
             self.horizontal_measurement = result
+            self.h_entry_var.set(str(result))  # Update entry field
             self._update_results_display()
             self.status_var.set("Horizontal measurement recorded")
     
@@ -615,6 +700,7 @@ class GaugePerforationDialog:
         result = self._prompt_gauge_reading("Vertical")
         if result:
             self.vertical_measurement = result
+            self.v_entry_var.set(str(result))  # Update entry field
             self._update_results_display()
             self.status_var.set("Vertical measurement recorded")
     
@@ -712,9 +798,6 @@ class GaugePerforationDialog:
                 catalog_format = f"{h_str} x {v_str}"
             
             self.results_text.insert(tk.END, f"Catalog Format: {catalog_format}\n", "catalog")
-            
-            # Enable save button
-            self.save_data_btn.configure(state='normal')
         
         # Configure text tags
         self.results_text.tag_configure("header", font=("TkDefaultFont", 10, "bold"))
@@ -756,6 +839,9 @@ class GaugePerforationDialog:
                 # Reset measurements
                 self.horizontal_measurement = None
                 self.vertical_measurement = None
+                self.h_entry_var.set('')
+                self.v_entry_var.set('')
+                self.notes_text.delete('1.0', tk.END)
                 self._update_results_display()
                 self.save_data_btn.configure(state='disabled')
                 
@@ -791,11 +877,14 @@ class GaugePerforationDialog:
             data_file_path = logger.log_perforation_analysis(perf_data)
             
             if data_file_path:
-                messagebox.showinfo(
-                    "Success", 
-                    f"Gauge measurements saved to StampZ data logger:\n\n{data_file_path.name}\n\n"
-                    f"This integrates with your existing StampZ analysis data."
-                )
+                # Check for crop-related files and auto-merge
+                merge_info = self._auto_merge_crop_files(data_file_path)
+                
+                success_msg = f"Gauge measurements saved to:\n\n{data_file_path.name}"
+                if merge_info:
+                    success_msg += f"\n\n{merge_info}"
+                
+                messagebox.showinfo("Success", success_msg)
                 self.status_var.set("Measurements logged to unified data file")
             else:
                 raise Exception("Data logger returned no file path")
@@ -841,6 +930,11 @@ class GaugePerforationDialog:
             catalog_format = "Not measured"
             gauge_measurement = "Not measured"
         
+        # Get user notes from text field
+        user_notes = self.notes_text.get("1.0", tk.END).strip()
+        base_notes = f"Measured using traditional gauge overlay at {self.dpi_var.get()} DPI"
+        combined_notes = f"{base_notes}. {user_notes}" if user_notes else base_notes
+        
         # Create comprehensive data dictionary
         perf_data = {
             'perf_type': perforation_type,
@@ -849,11 +943,11 @@ class GaugePerforationDialog:
             'horizontal_gauge': self.horizontal_measurement if self.horizontal_measurement is not None else "Not measured",
             'vertical_gauge': self.vertical_measurement if self.vertical_measurement is not None else "Not measured",
             'dpi_used': self.dpi_var.get(),
-            'color_scheme': self.color_var.get(),
+            'color_scheme': 'traditional white/black',
             'measurement_method': 'Visual gauge reading with traditional overlay',
             'measurement_tool': 'StampZ Gauge Perforation System',
             'regularity': 'Visual assessment with gauge overlay',
-            'notes': f"Measured using traditional gauge overlay at {self.dpi_var.get()} DPI with {self.color_var.get()} color scheme"
+            'notes': combined_notes
         }
         
         return perf_data
@@ -884,6 +978,85 @@ class GaugePerforationDialog:
                 
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to save measurements: {str(e)}")
+    
+    def _auto_merge_crop_files(self, current_data_file):
+        """Auto-merge data from original and cropped image files.
+        
+        The cropped version (-crp) is always the master file.
+        Data from the original (uncropped) file is merged into the -crp file,
+        and the original file is then deleted.
+        
+        Args:
+            current_data_file: Path to the current data file
+            
+        Returns:
+            String describing merge action, or None if no merge occurred
+        """
+        try:
+            from pathlib import Path
+            import os
+            
+            current_path = Path(current_data_file)
+            current_stem = current_path.stem  # e.g., "stamp-crp_StampZ_Data"
+            
+            # Remove _StampZ_Data suffix to get image name
+            if current_stem.endswith('_StampZ_Data'):
+                image_name = current_stem[:-len('_StampZ_Data')]
+            else:
+                return None
+            
+            # Check if this is a cropped file (ends with -crp)
+            if image_name.endswith('-crp'):
+                # This is cropped - look for original and merge it in
+                original_image_name = image_name[:-len('-crp')]
+                original_data_file = current_path.parent / f"{original_image_name}_StampZ_Data.txt"
+                
+                if original_data_file.exists():
+                    # Merge: append original data to cropped file with a note
+                    with open(original_data_file, 'r', encoding='utf-8') as orig:
+                        original_content = orig.read()
+                    
+                    with open(current_path, 'a', encoding='utf-8') as current:
+                        current.write("\n" + "=" * 50 + "\n")
+                        current.write("DATA MERGED FROM ORIGINAL (UNCROPPED) IMAGE\n")
+                        current.write(f"Merged from: {original_data_file.name}\n")
+                        current.write(f"Merge timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                        current.write("=" * 50 + "\n")
+                        current.write(original_content)
+                    
+                    # Delete the original file after successful merge
+                    os.remove(original_data_file)
+                    
+                    return f"✓ Merged & consolidated data:\n- From: {original_data_file.name} (deleted)\n- Into: {current_path.name}"
+            
+            else:
+                # This is original - check if cropped version exists
+                cropped_image_name = f"{image_name}-crp"
+                cropped_data_file = current_path.parent / f"{cropped_image_name}_StampZ_Data.txt"
+                
+                if cropped_data_file.exists():
+                    # Merge: append current data to cropped file (master)
+                    with open(current_path, 'r', encoding='utf-8') as curr:
+                        current_content = curr.read()
+                    
+                    with open(cropped_data_file, 'a', encoding='utf-8') as cropped:
+                        cropped.write("\n" + "=" * 50 + "\n")
+                        cropped.write("DATA MERGED FROM ORIGINAL (UNCROPPED) IMAGE\n")
+                        cropped.write(f"Merged from: {current_path.name}\n")
+                        cropped.write(f"Merge timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                        cropped.write("=" * 50 + "\n")
+                        cropped.write(current_content)
+                    
+                    # Delete the original file after successful merge
+                    os.remove(current_path)
+                    
+                    return f"✓ Merged & consolidated data:\n- From: {current_path.name} (deleted)\n- Into: {cropped_data_file.name} (master)"
+            
+            return None
+            
+        except Exception as e:
+            print(f"Warning: Auto-merge failed: {e}")
+            return None
     
     def _save_to_manual_file(self, filename):
         """Save measurements to manual file (fallback method)."""
@@ -921,8 +1094,16 @@ class GaugePerforationDialog:
         lines.append("MEASUREMENT DETAILS")
         lines.append("-" * 20)
         lines.append(f"DPI Used: {self.dpi_var.get()}")
-        lines.append(f"Color Scheme: {self.color_var.get()}")
+        lines.append(f"Color Scheme: traditional white/black")
         lines.append("Measurement Method: Visual gauge reading")
+        
+        # Add user notes if provided
+        user_notes = self.notes_text.get("1.0", tk.END).strip()
+        if user_notes:
+            lines.append("")
+            lines.append("NOTES")
+            lines.append("-" * 20)
+            lines.append(user_notes)
         
         # Write to file
         with open(filename, 'w') as f:
