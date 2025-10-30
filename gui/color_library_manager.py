@@ -127,6 +127,12 @@ class ColorLibraryManager:
         self.library_combo.bind("<<ComboboxSelected>>", self._on_library_changed)
         
         ttk.Button(library_row, text="New Library", command=self._create_new_library).pack(side=tk.LEFT, padx=(0, 5))
+        
+        # Copy selected colors button
+        self.copy_selected_btn = ttk.Button(library_row, text="Copy Selected to Library...", 
+                                            command=self._copy_selected_to_library, state='disabled')
+        self.copy_selected_btn.pack(side=tk.RIGHT, padx=(5, 0))
+        
         self.add_color_btn = ttk.Button(library_row, text="Add Color", command=self._add_color_dialog)
         self.add_color_btn.pack(side=tk.RIGHT, padx=(5, 0))
         
@@ -215,6 +221,10 @@ class ColorLibraryManager:
         self.page_size = 50
         self.filtered_colors = []
         self.search_term = ""
+        
+        # Initialize selection tracking
+        self.color_checkboxes = {}  # Maps color id to checkbox variable
+        self.selected_colors = set()  # Set of selected color IDs
         
         # Add explicit bindings for better click detection
         self.add_color_btn.bind('<Button-1>', lambda e: self._add_color_dialog())
@@ -596,6 +606,13 @@ class ColorLibraryManager:
             display_frame = ttk.Frame(self.scroll_manager.content_frame)
             display_frame.pack(fill=tk.X, pady=1, padx=2, expand=True)
             
+            # Checkbox for selection
+            checkbox_var = tk.BooleanVar(value=False)
+            checkbox = ttk.Checkbutton(display_frame, variable=checkbox_var,
+                                      command=lambda c=color, v=checkbox_var: self._on_color_selected(c, v))
+            checkbox.pack(side=tk.LEFT, padx=5)
+            self.color_checkboxes[id(color)] = checkbox_var
+            
             # Show color information based on user preferences
             from utils.color_display_utils import get_conditional_color_info
             color_info = get_conditional_color_info(color.rgb, color.lab)
@@ -606,7 +623,7 @@ class ColorLibraryManager:
                 color.rgb,
                 color.name,
                 color_info,
-                width=min(frame_width - 400, 1200),  # 4x wider (300 -> 1200)
+                width=min(frame_width - 450, 1150),  # Adjusted for checkbox
                 height=120  # Increased height to show color values properly
             )
             color_display.pack(side=tk.LEFT, fill=tk.Y)
@@ -714,6 +731,142 @@ class ColorLibraryManager:
         self.search_term = ""
         self.current_page = 0
         self._update_colors_display(reset_pagination=True)
+    
+    def _on_color_selected(self, color, checkbox_var):
+        """Handle color selection/deselection."""
+        color_id = id(color)
+        if checkbox_var.get():
+            self.selected_colors.add(color_id)
+        else:
+            self.selected_colors.discard(color_id)
+        
+        # Enable/disable Copy Selected button based on selection
+        if self.selected_colors:
+            self.copy_selected_btn.configure(state='normal')
+        else:
+            self.copy_selected_btn.configure(state='disabled')
+    
+    def _copy_selected_to_library(self):
+        """Copy selected colors to another library."""
+        if not self.selected_colors:
+            messagebox.showinfo("No Selection", "Please select colors to copy first.")
+            return
+        
+        # Get list of selected color objects
+        selected_color_objects = []
+        for color in self.filtered_colors:
+            if id(color) in self.selected_colors:
+                selected_color_objects.append(color)
+        
+        if not selected_color_objects:
+            messagebox.showwarning("No Colors", "No colors selected.")
+            return
+        
+        # Create dialog to select destination library
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Copy Colors to Library")
+        dialog.geometry("400x300")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Center dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (200)
+        y = (dialog.winfo_screenheight() // 2) - (150)
+        dialog.geometry(f"+{x}+{y}")
+        
+        ttk.Label(dialog, text=f"Copy {len(selected_color_objects)} selected colors to:",
+                 font=("Arial", 11, "bold")).pack(pady=10)
+        
+        # Get available libraries
+        from utils.path_utils import get_color_libraries_dir
+        library_dir = get_color_libraries_dir()
+        library_files = [f for f in os.listdir(library_dir) if f.endswith("_library.db")]
+        library_names = [f[:-11] for f in library_files]  # Remove _library.db suffix
+        
+        # Remove current library from options
+        if self.current_library_name in library_names:
+            library_names.remove(self.current_library_name)
+        
+        if not library_names:
+            messagebox.showinfo("No Libraries", "No other libraries available. Create a new library first.")
+            dialog.destroy()
+            return
+        
+        # Library selection
+        ttk.Label(dialog, text="Select destination library:").pack(pady=5)
+        library_var = tk.StringVar(value=library_names[0])
+        library_combo = ttk.Combobox(dialog, textvariable=library_var, values=library_names,
+                                    state="readonly", width=30)
+        library_combo.pack(pady=5)
+        
+        # Option to create new library
+        ttk.Label(dialog, text="Or create new library:").pack(pady=(15, 5))
+        new_library_var = tk.StringVar()
+        new_library_entry = ttk.Entry(dialog, textvariable=new_library_var, width=32)
+        new_library_entry.pack(pady=5)
+        
+        def do_copy():
+            # Determine destination
+            new_name = new_library_var.get().strip()
+            if new_name:
+                # Create new library
+                dest_library_name = "_".join(new_name.lower().split())
+                try:
+                    dest_library = ColorLibrary(dest_library_name)
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to create library: {str(e)}")
+                    return
+            else:
+                dest_library_name = library_var.get()
+                dest_library = ColorLibrary(dest_library_name)
+            
+            # Copy colors
+            try:
+                copied = 0
+                skipped = 0
+                for color in selected_color_objects:
+                    # Check if color already exists
+                    existing = dest_library.get_all_colors()
+                    if any(c.name == color.name for c in existing):
+                        skipped += 1
+                        continue
+                    
+                    # Copy the color
+                    dest_library.add_color(
+                        name=color.name,
+                        rgb=color.rgb,
+                        lab=color.lab,
+                        category=color.category if hasattr(color, 'category') else 'General',
+                        notes=color.notes if hasattr(color, 'notes') else None
+                    )
+                    copied += 1
+                
+                dialog.destroy()
+                
+                # Refresh library list if we created a new one
+                if new_name:
+                    self._update_library_list()
+                
+                messagebox.showinfo(
+                    "Copy Complete",
+                    f"Copied {copied} colors to library '{dest_library_name}'.\n"
+                    f"Skipped {skipped} duplicates."
+                )
+                
+                # Clear selection
+                self.selected_colors.clear()
+                self.copy_selected_btn.configure(state='disabled')
+                self._update_colors_display(reset_pagination=False)
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to copy colors: {str(e)}")
+        
+        # Buttons
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(pady=20)
+        ttk.Button(button_frame, text="Copy", command=do_copy).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
     
     def _on_sort_changed(self, event=None):
         """Handle sort method change."""
