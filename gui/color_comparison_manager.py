@@ -665,10 +665,12 @@ class ColorComparisonManager(tk.Frame):
         name_label.pack(anchor='w')
         
         # Color values and Delta E
+        # Display very small ΔE values (< 0.1) as 0.0 to account for floating-point rounding
+        display_delta_e = 0.0 if match.delta_e_2000 < 0.1 else match.delta_e_2000
         values_text = (
             f"RGB: ({int(color_rgb[0])}, {int(color_rgb[1])}, {int(color_rgb[2])}) | "
             f"L*a*b*: ({match.library_color.lab[0]:.1f}, {match.library_color.lab[1]:.1f}, {match.library_color.lab[2]:.1f}) | "
-            f"ΔE: {match.delta_e_2000:.2f}"
+            f"ΔE: {display_delta_e:.2f}"
         )
         
         values_label = ttk.Label(

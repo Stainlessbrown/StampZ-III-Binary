@@ -233,11 +233,74 @@ class ArchitecturalMeasurement:
         x1, y1 = self.start_point
         x2, y2 = self.end_point
         
+        # For distance mode (diagonal), draw along the actual angle
+        if self.measurement_type == "distance":
+            # Calculate angle of measurement
+            dx = x2 - x1
+            dy = y2 - y1
+            length = math.sqrt(dx**2 + dy**2)
+            
+            if length == 0:
+                # Degenerate case - return simple geometry
+                return {
+                    "extension_lines": [],
+                    "dimension_line": ((x1, y1), (x2, y2)),
+                    "text_position": (x1, y1),
+                    "text_rotation": 0
+                }
+            
+            # Unit vector along measurement direction
+            ux = dx / length
+            uy = dy / length
+            
+            # Perpendicular unit vector (for offset)
+            px = -uy
+            py = ux
+            
+            # Offset the dimension line perpendicular to measurement
+            offset_x = px * offset
+            offset_y = py * offset
+            
+            # Dimension line endpoints (offset from actual measurement)
+            dim_x1 = x1 + offset_x
+            dim_y1 = y1 + offset_y
+            dim_x2 = x2 + offset_x
+            dim_y2 = y2 + offset_y
+            
+            # Extension lines from endpoints to dimension line
+            ext_len = 5  # Small extension beyond dimension line
+            extension_lines = [
+                ((x1, y1), (dim_x1 + px * ext_len, dim_y1 + py * ext_len)),
+                ((x2, y2), (dim_x2 + px * ext_len, dim_y2 + py * ext_len))
+            ]
+            
+            dimension_line = ((dim_x1, dim_y1), (dim_x2, dim_y2))
+            
+            # Text position at midpoint of dimension line, slightly further offset
+            text_position = ((dim_x1 + dim_x2) / 2 + px * 12, (dim_y1 + dim_y2) / 2 + py * 12)
+            
+            # Text rotation to match measurement angle (in degrees)
+            angle_rad = math.atan2(dy, dx)
+            text_rotation = math.degrees(angle_rad)
+            # Keep text upright (don't flip it upside down)
+            if text_rotation > 90:
+                text_rotation -= 180
+            elif text_rotation < -90:
+                text_rotation += 180
+            
+            return {
+                "extension_lines": extension_lines,
+                "dimension_line": dimension_line,
+                "text_position": text_position,
+                "text_rotation": text_rotation
+            }
+        
+        # For horizontal and vertical modes, use original logic
         # Determine if primarily horizontal or vertical
         dx = abs(x2 - x1)
         dy = abs(y2 - y1)
         
-        if dx > dy:  # Horizontal measurement
+        if dx > dy or self.measurement_type == "horizontal":  # Horizontal measurement
             dim_y = max(y1, y2) + offset
             extension_lines = [
                 ((x1, y1), (x1, dim_y + 5)),  # Start extension line
