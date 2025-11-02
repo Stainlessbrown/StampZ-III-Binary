@@ -114,7 +114,7 @@ class DatabaseViewer:
         ttk.Button(controls_frame, text="Manage Backups", command=self._manage_backups).pack(side=tk.LEFT, padx=5)
         ttk.Button(controls_frame, text="Delete Selected", command=self._delete_selected).pack(side=tk.LEFT, padx=5)
         ttk.Button(controls_frame, text="Clear All", command=self._clear_all_data).pack(side=tk.LEFT, padx=5)
-        ttk.Button(controls_frame, text="Delete Current", command=self._delete_sample_set).pack(side=tk.LEFT, padx=5)
+        ttk.Button(controls_frame, text="Delete Database", command=self._delete_sample_set).pack(side=tk.LEFT, padx=5)
         ttk.Button(controls_frame, text="Manage Templates", command=self._open_template_manager).pack(side=tk.LEFT, padx=5)
         
         # Create treeview with scrollbars
@@ -465,13 +465,16 @@ class DatabaseViewer:
             return
         
         if self.data_source.get() == "color_analysis":
-            if not messagebox.askyesno("Confirm Delete Sample Set",
-                                      f"DELETE ENTIRE SAMPLE SET '{self.current_sample_set}'?\n\n"
+            if not messagebox.askyesno("⚠️ WARNING: PERMANENT DATABASE DELETION",
+                                      f"You are about to PERMANENTLY DELETE the entire database:\n"
+                                      f"'{self.current_sample_set}'\n\n"
                                       "This will delete:\n"
                                       "• All color measurements\n"
                                       "• The sample set database file\n"
                                       "• The coordinate template (if it exists)\n\n"
-                                      "This action cannot be undone!"):
+                                      "⚠️ THIS ACTION IS PERMANENT AND CANNOT BE UNDONE!\n\n"
+                                      "Are you absolutely sure you want to proceed?",
+                                      icon='warning'):
                 return
             
             try:
@@ -508,10 +511,13 @@ class DatabaseViewer:
                 messagebox.showerror("Error", f"Failed to delete sample set: {str(e)}")
         
         else:  # color_libraries
-            if not messagebox.askyesno("Confirm Delete Library",
-                                      f"DELETE COLOR LIBRARY '{self.current_sample_set}'?\n\n"
+            if not messagebox.askyesno("⚠️ WARNING: PERMANENT LIBRARY DELETION",
+                                      f"You are about to PERMANENTLY DELETE the entire library:\n"
+                                      f"'{self.current_sample_set}'\n\n"
                                       "This will permanently delete the entire library file.\n\n"
-                                      "This action cannot be undone!"):
+                                      "⚠️ THIS ACTION IS PERMANENT AND CANNOT BE UNDONE!\n\n"
+                                      "Are you absolutely sure you want to proceed?",
+                                      icon='warning'):
                 return
             
             try:

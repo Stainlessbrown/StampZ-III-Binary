@@ -97,9 +97,9 @@ class StampZApp:
         # For width, we can be more generous since horizontal space is less constrained
         window_width = int(screen_width * 0.85)
         
-        # Position window with some top margin to account for menu bars
+        # Position window from top with margin for menu bar
         x_position = (screen_width - window_width) // 2
-        y_position = max(50, (screen_height - window_height) // 2)  # At least 50px from top
+        y_position = 50  # Fixed position from top
         
         self.root.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
         
