@@ -67,6 +67,10 @@ class FileManager:
                 self.root.title(f"StampZ - {base_filename}")
                 self.app.control_panel.update_current_filename(filename)
                 
+                # Update image dimensions display
+                width, height = image.size
+                self.app.control_panel.update_image_dimensions(width, height)
+                
                 # Show format information to user
                 self._show_format_info(filename, metadata)
                 
@@ -114,19 +118,21 @@ class FileManager:
             logger.warning(f"Error showing format info: {e}")
 
     def save_image(self):
-        """Save the cropped image with format optimization."""
+        """Save the cropped or aligned image with format optimization."""
         if not self.app.canvas.original_image:
             messagebox.showwarning("No Image", "Please open an image before saving.")
             return
-            
-        try:
-            _ = self.app.canvas.get_cropped_image()
-        except ValueError as e:
-            messagebox.showwarning("Invalid Selection", str(e))
-            return
-            
+        
+        # Check if we have a crop selection or if we're saving the whole image (e.g., aligned)
         try:
             cropped = self.app.canvas.get_cropped_image()
+            is_cropped = True
+        except ValueError:
+            # No crop selection - save the entire image (e.g., aligned image)
+            cropped = self.app.canvas.original_image
+            is_cropped = False
+            
+        try:
             panel_options = self.app.control_panel.get_save_options()
             save_manager = SaveManager()
             
@@ -145,12 +151,20 @@ class FileManager:
                 default_ext = '.tif'
 
             filename_manager = FilenameManager()
-            suggested_name = filename_manager.generate_cropped_filename(
-                original_file=self.app.current_file,
-                cropped_image=cropped,
-                extension=default_ext,
-                use_dimensions=True
-            )
+            if is_cropped:
+                suggested_name = filename_manager.generate_cropped_filename(
+                    original_file=self.app.current_file,
+                    cropped_image=cropped,
+                    extension=default_ext,
+                    use_dimensions=True
+                )
+            else:
+                # For aligned images, suggest name with _aligned suffix
+                if self.app.current_file:
+                    base = os.path.splitext(os.path.basename(self.app.current_file))[0]
+                    suggested_name = f"{base}_aligned{default_ext}"
+                else:
+                    suggested_name = f"aligned_image{default_ext}"
 
             from utils.user_preferences import get_preferences_manager
             prefs_manager = get_preferences_manager()
@@ -162,8 +176,9 @@ class FileManager:
                 # Fallback to last used directory if no current file
                 initial_dir = prefs_manager.get_last_save_directory()
             
+            save_title = "Save Cropped Image" if is_cropped else "Save Aligned Image"
             filepath = filedialog.asksaveasfilename(
-                title="Save Cropped Image",
+                title=save_title,
                 defaultextension=default_ext,
                 initialfile=suggested_name,
                 filetypes=filetypes,
@@ -206,12 +221,17 @@ class FileManager:
 
                 save_manager.save_image(cropped, filepath, panel_options)
                 self.app.recent_files.add_file(filepath)
+                
+                # Update dimensions display after save
+                width, height = cropped.size
+                self.app.control_panel.update_image_dimensions(width, height)
 
+                save_type = "Cropped" if is_cropped else "Aligned"
                 replace_response = messagebox.askyesno(
                     "Replace Original?", 
-                    f"Cropped image saved successfully!\\n\\n"
-                    f"Would you like to replace the original image with the cropped version?\\n\\n"
-                    f"This will load the cropped image for further editing."
+                    f"{save_type} image saved successfully!\\n\\n"
+                    f"Would you like to replace the original image with the {save_type.lower()} version?\\n\\n"
+                    f"This will load the {save_type.lower()} image for further editing."
                 )
 
                 if replace_response:

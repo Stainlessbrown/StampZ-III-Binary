@@ -19,6 +19,7 @@ from .menu_manager import MenuManager
 from .file_manager import FileManager
 from .analysis_manager import AnalysisManager
 from .settings_manager import SettingsManager
+from utils.image_alignment import ImageAlignmentManager
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ class StampZApp:
         self.file_manager = FileManager(self)
         self.analysis_manager = AnalysisManager(self)
         self.settings_manager = SettingsManager(self)
+        self.alignment_manager = ImageAlignmentManager()
         
         # Use the environment variable for recent files directory
         stampz_data_dir = os.getenv('STAMPZ_DATA_DIR')
@@ -1715,3 +1717,153 @@ class StampZApp:
                 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to reset offsets: {str(e)}")
+    
+    # Image Alignment Methods
+    def set_alignment_reference(self):
+        """Set current image as reference template for alignment."""
+        if not self.canvas.original_image:
+            messagebox.showwarning("No Image", "Please load an image first.")
+            return
+        
+        try:
+            success = self.alignment_manager.set_reference_image(self.canvas.original_image)
+            
+            if success:
+                info = self.alignment_manager.get_reference_info()
+                messagebox.showinfo(
+                    "Reference Set",
+                    f"✓ Reference template set successfully!\n\n"
+                    f"Detected {info['num_features']} features\n"
+                    f"Image size: {info['size'][0]}x{info['size'][1]}\n\n"
+                    f"You can now auto-align other images of the same stamp design.\n\n"
+                    f"Remember to SAVE the reference for future use!"
+                )
+                # Update title bar
+                if self.current_file:
+                    self.root.title(f"StampZ - {os.path.basename(self.current_file)} [Reference]")
+            else:
+                messagebox.showerror(
+                    "Reference Failed",
+                    "Could not detect enough features in the image.\n\n"
+                    "Make sure the image has clear frame/border details."
+                )
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to set reference: {str(e)}")
+    
+    def auto_align_image(self):
+        """Auto-align current image to the reference template."""
+        if not self.alignment_manager.has_reference():
+            messagebox.showwarning(
+                "No Reference",
+                "Please set a reference template first using:\n"
+                "File → Image Alignment → Set as Reference Template"
+            )
+            return
+        
+        if not self.canvas.original_image:
+            messagebox.showwarning("No Image", "Please load an image to align.")
+            return
+        
+        try:
+            # Show progress
+            messagebox.showinfo(
+                "Aligning",
+                "Aligning image to reference...\nThis may take a few seconds."
+            )
+            
+            # Perform alignment
+            aligned_image, info = self.alignment_manager.align_image(self.canvas.original_image)
+            
+            if info['success']:
+                # Replace current image with aligned version
+                self.canvas.load_image(aligned_image)
+                
+                # Update image dimensions display
+                width, height = aligned_image.size
+                self.control_panel.update_image_dimensions(width, height)
+                
+                # Update current file marker to indicate alignment
+                if self.current_file:
+                    self.root.title(f"StampZ - {os.path.basename(self.current_file)} [ALIGNED]")
+                
+                messagebox.showinfo(
+                    "Alignment Successful",
+                    f"✓ Image aligned successfully!\n\n"
+                    f"{info['message']}\n\n"
+                    f"The image is now registered to the reference template.\n"
+                    f"Aligned to: {aligned_image.size[0]}×{aligned_image.size[1]} pixels\n\n"
+                    f"You can apply the same sampling markers."
+                )
+            else:
+                messagebox.showerror(
+                    "Alignment Failed",
+                    f"Could not align image:\n\n{info['message']}\n\n"
+                    f"This may happen if the images are too different or\n"
+                    f"if the stamp design doesn't match the reference."
+                )
+        except Exception as e:
+            messagebox.showerror("Error", f"Alignment error: {str(e)}")
+    
+    def save_alignment_reference(self):
+        """Save reference template to file."""
+        if not self.alignment_manager.has_reference():
+            messagebox.showwarning("No Reference", "No reference template to save.")
+            return
+        
+        try:
+            from tkinter import filedialog
+            filepath = filedialog.asksaveasfilename(
+                title="Save Reference Template",
+                defaultextension=".pkl",
+                filetypes=[("Reference Template", "*.pkl"), ("All Files", "*.*")]
+            )
+            
+            if filepath:
+                success = self.alignment_manager.save_reference(filepath)
+                if success:
+                    messagebox.showinfo("Saved", f"Reference template saved to:\n{filepath}")
+                else:
+                    messagebox.showerror("Error", "Failed to save reference template.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save reference: {str(e)}")
+    
+    def load_alignment_reference(self):
+        """Load reference template from file."""
+        try:
+            from tkinter import filedialog
+            filepath = filedialog.askopenfilename(
+                title="Load Reference Template",
+                filetypes=[("Reference Template", "*.pkl"), ("All Files", "*.*")]
+            )
+            
+            if filepath:
+                success = self.alignment_manager.load_reference(filepath)
+                if success:
+                    info = self.alignment_manager.get_reference_info()
+                    import os
+                    ref_name = os.path.basename(filepath)
+                    messagebox.showinfo(
+                        "Loaded",
+                        f"✓ Reference template loaded!\n\n"
+                        f"File: {ref_name}\n"
+                        f"Features: {info['num_features']}\n"
+                        f"Size: {info['size'][0]}x{info['size'][1]}"
+                    )
+                    # Update title bar to show reference is loaded
+                    self.root.title(f"StampZ - [Reference: {ref_name}]")
+                else:
+                    messagebox.showerror("Error", "Failed to load reference template.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load reference: {str(e)}")
+    
+    def clear_alignment_reference(self):
+        """Clear the current reference template."""
+        if not self.alignment_manager.has_reference():
+            messagebox.showinfo("No Reference", "No reference template to clear.")
+            return
+        
+        try:
+            self.alignment_manager.clear_reference()
+            messagebox.showinfo("Cleared", "Reference template cleared.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to clear reference: {str(e)}")

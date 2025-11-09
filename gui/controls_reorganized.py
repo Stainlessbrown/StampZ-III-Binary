@@ -90,6 +90,7 @@ class ReorganizedControlPanel(ttk.Frame):
         # Mouse coordinates
         self.mouse_x = tk.StringVar(value="--")
         self.mouse_y = tk.StringVar(value="--")
+        self.image_dimensions = tk.StringVar(value="--")
         
         # Tool-specific variables (created but not displayed until needed)
         self.vertex_count = tk.IntVar(value=4)
@@ -171,7 +172,7 @@ class ReorganizedControlPanel(ttk.Frame):
         coord_row = ttk.Frame(self)
         coord_row.pack(fill=tk.X, padx=2, pady=1)
         
-        # Left: Coordinates
+        # Left: Coordinates and dimensions
         ttk.Label(coord_row, text="X:", font=('Arial', 12)).pack(side=tk.LEFT)
         ttk.Label(coord_row, textvariable=self.mouse_x, 
                  font=('Arial', 12, 'bold'), foreground='#0066CC').pack(
@@ -180,6 +181,11 @@ class ReorganizedControlPanel(ttk.Frame):
         ttk.Label(coord_row, text="Y:", font=('Arial', 12)).pack(side=tk.LEFT)
         ttk.Label(coord_row, textvariable=self.mouse_y, 
                  font=('Arial', 12, 'bold'), foreground='#0066CC').pack(
+                     side=tk.LEFT, padx=(2, 8))
+        
+        ttk.Label(coord_row, text="Size:", font=('Arial', 12)).pack(side=tk.LEFT)
+        ttk.Label(coord_row, textvariable=self.image_dimensions, 
+                 font=('Arial', 12, 'bold'), foreground='#009900').pack(
                      side=tk.LEFT, padx=(2, 5))
         
         # Right: Zoom controls (compact with slider)
@@ -911,6 +917,10 @@ class ReorganizedControlPanel(ttk.Frame):
         """Update mouse coordinate display with single decimal precision."""
         self.mouse_x.set(f"{x:.1f}")
         self.mouse_y.set(f"{y:.1f}")
+    
+    def update_image_dimensions(self, width: int, height: int):
+        """Update image dimensions display."""
+        self.image_dimensions.set(f"{width}×{height}")
 
     def update_crop_dimensions(self, width: int, height: int):
         """Update crop dimension display."""
