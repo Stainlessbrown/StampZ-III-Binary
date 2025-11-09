@@ -974,6 +974,184 @@ class Plot3DApp:
                 except Exception as e:
                     print(f"Error plotting polynomial surface: {str(e)}")
             
+            # Handle cubic surface drawing if checkbox is checked
+            if self.show_cubic.get():
+                try:
+                    print("Starting cubic surface calculation...")
+                    # Use trendline_valid flag to ensure only points with all three coordinates are used
+                    valid_df = self.df[self.df['trendline_valid']].copy()
+                    print(f"Found {len(valid_df)} valid points for cubic calculation")
+                    
+                    # Need at least 10 points for a proper cubic surface (one for each coefficient)
+                    if len(valid_df) > 9:
+                        self.trendline_manager.calculate_cubic_regression(valid_df)
+                        
+                        # Get the cubic equation parameters for validation
+                        a, b, c, d, e, f, g, h, i, j = self.trendline_manager.get_cubic_equation()
+                        print(f"Cubic regression parameters: a={a}, b={b}, c={c}, d={d}, e={e}, f={f}, g={g}, h={h}, i={i}, j={j}")
+                        
+                        # Calculate adaptive grid size based on dataset size
+                        num_data_points = len(valid_df)
+                        if num_data_points < 20:
+                            grid_size = 15  # Smaller grid for very small datasets
+                        elif num_data_points < 50:
+                            grid_size = 20  # Medium resolution for small datasets
+                        elif num_data_points < 200:
+                            grid_size = 15  # Lower resolution for medium datasets
+                        else:
+                            grid_size = 10  # Lowest resolution for large datasets
+                        
+                        print(f"Using grid size {grid_size} for cubic surface")
+                        
+                        # Calculate the range of data for better surface boundaries
+                        x_values = valid_df['Xnorm'].values
+                        y_values = valid_df['Ynorm'].values
+                        
+                        x_min, x_max = min(x_values), max(x_values)
+                        y_min, y_max = min(y_values), max(y_values)
+                        
+                        # Extend the range slightly to show a little beyond the data points
+                        x_range = x_max - x_min
+                        y_range = y_max - y_min
+                        
+                        x_min -= 0.05 * x_range
+                        x_max += 0.05 * x_range
+                        y_min -= 0.05 * y_range
+                        y_max += 0.05 * y_range
+                        
+                        # Get cubic points for visualization with adaptive grid size
+                        x = np.linspace(x_min, x_max, grid_size)
+                        y = np.linspace(y_min, y_max, grid_size)
+                        X, Y = np.meshgrid(x, y)
+                        
+                        # Calculate Z values using the cubic equation
+                        # z = ax³ + by³ + cx²y + dxy² + ex² + fy² + gxy + hx + iy + j
+                        Z = (
+                            a * X**3 +          # ax³
+                            b * Y**3 +          # by³
+                            c * (X**2) * Y +    # cx²y
+                            d * X * (Y**2) +    # dxy²
+                            e * X**2 +          # ex²
+                            f * Y**2 +          # fy²
+                            g * X * Y +         # gxy
+                            h * X +             # hx
+                            i * Y +             # iy
+                            j                   # j
+                        )
+                        
+                        points = {'x': X, 'y': Y, 'z': Z}
+                        print(f"Generated cubic surface with dimensions: {Z.shape}")
+                        
+                        try:
+                            print("Plotting cubic surface as wireframe...")
+                            # Plot the cubic surface as a wireframe
+                            ax.plot_wireframe(
+                                points['x'],
+                                points['y'],
+                                points['z'],
+                                color=self.trendline_manager.get_cubic_color(),
+                                linewidth=0.5,  # Thinner lines
+                                alpha=0.7,      # Slight transparency
+                                label='Cubic Surface',
+                                rstride=1,      # Row stride for wireframe
+                                cstride=1,      # Column stride for wireframe
+                                zorder=18       # Below polynomial but above points
+                            )
+                            print("Successfully plotted cubic surface wireframe")
+                        except ValueError as wireframe_error:
+                            print(f"Error plotting cubic wireframe: {wireframe_error}")
+                            # Fallback to scatter plot if wireframe fails
+                            print("Falling back to scatter plot visualization for cubic surface")
+                            try:
+                                x_flat = points['x'].flatten()
+                                y_flat = points['y'].flatten()
+                                z_flat = points['z'].flatten()
+                                print(f"Created {len(x_flat)} flattened points for cubic scatter visualization")
+                                
+                                ax.scatter(
+                                    x_flat, 
+                                    y_flat, 
+                                    z_flat,
+                                    color=self.trendline_manager.get_cubic_color(),
+                                    s=2,  # Small point size
+                                    alpha=0.7,
+                                    label='Cubic Surface (scatter fallback)',
+                                    zorder=17
+                                )
+                                print("Successfully plotted cubic surface as scatter points")
+                            except Exception as scatter_error:
+                                print(f"Error in cubic scatter fallback: {scatter_error}")
+                        except Exception as general_error:
+                            print(f"Unexpected error in cubic plotting: {general_error}")
+                        
+                        # Display the cubic equation below the polynomial equation
+                        # Polynomial is at 0.90, so position this at 0.85 (5% lower)
+                        y_pos = 0.85
+                        # Simplified equation display due to length
+                        eq_text = f"Cubic: z = {a:.3f}x³ + {b:.3f}y³ + {c:.3f}x²y + {d:.3f}xy² + ..."
+                        ax.text2D(0.05, y_pos, eq_text, transform=ax.transAxes, 
+                                 fontsize=9, color=self.trendline_manager.get_cubic_color(), 
+                                 bbox=dict(facecolor='white', alpha=0.7))
+                    else:
+                        print(f"Not enough valid data points for cubic calculation. Need at least 10, got {len(valid_df)}")
+                except Exception as e:
+                    print(f"Error plotting cubic surface: {str(e)}")
+            
+            # Handle exponential curve drawing if checkbox is checked
+            if self.show_exponential.get():
+                try:
+                    print("Starting exponential curve calculation...")
+                    # Use trendline_valid flag to ensure only points with all three coordinates are used
+                    valid_df = self.df[self.df['trendline_valid']].copy()
+                    print(f"Found {len(valid_df)} valid points for exponential curve calculation")
+                    
+                    # Need at least 4 points for exponential curve
+                    if len(valid_df) > 3:
+                        self.trendline_manager.calculate_exponential_curve(valid_df)
+                        
+                        # Get curve points
+                        curve_points = self.trendline_manager.get_exponential_curve_points(valid_df, num_points=100)
+                        
+                        if curve_points is not None:
+                            print(f"Generated exponential curve with {len(curve_points['x'])} points")
+                            
+                            # Plot the exponential curve as a smooth line (not wireframe)
+                            ax.plot3D(
+                                curve_points['x'],
+                                curve_points['y'],
+                                curve_points['z'],
+                                color=self.trendline_manager.get_exponential_color(),
+                                linewidth=2.5,  # Thicker for visibility
+                                alpha=0.9,
+                                label='Exponential Curve',
+                                zorder=35  # Above everything else for visibility
+                            )
+                            print("Successfully plotted exponential curve")
+                            
+                            # Display curve type on plot
+                            y_pos = 0.80  # Position below cubic equation
+                            if self.trendline_manager.exponential_params:
+                                curve_type = self.trendline_manager.exponential_params.get('type', 'unknown')
+                                if curve_type == 'power_law':
+                                    params = self.trendline_manager.exponential_params
+                                    a = params.get('a', 0)
+                                    b = params.get('b', 0)
+                                    eq_text = f"Exp Curve: z ≈ {a:.3f} * d^{b:.3f}"
+                                else:
+                                    eq_text = f"Exp Curve: {curve_type}"
+                                
+                                ax.text2D(0.05, y_pos, eq_text, transform=ax.transAxes, 
+                                         fontsize=9, color=self.trendline_manager.get_exponential_color(), 
+                                         bbox=dict(facecolor='white', alpha=0.7))
+                        else:
+                            print("Failed to generate exponential curve points")
+                    else:
+                        print(f"Not enough valid data points for exponential curve. Need at least 4, got {len(valid_df)}")
+                except Exception as e:
+                    print(f"Error plotting exponential curve: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+            
             # Update the rotation controls with current view angles
             if hasattr(self, 'rotation_controls'):
                 try:
@@ -1060,6 +1238,8 @@ class Plot3DApp:
         # Initialize show_trendline and show_polynomial variables here instead of in _init_ui
         self.show_trendline = tk.BooleanVar(value=False)
         self.show_polynomial = tk.BooleanVar(value=False)
+        self.show_cubic = tk.BooleanVar(value=False)
+        self.show_exponential = tk.BooleanVar(value=False)
         
         # Initialize color-filtered trend line variables
         self.show_red_trendline = tk.BooleanVar(value=False)
@@ -1402,13 +1582,29 @@ class Plot3DApp:
             width=3
         ).grid(row=0, column=3, sticky='w', padx=2, pady=5)
         
-        # Add polynomial toggle
+        # Add polynomial toggle (quadratic)
         ttk.Checkbutton(
             self.trendline_frame,
-            text="Polynomial",
+            text="Polynomial (degree 2)",
             variable=self.show_polynomial,
             command=self.refresh_plot
-        ).grid(row=1, column=0, sticky='w', padx=5, pady=5)
+        ).grid(row=1, column=0, columnspan=2, sticky='w', padx=5, pady=5)
+        
+        # Add cubic polynomial toggle
+        ttk.Checkbutton(
+            self.trendline_frame,
+            text="Cubic (degree 3)",
+            variable=self.show_cubic,
+            command=self.refresh_plot
+        ).grid(row=2, column=0, columnspan=2, sticky='w', padx=5, pady=5)
+        
+        # Add exponential curved line toggle
+        ttk.Checkbutton(
+            self.trendline_frame,
+            text="Exponential Curve",
+            variable=self.show_exponential,
+            command=self.refresh_plot
+        ).grid(row=3, column=0, columnspan=2, sticky='w', padx=5, pady=5)
 
         # Create K-Means clustering GUI
         if hasattr(self, 'kmeans_manager') and self.kmeans_manager:
@@ -1537,10 +1733,35 @@ class Plot3DApp:
                 print("No data available for Plotly view")
                 return
             
-            # Determine if we should show trendline and spheres
+            # Determine if we should show trendlines and spheres
             show_trendline = False
             if hasattr(self, 'show_trendline') and self.show_trendline:
                 show_trendline = self.show_trendline.get()
+            
+            show_polynomial = False
+            if hasattr(self, 'show_polynomial') and self.show_polynomial:
+                show_polynomial = self.show_polynomial.get()
+            
+            show_cubic = False
+            if hasattr(self, 'show_cubic') and self.show_cubic:
+                show_cubic = self.show_cubic.get()
+            
+            show_exponential = False
+            if hasattr(self, 'show_exponential') and self.show_exponential:
+                show_exponential = self.show_exponential.get()
+            
+            # Get color-filtered trendline states
+            show_red_trendline = False
+            if hasattr(self, 'show_red_trendline') and self.show_red_trendline:
+                show_red_trendline = self.show_red_trendline.get()
+            
+            show_green_trendline = False
+            if hasattr(self, 'show_green_trendline') and self.show_green_trendline:
+                show_green_trendline = self.show_green_trendline.get()
+            
+            show_blue_trendline = False
+            if hasattr(self, 'show_blue_trendline') and self.show_blue_trendline:
+                show_blue_trendline = self.show_blue_trendline.get()
             
             show_spheres = False
             sphere_data = None
@@ -1595,9 +1816,20 @@ class Plot3DApp:
             
             # Open the interactive view
             print("Opening Plotly interactive view...")
-            open_interactive_view(self.df, show_trendline=show_trendline, show_spheres=show_spheres, 
-                                sphere_data=sphere_data, initial_elev=initial_elev, 
-                                initial_azim=initial_azim, initial_roll=initial_roll,
+            open_interactive_view(self.df, 
+                                show_trendline=show_trendline,
+                                show_polynomial=show_polynomial,
+                                show_cubic=show_cubic,
+                                show_exponential=show_exponential,
+                                show_red_trendline=show_red_trendline,
+                                show_green_trendline=show_green_trendline,
+                                show_blue_trendline=show_blue_trendline,
+                                trendline_manager=self.trendline_manager,
+                                show_spheres=show_spheres, 
+                                sphere_data=sphere_data, 
+                                initial_elev=initial_elev, 
+                                initial_azim=initial_azim, 
+                                initial_roll=initial_roll,
                                 axis_ranges=axis_ranges)
             
         except Exception as e:

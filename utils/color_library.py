@@ -574,7 +574,7 @@ CREATE TABLE IF NOT EXISTS library_colors (
             sample_rgb_display = self.lab_to_rgb(sample_lab)
         
         # Find matches
-        matches = self.find_closest_matches(sample_lab=sample_lab, max_delta_e=threshold, max_results=3)
+        matches = self.find_closest_matches(sample_lab=sample_lab, max_delta_e=threshold, max_results=10)
         
         # Calculate statistics
         total_colors = self.get_color_count()

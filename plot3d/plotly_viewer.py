@@ -10,13 +10,24 @@ import plotly.graph_objects as go
 import numpy as np
 
 
-def create_plotly_visualization(df, show_trendline=False, show_spheres=False, sphere_data=None,
-                                initial_elev=30, initial_azim=-60, initial_roll=0, axis_ranges=None):
+def create_plotly_visualization(df, show_trendline=False, show_polynomial=False, show_cubic=False,
+                                show_exponential=False, show_red_trendline=False, 
+                                show_green_trendline=False, show_blue_trendline=False,
+                                trendline_manager=None, show_spheres=False, 
+                                sphere_data=None, initial_elev=30, initial_azim=-60, initial_roll=0, 
+                                axis_ranges=None):
     """Create an interactive Plotly 3D scatter plot from DataFrame.
     
     Args:
         df: DataFrame with Xnorm, Ynorm, Znorm columns and optional Color, Marker, etc.
         show_trendline: Whether to show the linear trendline
+        show_polynomial: Whether to show the polynomial (degree 2) surface
+        show_cubic: Whether to show the cubic (degree 3) surface
+        show_exponential: Whether to show the exponential curved line
+        show_red_trendline: Whether to show red color-filtered trendline
+        show_green_trendline: Whether to show green color-filtered trendline
+        show_blue_trendline: Whether to show blue color-filtered trendline
+        trendline_manager: TrendlineManager instance with fitted trendlines
         show_spheres: Whether to show spheres
         sphere_data: Optional DataFrame with sphere definitions (Centroid_X/Y/Z, Sphere, Radius)
         initial_elev: Initial elevation angle from matplotlib (degrees)
@@ -97,7 +108,7 @@ def create_plotly_visualization(df, show_trendline=False, show_spheres=False, sp
         name='Data Points'
     ))
     
-    # Add trendline if requested
+    # Add linear trendline if requested
     if show_trendline and len(valid_df) >= 3:
         try:
             from sklearn.decomposition import PCA
@@ -129,11 +140,112 @@ def create_plotly_visualization(df, show_trendline=False, show_spheres=False, sp
                 x=line_x, y=line_y, z=line_z,
                 mode='lines',
                 line=dict(color='black', width=2),
-                name='Trendline',
+                name='Linear Trendline',
                 hoverinfo='skip'
             ))
         except Exception as e:
-            print(f"Could not add trendline: {e}")
+            print(f"Could not add linear trendline: {e}")
+    
+    # Add polynomial surface if requested
+    if show_polynomial and trendline_manager is not None and len(valid_df) >= 6:
+        try:
+            points = trendline_manager.get_polynomial_points(valid_df, num_points=20)
+            fig.add_trace(go.Surface(
+                x=points['x'], y=points['y'], z=points['z'],
+                colorscale=[[0, 'cyan'], [1, 'cyan']],
+                opacity=0.3,
+                showscale=False,
+                name='Polynomial (deg 2)',
+                hoverinfo='skip'
+            ))
+        except Exception as e:
+            print(f"Could not add polynomial surface: {e}")
+    
+    # Add cubic surface if requested
+    if show_cubic and trendline_manager is not None and len(valid_df) >= 10:
+        try:
+            points = trendline_manager.get_cubic_points(valid_df, num_points=20)
+            fig.add_trace(go.Surface(
+                x=points['x'], y=points['y'], z=points['z'],
+                colorscale=[[0, 'orange'], [1, 'orange']],
+                opacity=0.3,
+                showscale=False,
+                name='Cubic (deg 3)',
+                hoverinfo='skip'
+            ))
+        except Exception as e:
+            print(f"Could not add cubic surface: {e}")
+    
+    # Add exponential curve if requested
+    if show_exponential and trendline_manager is not None and len(valid_df) >= 4:
+        try:
+            curve_points = trendline_manager.get_exponential_curve_points(valid_df, num_points=100)
+            if curve_points is not None:
+                fig.add_trace(go.Scatter3d(
+                    x=curve_points['x'],
+                    y=curve_points['y'],
+                    z=curve_points['z'],
+                    mode='lines',
+                    line=dict(color='red', width=4),
+                    name='Exponential Curve',
+                    hoverinfo='skip'
+                ))
+        except Exception as e:
+            print(f"Could not add exponential curve: {e}")
+    
+    # Add color-filtered trendlines if requested
+    color_trendlines = [
+        (show_red_trendline, 'red', 'Red Trendline', 'dash'),
+        (show_green_trendline, 'green', 'Green Trendline', 'dashdot'),
+        (show_blue_trendline, 'blue', 'Blue Trendline', 'dot')
+    ]
+    
+    for show_color, color_name, label, dash_style in color_trendlines:
+        if show_color and trendline_manager is not None:
+            try:
+                # Calculate color-filtered regression if not already done
+                trendline_manager.calculate_color_filtered_regression(valid_df, color_name)
+                equation = trendline_manager.get_color_line_equation(color_name)
+                
+                if equation is not None:
+                    a, b, c = equation
+                    
+                    # Use PCA for line direction (similar to main trendline)
+                    try:
+                        from sklearn.decomposition import PCA
+                    except ImportError:
+                        continue
+                    
+                    # Filter to color-specific points
+                    color_df = valid_df[valid_df['Color'].str.lower() == color_name.lower()]
+                    if len(color_df) < 3:
+                        continue
+                    
+                    X = color_df[['Xnorm', 'Ynorm']].values
+                    pca = PCA(n_components=1)
+                    pca.fit(X)
+                    direction = pca.components_[0]
+                    
+                    # Use ALL data range for consistent line length
+                    x_mean, y_mean = X.mean(axis=0)
+                    x_range = valid_df['Xnorm'].max() - valid_df['Xnorm'].min()
+                    y_range = valid_df['Ynorm'].max() - valid_df['Ynorm'].min()
+                    scale = max(x_range, y_range) * 1.5
+                    
+                    t = np.linspace(-scale, scale, 100)
+                    line_x = x_mean + direction[0] * t
+                    line_y = y_mean + direction[1] * t
+                    line_z = a * line_x + b * line_y + c
+                    
+                    fig.add_trace(go.Scatter3d(
+                        x=line_x, y=line_y, z=line_z,
+                        mode='lines',
+                        line=dict(color=color_name, width=2, dash=dash_style),
+                        name=label,
+                        hoverinfo='skip'
+                    ))
+            except Exception as e:
+                print(f"Could not add {color_name} trendline: {e}")
     
     # Add spheres if requested
     if show_spheres and sphere_data is not None:
@@ -283,13 +395,24 @@ def _add_spheres_to_plot(fig, df):
         ))
 
 
-def open_interactive_view(df, show_trendline=True, show_spheres=True, sphere_data=None,
-                         initial_elev=30, initial_azim=-60, initial_roll=0, axis_ranges=None):
+def open_interactive_view(df, show_trendline=True, show_polynomial=False, show_cubic=False,
+                         show_exponential=False, show_red_trendline=False, 
+                         show_green_trendline=False, show_blue_trendline=False,
+                         trendline_manager=None, show_spheres=True, 
+                         sphere_data=None, initial_elev=30, initial_azim=-60, initial_roll=0, 
+                         axis_ranges=None):
     """Open an interactive Plotly view of the data in the browser.
     
     Args:
         df: DataFrame to visualize
-        show_trendline: Whether to show trendline
+        show_trendline: Whether to show linear trendline
+        show_polynomial: Whether to show polynomial surface
+        show_cubic: Whether to show cubic surface
+        show_exponential: Whether to show exponential curve
+        show_red_trendline: Whether to show red color-filtered trendline
+        show_green_trendline: Whether to show green color-filtered trendline
+        show_blue_trendline: Whether to show blue color-filtered trendline
+        trendline_manager: TrendlineManager instance
         show_spheres: Whether to show spheres
         sphere_data: Optional DataFrame with sphere definitions
         initial_elev: Initial elevation angle from matplotlib
@@ -298,8 +421,12 @@ def open_interactive_view(df, show_trendline=True, show_spheres=True, sphere_dat
         axis_ranges: Optional dict with axis range limits from matplotlib
     """
     try:
-        fig = create_plotly_visualization(df, show_trendline, show_spheres, sphere_data,
-                                         initial_elev, initial_azim, initial_roll, axis_ranges)
+        fig = create_plotly_visualization(df, show_trendline, show_polynomial, show_cubic,
+                                         show_exponential, show_red_trendline, 
+                                         show_green_trendline, show_blue_trendline,
+                                         trendline_manager, show_spheres, 
+                                         sphere_data, initial_elev, initial_azim, initial_roll, 
+                                         axis_ranges)
         fig.show()
         print("Opened interactive Plotly view in browser")
     except Exception as e:
