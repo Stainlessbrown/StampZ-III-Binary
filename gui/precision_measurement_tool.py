@@ -72,6 +72,7 @@ class PrecisionMeasurementTool:
         self.precision_decimals = 2  # Default to 2 decimal places - adequate for stamps
         self.show_pixel_coords = False
         self.auto_label = True  # Skip label dialog for faster workflow
+        self.show_labels_on_image = True  # Show measurement labels on the image
         self.data_logged = False  # Track if measurements have been logged to avoid duplicates
         
         self.setup_ui()
@@ -116,9 +117,12 @@ class PrecisionMeasurementTool:
         scrollable_container.pack(fill="both", expand=True)
         
         # Canvas and scrollbar for scrolling
-        canvas = tk.Canvas(scrollable_container, width=320)
+        canvas = tk.Canvas(scrollable_container, width=320, highlightthickness=0)
         scrollbar = ttk.Scrollbar(scrollable_container, orient="vertical", command=canvas.yview)
         self.scrollable_frame = ttk.Frame(canvas)
+        
+        # Store canvas reference for later scroll binding
+        self.control_canvas = canvas
         
         self.scrollable_frame.bind(
             "<Configure>",
@@ -131,10 +135,30 @@ class PrecisionMeasurementTool:
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         
-        # Bind mouse wheel
+        # Bind mouse wheel for scrolling (cross-platform support)
         def on_mousewheel(event):
-            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-        canvas.bind("<MouseWheel>", on_mousewheel)
+            # Handle both Windows/Linux and Mac scroll directions
+            if event.num == 4 or event.delta > 0:
+                canvas.yview_scroll(-1, "units")
+            elif event.num == 5 or event.delta < 0:
+                canvas.yview_scroll(1, "units")
+        
+        # Bind to canvas and scrollable frame (multiple event types for cross-platform)
+        for bind_target in [canvas, self.scrollable_frame]:
+            bind_target.bind("<MouseWheel>", on_mousewheel)  # Windows/Mac
+            bind_target.bind("<Button-4>", on_mousewheel)     # Linux scroll up
+            bind_target.bind("<Button-5>", on_mousewheel)     # Linux scroll down
+        
+        # Also bind to all children recursively (ensures scrolling works anywhere in panel)
+        def bind_to_mousewheel(widget):
+            widget.bind("<MouseWheel>", on_mousewheel)
+            widget.bind("<Button-4>", on_mousewheel)
+            widget.bind("<Button-5>", on_mousewheel)
+            for child in widget.winfo_children():
+                bind_to_mousewheel(child)
+        
+        # Delay binding children until after UI is built
+        self.root.after(100, lambda: bind_to_mousewheel(self.scrollable_frame))
         
         control_frame = self.scrollable_frame
         
@@ -297,6 +321,11 @@ class PrecisionMeasurementTool:
                        variable=self.auto_label_var,
                        command=self.toggle_auto_label).pack(anchor="w")
         
+        self.show_labels_var = tk.BooleanVar(value=self.show_labels_on_image)
+        ttk.Checkbutton(options_frame, text="Show labels on image", 
+                       variable=self.show_labels_var,
+                       command=self.toggle_labels_display).pack(anchor="w")
+        
         # Keyboard shortcuts info (compact)
         ttk.Label(tools_frame, text="Keys: ←↑↓→ nudge, Shift+arrows coarse", 
                  font=("Arial", 7), foreground="gray").pack(pady=2)
@@ -334,6 +363,21 @@ class PrecisionMeasurementTool:
                   command=self.delete_selected_measurement).pack(side="left", padx=2)
         ttk.Button(list_buttons, text="Clear All", 
                   command=self.clear_all_measurements).pack(side="right", padx=2)
+        
+        # Edit buttons
+        edit_buttons = ttk.Frame(list_frame)
+        edit_buttons.pack(fill="x", pady=(2, 5))
+        
+        ttk.Button(edit_buttons, text="Edit Label", 
+                  command=self.edit_selected_label).pack(side="left", padx=2, fill="x", expand=True)
+        ttk.Button(edit_buttons, text="Add/Edit Note 📝", 
+                  command=self.edit_selected_note).pack(side="right", padx=2, fill="x", expand=True)
+        
+        # Help text
+        help_text = ttk.Label(list_frame, 
+                            text="Tip: Right-click or select & click button above",
+                            font=("Arial", 7), foreground="gray")
+        help_text.pack(pady=(0, 5))
         
     def setup_actions_section(self, parent):
         """Setup export and action buttons"""
@@ -830,7 +874,19 @@ class PrecisionMeasurementTool:
                                color=measurement.color, linewidth=line_width)
         self.ax.add_patch(arrow)
         
-        # No measurement text on image - keep it clean and professional
+        # Draw measurement label on the dimension line (if enabled)
+        if self.show_labels_on_image:
+            text_pos = geometry["text_position"]
+            text_rotation = geometry["text_rotation"]
+            
+            # Format the label text
+            label_text = measurement.label
+            
+            # Draw label text with white background for visibility
+            self.ax.text(text_pos[0], text_pos[1], label_text,
+                        ha='center', va='center', color=measurement.color,
+                        fontsize=8, rotation=text_rotation, weight='bold',
+                        bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.85, edgecolor=measurement.color))
                     
         # Draw smaller endpoint markers that match line width
         marker_size = line_width + 0.5  # Slightly larger than line for visibility
@@ -854,8 +910,11 @@ class PrecisionMeasurementTool:
         distance_mm = measurement.calculate_distance_mm(self.measurement_engine.pixels_per_mm)
         precision = self.precision_var.get()
         
-        # Format: "Label: 12.345mm (type)"
+        # Format: "Label: 12.345mm (type)" with note indicator if present
         list_text = f"{measurement.label}: {distance_mm:.{precision}f}mm ({measurement.measurement_type})"
+        note = getattr(measurement, 'note', '')
+        if note:
+            list_text += " 📝"  # Add note indicator
         self.measurements_listbox.insert(tk.END, list_text)
         
     def update_precision(self):
@@ -933,6 +992,13 @@ class PrecisionMeasurementTool:
     def toggle_auto_label(self):
         """Toggle auto-labeling of measurements"""
         self.auto_label = self.auto_label_var.get()
+    
+    def toggle_labels_display(self):
+        """Toggle display of labels on image"""
+        self.show_labels_on_image = self.show_labels_var.get()
+        # Redraw image to update label visibility
+        if self.measurement_engine.image:
+            self.load_image_into_plot()
         
     def set_dpi_directly(self):
         """Set DPI directly without needing a reference measurement"""
@@ -968,6 +1034,8 @@ class PrecisionMeasurementTool:
         # Create context menu
         context_menu = tk.Menu(self.root, tearoff=0)
         context_menu.add_command(label="Edit Label", command=lambda: self.edit_measurement_label(selection[0]))
+        context_menu.add_command(label="Add/Edit Note", command=lambda: self.edit_measurement_note(selection[0]))
+        context_menu.add_separator()
         context_menu.add_command(label="Delete", command=lambda: self.delete_selected_measurement())
         
         # Show menu at cursor position
@@ -1006,6 +1074,77 @@ class PrecisionMeasurementTool:
         selection = self.measurements_listbox.curselection()
         if selection:
             self.edit_measurement_label(selection[0])
+    
+    def edit_selected_label(self):
+        """Edit label of selected measurement (button handler)"""
+        selection = self.measurements_listbox.curselection()
+        if not selection:
+            messagebox.showinfo("No Selection", "Please select a measurement from the list first.")
+            return
+        self.edit_measurement_label(selection[0])
+    
+    def edit_selected_note(self):
+        """Edit note of selected measurement (button handler)"""
+        selection = self.measurements_listbox.curselection()
+        if not selection:
+            messagebox.showinfo("No Selection", "Please select a measurement from the list first.")
+            return
+        self.edit_measurement_note(selection[0])
+    
+    def edit_measurement_note(self, index):
+        """Edit the note of a measurement"""
+        if index >= len(self.measurements):
+            return
+            
+        measurement = self.measurements[index]
+        from tkinter import simpledialog
+        
+        # Get current note or empty string
+        current_note = getattr(measurement, 'note', '')
+        
+        # Create a custom dialog for multi-line note editing
+        note_dialog = tk.Toplevel(self.root)
+        note_dialog.title(f"Note for {measurement.label}")
+        note_dialog.geometry("400x200")
+        
+        ttk.Label(note_dialog, text=f"Add note for: {measurement.label}").pack(pady=5)
+        
+        # Text widget for multi-line input
+        text_frame = ttk.Frame(note_dialog)
+        text_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        text_widget = tk.Text(text_frame, height=6, width=45, wrap="word")
+        text_widget.pack(side="left", fill="both", expand=True)
+        
+        scrollbar = ttk.Scrollbar(text_frame, command=text_widget.yview)
+        scrollbar.pack(side="right", fill="y")
+        text_widget.config(yscrollcommand=scrollbar.set)
+        
+        # Insert current note
+        if current_note:
+            text_widget.insert("1.0", current_note)
+        
+        # Button frame
+        button_frame = ttk.Frame(note_dialog)
+        button_frame.pack(pady=10)
+        
+        def save_note():
+            new_note = text_widget.get("1.0", "end-1c").strip()
+            measurement.note = new_note
+            self.update_measurements_list()
+            self.data_logged = False
+            note_dialog.destroy()
+        
+        def cancel():
+            note_dialog.destroy()
+        
+        ttk.Button(button_frame, text="Save", command=save_note).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="Cancel", command=cancel).pack(side="left", padx=5)
+        
+        # Center the dialog
+        note_dialog.transient(self.root)
+        note_dialog.grab_set()
+        note_dialog.focus_set()
                 
     def log_to_unified_data(self):
         """Log measurements to unified StampZ data file"""
@@ -1032,9 +1171,12 @@ class PrecisionMeasurementTool:
             for i, measurement in enumerate(self.measurements, 1):
                 distance_mm = measurement.calculate_distance_mm(self.measurement_engine.pixels_per_mm)
                 precision = self.precision_var.get()
-                measurement_lines.append(
-                    f"  {i}. {measurement.label}: {distance_mm:.{precision}f}mm ({measurement.measurement_type})"
-                )
+                line = f"  {i}. {measurement.label}: {distance_mm:.{precision}f}mm ({measurement.measurement_type})"
+                # Add note if present
+                note = getattr(measurement, 'note', '')
+                if note:
+                    line += f"\n     Note: {note}"
+                measurement_lines.append(line)
             
             data = {
                 "DPI": f"{float(self.measurement_engine.dpi):.1f}" if self.measurement_engine.dpi else "Not calibrated",
@@ -1252,6 +1394,7 @@ class PrecisionMeasurementTool:
                         "measurement_type": measurement.measurement_type,
                         "label": measurement.label,
                         "color": measurement.color,
+                        "note": getattr(measurement, 'note', ''),
                         "created": measurement.created.isoformat()
                     })
                     
@@ -1284,7 +1427,8 @@ class PrecisionMeasurementTool:
                         end_point=tuple(m_data["end_point"]),
                         measurement_type=m_data["measurement_type"],
                         label=m_data["label"],
-                        color=m_data["color"]
+                        color=m_data["color"],
+                        note=m_data.get("note", "")
                     )
                     measurement.id = m_data["id"]
                     measurement.created = datetime.fromisoformat(m_data["created"])

@@ -207,13 +207,14 @@ class MeasurementEngine:
 class ArchitecturalMeasurement:
     """Single architectural-style measurement with extension lines"""
     
-    def __init__(self, start_point, end_point, measurement_type="distance", label="", color="red"):
+    def __init__(self, start_point, end_point, measurement_type="distance", label="", color="red", note=""):
         self.id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:17]  # Unique ID
         self.start_point = start_point  # (x, y) in pixels
         self.end_point = end_point      # (x, y) in pixels
         self.measurement_type = measurement_type  # "distance", "horizontal", "vertical"
         self.label = label
         self.color = color
+        self.note = note  # User-editable note for this measurement
         self.created = datetime.now()
     
     def calculate_distance_pixels(self):
@@ -249,38 +250,26 @@ class ArchitecturalMeasurement:
                     "text_rotation": 0
                 }
             
-            # Unit vector along measurement direction
-            ux = dx / length
-            uy = dy / length
+            # For distance measurements, dimension line goes directly between the two points
+            # No offset or extension lines needed - keep it simple and parallel
+            dimension_line = ((x1, y1), (x2, y2))
+            extension_lines = []  # No extension lines for direct measurements
             
-            # Perpendicular unit vector (for offset)
-            px = -uy
+            # Text position at midpoint of the measurement line
+            # Offset perpendicular to the line for label positioning
+            ux = dx / length  # Unit vector along measurement
+            uy = dy / length
+            px = -uy  # Perpendicular unit vector
             py = ux
             
-            # Offset the dimension line perpendicular to measurement
-            offset_x = px * offset
-            offset_y = py * offset
-            
-            # Dimension line endpoints (offset from actual measurement)
-            dim_x1 = x1 + offset_x
-            dim_y1 = y1 + offset_y
-            dim_x2 = x2 + offset_x
-            dim_y2 = y2 + offset_y
-            
-            # Extension lines from endpoints to dimension line
-            ext_len = 5  # Small extension beyond dimension line
-            extension_lines = [
-                ((x1, y1), (dim_x1 + px * ext_len, dim_y1 + py * ext_len)),
-                ((x2, y2), (dim_x2 + px * ext_len, dim_y2 + py * ext_len))
-            ]
-            
-            dimension_line = ((dim_x1, dim_y1), (dim_x2, dim_y2))
-            
-            # Text position at midpoint of dimension line, slightly further offset
-            text_position = ((dim_x1 + dim_x2) / 2 + px * 12, (dim_y1 + dim_y2) / 2 + py * 12)
+            mid_x = (x1 + x2) / 2
+            mid_y = (y1 + y2) / 2
+            text_position = (mid_x + px * 15, mid_y + py * 15)  # Offset label perpendicular to line
             
             # Text rotation to match measurement angle (in degrees)
-            angle_rad = math.atan2(dy, dx)
+            # Note: In matplotlib with image coordinates (Y increases downward),
+            # we need to negate dy to get the correct visual angle
+            angle_rad = math.atan2(-dy, dx)  # Negate dy for proper image coordinate rotation
             text_rotation = math.degrees(angle_rad)
             # Keep text upright (don't flip it upside down)
             if text_rotation > 90:
@@ -405,6 +394,7 @@ class MeasurementExporter:
                 "distance_pixels": measurement.calculate_distance_pixels(),
                 "distance_mm": measurement.calculate_distance_mm(engine.pixels_per_mm),
                 "color": measurement.color,
+                "note": getattr(measurement, 'note', ''),  # Include note if present
                 "created": measurement.created.isoformat()
             }
             report["measurements"].append(measurement_data)
