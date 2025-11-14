@@ -65,6 +65,16 @@ class MenuManager:
             command=self.app.auto_align_image
         )
         alignment_menu.add_separator()
+        
+        # Auto-crop toggle with checkmark
+        self.auto_crop_var = tk.BooleanVar(value=True)  # Default enabled
+        alignment_menu.add_checkbutton(
+            label="Auto-Crop Content (Recommended)",
+            variable=self.auto_crop_var,
+            command=self.app.toggle_auto_crop
+        )
+        
+        alignment_menu.add_separator()
         alignment_menu.add_command(
             label="Save Reference...",
             command=self.app.save_alignment_reference

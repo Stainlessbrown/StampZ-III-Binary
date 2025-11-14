@@ -32,12 +32,16 @@ class ImageAlignmentManager:
         self.reference_descriptors = None
         self.reference_size = None  # (width, height)
         self.reference_filepath = None  # Track loaded reference file
+        self.reference_crop_box = None  # Store crop box used for reference (left, top, right, bottom)
         
         # Alignment mode: 'similarity', 'affine', or 'perspective'
         # similarity: rotation, translation, uniform scale only (most rigid)
         # affine: rotation, translation, scale, shear (no perspective warping)
         # perspective: full homography (allows perspective distortion)
         self.alignment_mode = 'similarity'  # Default to similarity for stamps
+        
+        # Auto-crop settings
+        self.auto_crop_enabled = True  # Enable automatic content detection and cropping
         
         # ORB detector with optimized parameters for stamps
         self.orb = cv2.ORB_create(
@@ -58,6 +62,63 @@ class ImageAlignmentManager:
         # Quality thresholds
         self.min_matches = 10  # Minimum matches needed for alignment
         self.ransac_threshold = 5.0  # RANSAC outlier threshold
+    
+    def _auto_crop_content(self, pil_image: Image.Image, padding: int = 10) -> Tuple[Image.Image, Tuple[int, int, int, int]]:
+        """
+        Automatically detect and crop to stamp content, removing white/light borders.
+        
+        Args:
+            pil_image: PIL Image to crop
+            padding: Pixels of padding to keep around detected content
+            
+        Returns:
+            Tuple of (cropped PIL Image, crop_box (left, top, right, bottom))
+        """
+        try:
+            # Convert to grayscale numpy array
+            gray = np.array(pil_image.convert('L'))
+            
+            # Apply adaptive threshold to detect content
+            # This works well for stamps with various background colors
+            binary = cv2.adaptiveThreshold(
+                gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                cv2.THRESH_BINARY_INV, 51, 10
+            )
+            
+            # Find contours of content
+            contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            if not contours:
+                # No content detected, return original
+                return pil_image, (0, 0, pil_image.width, pil_image.height)
+            
+            # Find bounding box of all contours combined
+            x_min, y_min = gray.shape[1], gray.shape[0]
+            x_max, y_max = 0, 0
+            
+            for contour in contours:
+                x, y, w, h = cv2.boundingRect(contour)
+                x_min = min(x_min, x)
+                y_min = min(y_min, y)
+                x_max = max(x_max, x + w)
+                y_max = max(y_max, y + h)
+            
+            # Add padding and constrain to image bounds
+            x_min = max(0, x_min - padding)
+            y_min = max(0, y_min - padding)
+            x_max = min(pil_image.width, x_max + padding)
+            y_max = min(pil_image.height, y_max + padding)
+            
+            # Crop the image
+            crop_box = (x_min, y_min, x_max, y_max)
+            cropped = pil_image.crop(crop_box)
+            
+            print(f"  Auto-cropped from {pil_image.size} to {cropped.size}")
+            return cropped, crop_box
+            
+        except Exception as e:
+            print(f"Warning: Auto-crop failed, using original image: {e}")
+            return pil_image, (0, 0, pil_image.width, pil_image.height)
         
     def set_reference_image(self, pil_image: Image.Image) -> bool:
         """
@@ -70,6 +131,13 @@ class ImageAlignmentManager:
             True if successful, False otherwise
         """
         try:
+            # Auto-crop reference image if enabled
+            if self.auto_crop_enabled:
+                print("Auto-cropping reference image...")
+                pil_image, self.reference_crop_box = self._auto_crop_content(pil_image)
+            else:
+                self.reference_crop_box = (0, 0, pil_image.width, pil_image.height)
+            
             # Store reference image
             self.reference_image = pil_image.copy()
             self.reference_size = pil_image.size
@@ -125,6 +193,12 @@ class ImageAlignmentManager:
             return None, info
         
         try:
+            # Auto-crop input image if enabled
+            if self.auto_crop_enabled:
+                print("Auto-cropping input image...")
+                pil_image, crop_box = self._auto_crop_content(pil_image)
+                info['crop_box'] = crop_box
+            
             # Convert to grayscale numpy array
             gray = np.array(pil_image.convert('L'))
             
@@ -332,4 +406,14 @@ class ImageAlignmentManager:
         self.reference_descriptors = None
         self.reference_size = None
         self.reference_filepath = None
+        self.reference_crop_box = None
         print("Reference cleared")
+    
+    def set_auto_crop(self, enabled: bool):
+        """Enable or disable automatic content cropping."""
+        self.auto_crop_enabled = enabled
+        print(f"Auto-crop {'enabled' if enabled else 'disabled'}")
+    
+    def is_auto_crop_enabled(self) -> bool:
+        """Check if auto-crop is enabled."""
+        return self.auto_crop_enabled

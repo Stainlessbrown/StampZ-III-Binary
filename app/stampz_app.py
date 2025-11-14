@@ -1719,6 +1719,12 @@ class StampZApp:
             messagebox.showerror("Error", f"Failed to reset offsets: {str(e)}")
     
     # Image Alignment Methods
+    def toggle_auto_crop(self):
+        """Toggle auto-crop setting for alignment."""
+        if hasattr(self.menu_manager, 'auto_crop_var'):
+            enabled = self.menu_manager.auto_crop_var.get()
+            self.alignment_manager.set_auto_crop(enabled)
+    
     def set_alignment_reference(self):
         """Set current image as reference template for alignment."""
         if not self.canvas.original_image:
@@ -1730,12 +1736,14 @@ class StampZApp:
             
             if success:
                 info = self.alignment_manager.get_reference_info()
+                auto_crop_note = "\n(Auto-cropped to stamp content)" if self.alignment_manager.is_auto_crop_enabled() else ""
                 messagebox.showinfo(
                     "Reference Set",
-                    f"✓ Reference template set successfully!\n\n"
+                    f"✓ Reference template set successfully!{auto_crop_note}\n\n"
                     f"Detected {info['num_features']} features\n"
                     f"Image size: {info['size'][0]}x{info['size'][1]}\n\n"
-                    f"You can now auto-align other images of the same stamp design.\n\n"
+                    f"You can now auto-align other images of the same stamp design.\n"
+                    f"No manual cropping needed - alignment handles it automatically!\n\n"
                     f"Remember to SAVE the reference for future use!"
                 )
                 # Update title bar
@@ -1786,9 +1794,10 @@ class StampZApp:
                 if self.current_file:
                     self.root.title(f"StampZ - {os.path.basename(self.current_file)} [ALIGNED]")
                 
+                auto_crop_note = "\n(Auto-cropped and aligned)" if self.alignment_manager.is_auto_crop_enabled() else ""
                 messagebox.showinfo(
                     "Alignment Successful",
-                    f"✓ Image aligned successfully!\n\n"
+                    f"✓ Image aligned successfully!{auto_crop_note}\n\n"
                     f"{info['message']}\n\n"
                     f"The image is now registered to the reference template.\n"
                     f"Aligned to: {aligned_image.size[0]}×{aligned_image.size[1]} pixels\n\n"
