@@ -74,6 +74,7 @@ class PrecisionMeasurementTool:
         self.auto_label = True  # Skip label dialog for faster workflow
         self.show_labels_on_image = True  # Show measurement labels on the image
         self.data_logged = False  # Track if measurements have been logged to avoid duplicates
+        self.measurement_line_color = "red"  # Default measurement line color
         
         self.setup_ui()
         
@@ -325,6 +326,19 @@ class PrecisionMeasurementTool:
         ttk.Checkbutton(options_frame, text="Show labels on image", 
                        variable=self.show_labels_var,
                        command=self.toggle_labels_display).pack(anchor="w")
+        
+        # Line color selection
+        color_frame = ttk.Frame(options_frame)
+        color_frame.pack(fill="x", pady=(5, 0), anchor="w")
+        
+        ttk.Label(color_frame, text="Line color:", font=("Arial", 8)).pack(side="left")
+        
+        self.line_color_var = tk.StringVar(value=self.measurement_line_color)
+        color_menu = ttk.Combobox(color_frame, textvariable=self.line_color_var, 
+                                 values=["red", "white", "black"], 
+                                 state="readonly", width=8)
+        color_menu.pack(side="left", padx=(5, 0))
+        color_menu.bind("<<ComboboxSelected>>", self.change_line_color)
         
         # Keyboard shortcuts info (compact)
         ttk.Label(tools_frame, text="Keys: ←↑↓→ nudge, Shift+arrows coarse", 
@@ -610,7 +624,8 @@ class PrecisionMeasurementTool:
                     start_point=self.current_measurement_start,
                     end_point=end_point,
                     measurement_type=self.measurement_mode,
-                    label=user_label
+                    label=user_label,
+                    color=self.measurement_line_color
                 )
                 
                 self.measurements.append(measurement)
@@ -882,11 +897,15 @@ class PrecisionMeasurementTool:
             # Format the label text
             label_text = measurement.label
             
-            # Draw label text with white background for visibility
+        # Draw label text with contrasting background for visibility
+            # Use black background for white lines, white background for dark lines
+            bg_color = 'black' if measurement.color == 'white' else 'white'
+            text_color = 'white' if measurement.color == 'white' else measurement.color
+            
             self.ax.text(text_pos[0], text_pos[1], label_text,
-                        ha='center', va='center', color=measurement.color,
+                        ha='center', va='center', color=text_color,
                         fontsize=8, rotation=text_rotation, weight='bold',
-                        bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.85, edgecolor=measurement.color))
+                        bbox=dict(boxstyle="round,pad=0.3", facecolor=bg_color, alpha=0.85, edgecolor=measurement.color))
                     
         # Draw smaller endpoint markers that match line width
         marker_size = line_width + 0.5  # Slightly larger than line for visibility
@@ -997,6 +1016,19 @@ class PrecisionMeasurementTool:
         """Toggle display of labels on image"""
         self.show_labels_on_image = self.show_labels_var.get()
         # Redraw image to update label visibility
+        if self.measurement_engine.image:
+            self.load_image_into_plot()
+    
+    def change_line_color(self, event=None):
+        """Change the color of measurement lines"""
+        new_color = self.line_color_var.get()
+        self.measurement_line_color = new_color
+        
+        # Update all existing measurements to use the new color
+        for measurement in self.measurements:
+            measurement.color = new_color
+        
+        # Redraw image to show new color
         if self.measurement_engine.image:
             self.load_image_into_plot()
         
