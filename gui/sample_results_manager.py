@@ -393,7 +393,7 @@ class SampleResultsManager(tk.Frame):
 
         # Add Save to DB button (renamed from "Save Results")
         save_db_button = ttk.Button(buttons_frame, text="Save to DB",
-                              command=lambda: self._show_save_results_dialog(avg_rgb, avg_lab, enabled_samples))
+                              command=lambda: self._save_to_database(avg_rgb, avg_lab, enabled_samples))
         save_db_button.pack(fill=tk.X, pady=2)
         
         # Add Save to File button (new - saves to unified data logger)
@@ -706,6 +706,168 @@ class SampleResultsManager(tk.Frame):
             print(f"Error getting existing databases: {e}")
             return []
     
+    def _save_to_database(self, avg_rgb, avg_lab, enabled_samples):
+        """Save results to database - checks for quick save preference first."""
+        # Check if quick save is enabled
+        try:
+            from utils.user_preferences import get_preferences_manager
+            prefs = get_preferences_manager()
+            quick_save_enabled = prefs.get_enable_quick_save()
+        except:
+            quick_save_enabled = False
+        
+        if quick_save_enabled:
+            # Quick save: use preferences directly without showing dialog
+            self._perform_quick_save(avg_rgb, avg_lab, enabled_samples)
+        else:
+            # Normal flow: show the dialog
+            self._show_save_results_dialog(avg_rgb, avg_lab, enabled_samples)
+    
+    def _perform_quick_save(self, avg_rgb, avg_lab, enabled_samples):
+        """Perform quick save using preference settings without showing dialog."""
+        try:
+            from utils.user_preferences import get_preferences_manager
+            from utils.color_analyzer import ColorAnalyzer
+            from utils.color_analysis_db import ColorAnalysisDB
+            from utils.dismissible_message import showsuccess_dismissible
+            import os
+            
+            prefs = get_preferences_manager()
+            analyzer = ColorAnalyzer()
+            
+            # Get preferences
+            default_db_name = prefs.get_default_database_name()
+            save_individual = prefs.get_save_individual_default()
+            save_average = prefs.get_save_average_default()
+            use_averages_suffix = prefs.get_use_averages_suffix()
+            
+            # Use preference default, or base on filename if available
+            if hasattr(self, 'current_file_path'):
+                filename = os.path.basename(self.current_file_path)
+                file_base = os.path.splitext(filename)[0]
+                if default_db_name in ["ColorAnalysis", "Results_Analysis"]:
+                    final_db_name = f"Results_{file_base}"
+                else:
+                    final_db_name = default_db_name
+            else:
+                final_db_name = default_db_name
+            
+            # Convert sample data
+            sample_measurements = []
+            for i, sample in enumerate(enabled_samples, 1):
+                sample_rgb = sample['rgb']
+                sample_lab = self.library.rgb_to_lab(sample_rgb) if hasattr(self, 'library') and self.library else analyzer.rgb_to_lab(sample_rgb)
+                
+                measurement = {
+                    'id': f"sample_{i}",
+                    'l_value': sample_lab[0],
+                    'a_value': sample_lab[1],
+                    'b_value': sample_lab[2],
+                    'rgb_r': sample_rgb[0],
+                    'rgb_g': sample_rgb[1],
+                    'rgb_b': sample_rgb[2],
+                    'x_position': sample['position'][0],
+                    'y_position': sample['position'][1],
+                    'sample_type': sample['type'],
+                    'sample_width': sample['size'][0],
+                    'sample_height': sample['size'][1],
+                    'anchor': sample['anchor']
+                }
+                sample_measurements.append(measurement)
+            
+            # Get image name
+            image_name = "analysis_result"
+            if hasattr(self, 'current_file_path'):
+                image_name = os.path.splitext(os.path.basename(self.current_file_path))[0]
+            
+            success_individual = True
+            success_average = True
+            saved_files = []
+            
+            # Save individual samples if enabled
+            if save_individual:
+                individual_db = ColorAnalysisDB(final_db_name)
+                set_id = individual_db.create_measurement_set(image_name, f"Individual samples from {image_name}")
+                
+                if set_id:
+                    success_individual = True
+                    for measurement in sample_measurements:
+                        sample_size_str = f"{measurement['sample_width']}x{measurement['sample_height']}"
+                        saved = individual_db.save_color_measurement(
+                            set_id=set_id,
+                            coordinate_point=int(measurement['id'].replace('sample_', '')),
+                            x_pos=measurement['x_position'],
+                            y_pos=measurement['y_position'],
+                            l_value=measurement['l_value'],
+                            a_value=measurement['a_value'],
+                            b_value=measurement['b_value'],
+                            rgb_r=measurement['rgb_r'],
+                            rgb_g=measurement['rgb_g'],
+                            rgb_b=measurement['rgb_b'],
+                            sample_type=measurement['sample_type'],
+                            sample_size=sample_size_str,
+                            sample_anchor=measurement['anchor'],
+                            notes=f"Sample from Results Manager"
+                        )
+                        if not saved:
+                            success_individual = False
+                            break
+                    
+                    if success_individual:
+                        saved_files.append(f"{final_db_name}.db")
+            
+            # Save averaged result if enabled
+            if save_average:
+                if use_averages_suffix:
+                    avg_db_name = f"{final_db_name}_AVERAGES"
+                else:
+                    avg_db_name = final_db_name
+                
+                success_average = analyzer.save_averaged_measurement_from_samples(
+                    sample_measurements=sample_measurements,
+                    sample_set_name=avg_db_name,
+                    image_name=image_name,
+                    notes=f"Average from {len(enabled_samples)} samples via Results Manager (Quick Save)"
+                )
+                
+                if success_average:
+                    saved_files.append(f"{avg_db_name}_averages.db")
+            
+            # Check success
+            if (not save_individual or success_individual) and (not save_average or success_average):
+                # Save database name to preferences
+                prefs.set('last_used_database', final_db_name)
+                
+                # Build success message
+                success_msg = "Results saved successfully!\n\n"
+                if save_individual and success_individual:
+                    success_msg += f"✓ {len(enabled_samples)} individual samples saved\n"
+                if save_average and success_average:
+                    success_msg += f"✓ 1 averaged result saved\n"
+                success_msg += "\nSaved to:\n"
+                for file in saved_files:
+                    success_msg += f"• {file}\n"
+                
+                # Use dismissible success message
+                showsuccess_dismissible(
+                    title="Quick Save Complete",
+                    message=success_msg,
+                    message_id="quick_save_success"
+                )
+            else:
+                # Show error
+                from tkinter import messagebox
+                error_msg = "Some save operations failed:\n\n"
+                if save_individual and not success_individual:
+                    error_msg += "✗ Individual samples failed to save\n"
+                if save_average and not success_average:
+                    error_msg += "✗ Average calculation failed to save\n"
+                messagebox.showerror("Quick Save Error", error_msg)
+                
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("Error", f"Quick save failed: {str(e)}")
+    
     def _show_save_results_dialog(self, avg_rgb, avg_lab, enabled_samples):
         """Show dialog to save results to database."""
         try:
@@ -740,8 +902,23 @@ class SampleResultsManager(tk.Frame):
             # Get existing non-library databases
             existing_databases = self._get_existing_databases()
             
+            # Get default database name from preferences to determine initial choice
+            try:
+                from utils.user_preferences import get_preferences_manager
+                prefs = get_preferences_manager()
+                default_db_name = prefs.get_default_database_name()
+            except:
+                default_db_name = "ColorAnalysis"
+            
+            # Determine which radio button should be selected by default
+            # If the preference database exists, select it; otherwise create new
+            if existing_databases and default_db_name in existing_databases:
+                initial_choice = "existing"
+            else:
+                initial_choice = "new"
+            
             # Radio button for database selection
-            db_choice = tk.StringVar(value="existing" if existing_databases else "new")
+            db_choice = tk.StringVar(value=initial_choice)
             
             # Existing database option
             existing_frame = ttk.Frame(db_frame)
@@ -753,17 +930,19 @@ class SampleResultsManager(tk.Frame):
             
             db_var = tk.StringVar()
             if existing_databases:
-                # Try to load last used database from preferences
-                try:
-                    from utils.user_preferences import get_preferences_manager
-                    prefs = get_preferences_manager()
-                    last_db = prefs.get('last_used_database', '')
-                    if last_db and last_db in existing_databases:
-                        db_var.set(last_db)
-                    else:
+                # Use preference database name if it exists, otherwise last used
+                if default_db_name in existing_databases:
+                    db_var.set(default_db_name)
+                else:
+                    # Try to load last used database from preferences
+                    try:
+                        last_db = prefs.get('last_used_database', '')
+                        if last_db and last_db in existing_databases:
+                            db_var.set(last_db)
+                        else:
+                            db_var.set(existing_databases[0])
+                    except:
                         db_var.set(existing_databases[0])
-                except:
-                    db_var.set(existing_databases[0])
             
             existing_combo = ttk.Combobox(existing_frame, textvariable=db_var, 
                                         values=existing_databases, state="readonly", width=50)
@@ -784,14 +963,20 @@ class SampleResultsManager(tk.Frame):
             new_radio.pack(anchor='w')
             
             new_db_var = tk.StringVar()
-            # Default database name based on current file
+            # default_db_name already retrieved above
+            
+            # Use preference default, or base on filename if available
             if hasattr(self, 'current_file_path'):
                 import os
                 filename = os.path.basename(self.current_file_path)
-                default_name = os.path.splitext(filename)[0]
-                new_db_var.set(f"Results_{default_name}")
+                file_base = os.path.splitext(filename)[0]
+                # If default is generic, use filename; otherwise use preference
+                if default_db_name in ["ColorAnalysis", "Results_Analysis"]:
+                    new_db_var.set(f"Results_{file_base}")
+                else:
+                    new_db_var.set(default_db_name)
             else:
-                new_db_var.set("Results_Analysis")
+                new_db_var.set(default_db_name)
                 
             new_db_entry = ttk.Entry(new_frame, textvariable=new_db_var, width=50)
             new_db_entry.pack(fill=tk.X, padx=(20, 0), pady=(5, 0))
@@ -800,9 +985,20 @@ class SampleResultsManager(tk.Frame):
             options_frame = ttk.LabelFrame(content_frame, text="Save Options", padding="10")
             options_frame.pack(fill=tk.X, pady=(15, 0))
             
-            # Checkboxes for what to save
-            save_individual = tk.BooleanVar(value=True)
-            save_average = tk.BooleanVar(value=True)
+            # Load default values from preferences
+            try:
+                from utils.user_preferences import get_preferences_manager
+                prefs = get_preferences_manager()
+                save_individual_default = prefs.get_save_individual_default()
+                save_average_default = prefs.get_save_average_default()
+            except:
+                # Fallback to defaults if preferences unavailable
+                save_individual_default = True
+                save_average_default = True
+            
+            # Checkboxes for what to save (using preferences as defaults)
+            save_individual = tk.BooleanVar(value=save_individual_default)
+            save_average = tk.BooleanVar(value=save_average_default)
             
             save_individual_cb = ttk.Checkbutton(options_frame, text="Save individual sample measurements", 
                                                variable=save_individual)
@@ -918,8 +1114,20 @@ class SampleResultsManager(tk.Frame):
                     
                     # Save averaged result if requested
                     if save_average.get():
-                        # Use _AVG suffix for the average database name
-                        avg_db_name = f"{final_db_name}_AVG"
+                        # Get suffix preference
+                        try:
+                            from utils.user_preferences import get_preferences_manager
+                            prefs = get_preferences_manager()
+                            use_averages_suffix = prefs.get_use_averages_suffix()
+                        except:
+                            use_averages_suffix = True
+                        
+                        # Apply _AVERAGES suffix if preference is enabled
+                        if use_averages_suffix:
+                            avg_db_name = f"{final_db_name}_AVERAGES"
+                        else:
+                            avg_db_name = final_db_name
+                        
                         success_average = analyzer.save_averaged_measurement_from_samples(
                             sample_measurements=sample_measurements,
                             sample_set_name=avg_db_name,

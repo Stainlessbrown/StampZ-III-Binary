@@ -28,8 +28,7 @@ class ExportPreferences:
 @dataclass
 class FileDialogPreferences:
     """Preferences for file dialogs."""
-    last_open_directory: str = ""  # Last directory used for opening files
-    last_save_directory: str = ""  # Last directory used for saving files
+    last_image_directory: str = ""  # Last directory used for image files (open and save)
     remember_directories: bool = True  # Whether to remember last used directories
 
 
@@ -48,6 +47,11 @@ class SampleAreaPreferences:
     default_height: int = 10  # Default height in pixels (same as width for circles)
     default_anchor: str = "center"  # Default anchor position
     max_samples: int = 6  # Maximum number of sample markers (1-6)
+    save_individual_default: bool = True  # Save individual samples by default
+    save_average_default: bool = True  # Save calculated average by default
+    default_database_name: str = "ColorAnalysis"  # Default database name for analysis
+    use_averages_suffix: bool = True  # Automatically add _AVERAGES suffix to average database
+    enable_quick_save: bool = False  # Skip database selection dialog and use preferences directly
 
 
 @dataclass
@@ -146,18 +150,23 @@ class PreferencesManager:
             print(f"Error setting export directory: {e}")
             return False
     
-    def get_last_open_directory(self) -> Optional[str]:
-        """Get the last directory used for opening files."""
+    def get_last_image_directory(self) -> Optional[str]:
+        """Get the last directory used for image files."""
         if not self.preferences.file_dialog_prefs.remember_directories:
             return None
             
-        last_dir = self.preferences.file_dialog_prefs.last_open_directory
+        last_dir = self.preferences.file_dialog_prefs.last_image_directory
         if last_dir and Path(last_dir).exists():
             return last_dir
         return None
     
-    def set_last_open_directory(self, directory: str) -> bool:
-        """Set the last directory used for opening files."""
+    # Backwards compatibility aliases
+    def get_last_open_directory(self) -> Optional[str]:
+        """Get the last directory used for opening files (alias for get_last_image_directory)."""
+        return self.get_last_image_directory()
+    
+    def set_last_image_directory(self, directory: str) -> bool:
+        """Set the last directory used for image files."""
         if not self.preferences.file_dialog_prefs.remember_directories:
             return True  # Don't save if remembering is disabled
             
@@ -167,40 +176,25 @@ class PreferencesManager:
                 # If it's a file, get the parent directory
                 directory = str(path.parent)
             
-            self.preferences.file_dialog_prefs.last_open_directory = directory
+            self.preferences.file_dialog_prefs.last_image_directory = directory
             self.save_preferences()
             return True
         except Exception as e:
-            print(f"Error setting last open directory: {e}")
+            print(f"Error setting last image directory: {e}")
             return False
+    
+    # Backwards compatibility aliases
+    def set_last_open_directory(self, directory: str) -> bool:
+        """Set the last directory used for opening files (alias for set_last_image_directory)."""
+        return self.set_last_image_directory(directory)
     
     def get_last_save_directory(self) -> Optional[str]:
-        """Get the last directory used for saving files."""
-        if not self.preferences.file_dialog_prefs.remember_directories:
-            return None
-            
-        last_dir = self.preferences.file_dialog_prefs.last_save_directory
-        if last_dir and Path(last_dir).exists():
-            return last_dir
-        return None
+        """Get the last directory used for saving files (alias for get_last_image_directory)."""
+        return self.get_last_image_directory()
     
     def set_last_save_directory(self, directory: str) -> bool:
-        """Set the last directory used for saving files."""
-        if not self.preferences.file_dialog_prefs.remember_directories:
-            return True  # Don't save if remembering is disabled
-            
-        try:
-            path = Path(directory)
-            if path.is_file():
-                # If it's a file, get the parent directory
-                directory = str(path.parent)
-            
-            self.preferences.file_dialog_prefs.last_save_directory = directory
-            self.save_preferences()
-            return True
-        except Exception as e:
-            print(f"Error setting last save directory: {e}")
-            return False
+        """Set the last directory used for saving files (alias for set_last_image_directory)."""
+        return self.set_last_image_directory(directory)
     
     def get_remember_directories(self) -> bool:
         """Get whether to remember last used directories."""
@@ -508,6 +502,100 @@ class PreferencesManager:
             'max_samples': self.preferences.sample_area_prefs.max_samples
         }
     
+    def get_save_individual_default(self) -> bool:
+        """Get whether to save individual samples by default."""
+        return self.preferences.sample_area_prefs.save_individual_default
+    
+    def set_save_individual_default(self, save_individual: bool) -> bool:
+        """Set whether to save individual samples by default.
+        
+        Args:
+            save_individual: True to save individual samples by default
+        """
+        try:
+            self.preferences.sample_area_prefs.save_individual_default = save_individual
+            self.save_preferences()
+            return True
+        except Exception as e:
+            print(f"Error setting save individual default: {e}")
+            return False
+    
+    def get_save_average_default(self) -> bool:
+        """Get whether to save averaged results by default."""
+        return self.preferences.sample_area_prefs.save_average_default
+    
+    def set_save_average_default(self, save_average: bool) -> bool:
+        """Set whether to save averaged results by default.
+        
+        Args:
+            save_average: True to save averaged results by default
+        """
+        try:
+            self.preferences.sample_area_prefs.save_average_default = save_average
+            self.save_preferences()
+            return True
+        except Exception as e:
+            print(f"Error setting save average default: {e}")
+            return False
+    
+    def get_default_database_name(self) -> str:
+        """Get the default database name for analysis."""
+        return self.preferences.sample_area_prefs.default_database_name
+    
+    def set_default_database_name(self, database_name: str) -> bool:
+        """Set the default database name for analysis.
+        
+        Args:
+            database_name: Default database name (without .db extension)
+        """
+        try:
+            # Clean the name (remove .db extension if present)
+            if database_name.endswith('.db'):
+                database_name = database_name[:-3]
+            
+            self.preferences.sample_area_prefs.default_database_name = database_name
+            self.save_preferences()
+            return True
+        except Exception as e:
+            print(f"Error setting default database name: {e}")
+            return False
+    
+    def get_use_averages_suffix(self) -> bool:
+        """Get whether to automatically add _AVERAGES suffix to average database."""
+        return self.preferences.sample_area_prefs.use_averages_suffix
+    
+    def set_use_averages_suffix(self, use_suffix: bool) -> bool:
+        """Set whether to automatically add _AVERAGES suffix to average database.
+        
+        Args:
+            use_suffix: True to add _AVERAGES suffix automatically
+        """
+        try:
+            self.preferences.sample_area_prefs.use_averages_suffix = use_suffix
+            self.save_preferences()
+            return True
+        except Exception as e:
+            print(f"Error setting averages suffix preference: {e}")
+            return False
+    
+    def get_enable_quick_save(self) -> bool:
+        """Get whether to enable quick save (skip database dialog)."""
+        return self.preferences.sample_area_prefs.enable_quick_save
+    
+    def set_enable_quick_save(self, enable: bool) -> bool:
+        """Set whether to enable quick save (skip database dialog).
+        
+        Args:
+            enable: True to skip database selection dialog and use preferences
+        """
+        try:
+            self.preferences.sample_area_prefs.enable_quick_save = enable
+            self.save_preferences()
+            return True
+        except Exception as e:
+            print(f"Error setting quick save preference: {e}")
+            return False
+    
     def get_auto_save_averages(self) -> bool:
         """Get whether to automatically save averages to database in Compare mode."""
         return self.preferences.compare_mode_prefs.auto_save_averages
@@ -637,9 +725,14 @@ class PreferencesManager:
                 # Load file dialog preferences
                 if 'file_dialog_prefs' in data:
                     dialog_data = data['file_dialog_prefs']
+                    # Handle migration from old dual-directory system
+                    last_image_dir = dialog_data.get('last_image_directory', '')
+                    if not last_image_dir:
+                        # Migrate: prefer last_open_directory if it exists
+                        last_image_dir = dialog_data.get('last_open_directory', dialog_data.get('last_save_directory', ''))
+                    
                     self.preferences.file_dialog_prefs = FileDialogPreferences(
-                        last_open_directory=dialog_data.get('last_open_directory', ''),
-                        last_save_directory=dialog_data.get('last_save_directory', ''),
+                        last_image_directory=last_image_dir,
                         remember_directories=dialog_data.get('remember_directories', True)
                     )
                 
@@ -659,7 +752,12 @@ class PreferencesManager:
                         default_width=sample_data.get('default_width', 10),
                         default_height=sample_data.get('default_height', 10),
                         default_anchor=sample_data.get('default_anchor', 'center'),
-                        max_samples=sample_data.get('max_samples', 6)
+                        max_samples=sample_data.get('max_samples', 6),
+                        save_individual_default=sample_data.get('save_individual_default', True),
+                        save_average_default=sample_data.get('save_average_default', True),
+                        default_database_name=sample_data.get('default_database_name', 'ColorAnalysis'),
+                        use_averages_suffix=sample_data.get('use_averages_suffix', True),
+                        enable_quick_save=sample_data.get('enable_quick_save', False)
                     )
                 
                 # Load compare mode preferences

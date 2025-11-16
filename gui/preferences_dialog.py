@@ -148,13 +148,13 @@ class PreferencesDialog:
         # Migration tab (only show if migration is possible) - First priority
         self._create_migration_tab(notebook)
         
-        # File dialog preferences tab - Basic workflow setup
-        self._create_file_dialog_tab(notebook)
+        # Image dialog preferences tab - Basic workflow setup
+        self._create_image_dialog_tab(notebook)
         
-        # Export preferences tab - Core functionality setup
-        self._create_export_tab(notebook)
+        # Spreadsheet export preferences tab - Core functionality setup
+        self._create_spreadsheet_export_tab(notebook)
         
-        # Sampling preferences tab - Advanced configuration
+        # Sampling preferences tab - Advanced configuration (includes library defaults)
         self._create_sampling_tab(notebook)
         
         # Compare mode preferences tab
@@ -167,10 +167,10 @@ class PreferencesDialog:
         # self._create_general_tab(notebook)
         # self._create_appearance_tab(notebook)
     
-    def _create_export_tab(self, notebook):
-        """Create the export preferences tab."""
+    def _create_spreadsheet_export_tab(self, notebook):
+        """Create the spreadsheet export preferences tab."""
         export_frame = ttk.Frame(notebook, padding="10")
-        notebook.add(export_frame, text="Export Settings")
+        notebook.add(export_frame, text="Spreadsheet Exports")
         
         # Export directory section
         dir_frame = ttk.LabelFrame(export_frame, text="Export Directory", padding="10")
@@ -369,52 +369,55 @@ class PreferencesDialog:
             foreground="gray"
         ).pack(anchor=tk.W)
     
-    def _create_file_dialog_tab(self, notebook):
-        """Create the file dialog preferences tab."""
+    def _create_image_dialog_tab(self, notebook):
+        """Create the image dialog preferences tab."""
         dialog_frame = ttk.Frame(notebook, padding="10")
-        notebook.add(dialog_frame, text="File Dialogs")
+        notebook.add(dialog_frame, text="Image Dialogs")
         
         # Remember directories section
-        remember_frame = ttk.LabelFrame(dialog_frame, text="Directory Memory", padding="10")
+        remember_frame = ttk.LabelFrame(dialog_frame, text="Directory Memory (Images Only)", padding="10")
         remember_frame.pack(fill=tk.X, pady=(0, 10))
         
         self.remember_directories_var = tk.BooleanVar()
         ttk.Checkbutton(
             remember_frame,
-            text="Remember last used directories for Open and Save dialogs",
+            text="Remember last used directory for image files (Open and Save)",
             variable=self.remember_directories_var
         ).pack(anchor=tk.W, pady=(0, 10))
         
         ttk.Label(
             remember_frame,
-            text="When enabled, file dialogs will start in the directory you last used.",
+            text="When enabled, image Open and Save dialogs will start in the last directory you used.\n"
+            "This ensures cropped images and their data files stay together.",
             font=("TkDefaultFont", 9),
             foreground="gray"
         ).pack(anchor=tk.W)
         
         # Current directories section
-        current_frame = ttk.LabelFrame(dialog_frame, text="Current Remembered Directories", padding="10")
+        current_frame = ttk.LabelFrame(dialog_frame, text="Current Remembered Directory", padding="10")
         current_frame.pack(fill=tk.X, pady=(0, 10))
         
-        # Last open directory
-        ttk.Label(current_frame, text="Last Open directory:").pack(anchor=tk.W)
-        self.last_open_var = tk.StringVar()
+        # Last image directory (unified for open and save)
+        ttk.Label(
+            current_frame, 
+            text="Last image directory (for Open and Save):",
+            font=("TkDefaultFont", 9, "bold")
+        ).pack(anchor=tk.W)
+        self.last_image_var = tk.StringVar()
         ttk.Entry(
             current_frame,
-            textvariable=self.last_open_var,
+            textvariable=self.last_image_var,
             state="readonly",
             width=60
         ).pack(fill=tk.X, pady=(2, 10))
         
-        # Last save directory
-        ttk.Label(current_frame, text="Last Save directory:").pack(anchor=tk.W)
-        self.last_save_var = tk.StringVar()
-        ttk.Entry(
+        ttk.Label(
             current_frame,
-            textvariable=self.last_save_var,
-            state="readonly",
-            width=60
-        ).pack(fill=tk.X, pady=(2, 10))
+            text="Note: This is where your original images and cropped images are stored.\n"
+            "Data files (perforation measurements, color analysis) are saved in the same directory.",
+            font=("TkDefaultFont", 8),
+            foreground="blue"
+        ).pack(anchor=tk.W, pady=(0, 10))
         
         # Clear directories button
         clear_button_frame = ttk.Frame(current_frame)
@@ -422,12 +425,38 @@ class PreferencesDialog:
         
         ttk.Button(
             clear_button_frame,
-            text="Clear Remembered Directories",
+            text="Clear Remembered Directory",
             command=self._clear_remembered_directories
         ).pack(side=tk.LEFT)
         
-        # Color Library section
-        library_frame = ttk.LabelFrame(dialog_frame, text="Color Library Defaults", padding="10")
+        # Info section
+        info_frame = ttk.LabelFrame(dialog_frame, text="About This Setting", padding="10")
+        info_frame.pack(fill=tk.X)
+        
+        info_text = (
+            "Directory Memory tracks where you work with image files.\n\n"
+            "Why this matters:\n"
+            "• The data logger creates measurement and analysis files (*_StampZ_Data.txt) in the same directory as your images\n"
+            "• Keeping original and cropped images in the same directory ensures all data stays together\n"
+            "• This is separate from the Export Settings, which controls where spreadsheet exports go\n\n"
+            "Best practice: Keep all images for a project in one directory."
+        )
+        
+        ttk.Label(
+            info_frame,
+            text=info_text,
+            wraplength=550,
+            justify=tk.LEFT,
+            font=("TkDefaultFont", 9)
+        ).pack(anchor=tk.W)
+    
+    def _create_sampling_tab(self, notebook):
+        """Create the sampling preferences tab."""
+        sampling_frame = ttk.Frame(notebook, padding="10")
+        notebook.add(sampling_frame, text="Sampling")
+        
+        # Color Library section - moved from Image Dialogs
+        library_frame = ttk.LabelFrame(sampling_frame, text="Color Library Defaults", padding="10")
         library_frame.pack(fill=tk.X, pady=(0, 10))
         
         ttk.Label(library_frame, text="Default color library:").pack(anchor=tk.W, pady=(0, 5))
@@ -448,33 +477,94 @@ class PreferencesDialog:
             foreground="gray"
         ).pack(anchor=tk.W)
         
-        # Info section
-        info_frame = ttk.LabelFrame(dialog_frame, text="Information", padding="10")
-        info_frame.pack(fill=tk.X)
-        
-        info_text = (
-            "• When directory memory is enabled, Open and Save dialogs will start in the last directory you used\n"
-            "• Open and Save directories are remembered separately\n"
-            "• Directories are only remembered if they still exist when you use them\n"
-            "• You can clear the remembered directories at any time using the button above"
-        )
+        # Save location preferences section
+        save_prefs_frame = ttk.LabelFrame(sampling_frame, text="Analysis Save Preferences", padding="10")
+        save_prefs_frame.pack(fill=tk.X, pady=(10, 10))
         
         ttk.Label(
-            info_frame,
-            text=info_text,
-            wraplength=550,
-            justify=tk.LEFT,
-            font=("TkDefaultFont", 9)
+            save_prefs_frame,
+            text="Default settings for the Save Results dialog:",
+            font=("TkDefaultFont", 10, "bold")
+        ).pack(anchor=tk.W, pady=(0, 5))
+        
+        ttk.Label(
+            save_prefs_frame,
+            text="(These control what's pre-selected; saving still requires clicking Save button)",
+            font=("TkDefaultFont", 8),
+            foreground="gray",
+            style="Italic.TLabel"
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Database name setting
+        db_name_frame = ttk.Frame(save_prefs_frame)
+        db_name_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(db_name_frame, text="Default database name:", width=20).pack(side=tk.LEFT)
+        self.default_database_var = tk.StringVar()
+        db_entry = ttk.Entry(db_name_frame, textvariable=self.default_database_var, width=30)
+        db_entry.pack(side=tk.LEFT, padx=(5, 0))
+        
+        ttk.Label(
+            save_prefs_frame,
+            text="Individual samples will save to: {name}.db\nAverages will save to: {name}_AVERAGES_averages.db",
+            font=("TkDefaultFont", 8),
+            foreground="blue"
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Checkbox for save individual samples
+        self.save_individual_default_var = tk.BooleanVar()
+        ttk.Checkbutton(
+            save_prefs_frame,
+            text="Save individual sample measurements by default",
+            variable=self.save_individual_default_var
+        ).pack(anchor=tk.W, pady=(0, 5))
+        
+        # Checkbox for save averaged result
+        self.save_average_default_var = tk.BooleanVar()
+        ttk.Checkbutton(
+            save_prefs_frame,
+            text="Save calculated average by default",
+            variable=self.save_average_default_var
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Checkbox for automatic _AVERAGES suffix
+        self.use_averages_suffix_var = tk.BooleanVar()
+        ttk.Checkbutton(
+            save_prefs_frame,
+            text="Automatically add _AVERAGES suffix to average database names",
+            variable=self.use_averages_suffix_var
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Separator for quick save option
+        ttk.Separator(save_prefs_frame, orient='horizontal').pack(fill=tk.X, pady=(5, 10))
+        
+        # Checkbox for quick save
+        self.enable_quick_save_var = tk.BooleanVar()
+        ttk.Checkbutton(
+            save_prefs_frame,
+            text="⚡ Enable Quick Save (skip database selection dialog)",
+            variable=self.enable_quick_save_var
+        ).pack(anchor=tk.W, pady=(0, 5))
+        
+        ttk.Label(
+            save_prefs_frame,
+            text="When enabled, clicking Save Results will save immediately using the settings above.\n"
+            "Reduces from 2 dialogs + 3 clicks to 1 success message + 1 click.",
+            font=("TkDefaultFont", 8),
+            foreground="blue"
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        ttk.Label(
+            save_prefs_frame,
+            text="Note: You can still override by holding Shift when clicking Save Results.",
+            font=("TkDefaultFont", 8),
+            foreground="gray",
+            style="Italic.TLabel"
         ).pack(anchor=tk.W)
-    
-    def _create_sampling_tab(self, notebook):
-        """Create the sampling preferences tab."""
-        sampling_frame = ttk.Frame(notebook, padding="10")
-        notebook.add(sampling_frame, text="Sampling")
         
         # Sample area defaults section
         sample_frame = ttk.LabelFrame(sampling_frame, text="Sample Area Defaults", padding="10")
-        sample_frame.pack(fill=tk.X, pady=(0, 10))
+        sample_frame.pack(fill=tk.X, pady=(10, 10))
         
         ttk.Label(
             sample_frame, 
@@ -1026,23 +1116,21 @@ class PreferencesDialog:
         )
     
     def _clear_remembered_directories(self):
-        """Clear the remembered directories."""
+        """Clear the remembered directory."""
         result = messagebox.askyesno(
-            "Clear Directories",
-            "This will clear the remembered Open and Save directories.\n\nAre you sure?"
+            "Clear Directory",
+            "This will clear the remembered image directory.\n\nAre you sure?"
         )
         
         if result:
-            # Clear the directories in preferences
-            self.prefs_manager.preferences.file_dialog_prefs.last_open_directory = ""
-            self.prefs_manager.preferences.file_dialog_prefs.last_save_directory = ""
+            # Clear the directory in preferences
+            self.prefs_manager.preferences.file_dialog_prefs.last_image_directory = ""
             self.prefs_manager.save_preferences()
             
             # Update the display
-            self.last_open_var.set("")
-            self.last_save_var.set("")
+            self.last_image_var.set("")
             
-            messagebox.showinfo("Cleared", "Remembered directories have been cleared.")
+            messagebox.showinfo("Cleared", "Remembered directory has been cleared.")
     
     def _load_color_library_preferences(self):
         """Load color library preferences."""
@@ -1119,12 +1207,9 @@ class PreferencesDialog:
         dialog_prefs = self.prefs_manager.preferences.file_dialog_prefs
         self.remember_directories_var.set(dialog_prefs.remember_directories)
         
-        # Show current remembered directories
-        last_open = self.prefs_manager.get_last_open_directory()
-        self.last_open_var.set(last_open or "(none)")
-        
-        last_save = self.prefs_manager.get_last_save_directory()
-        self.last_save_var.set(last_save or "(none)")
+        # Show current remembered directory (unified for images)
+        last_image_dir = self.prefs_manager.get_last_image_directory()
+        self.last_image_var.set(last_image_dir or "(none)")
         
         # Color library preferences
         self._load_color_library_preferences()
@@ -1137,6 +1222,13 @@ class PreferencesDialog:
         self.sample_height_var.set(str(self.prefs_manager.get_default_sample_height()))
         self.sample_anchor_var.set(self.prefs_manager.get_default_sample_anchor())
         self.max_samples_var.set(str(self.prefs_manager.get_max_samples()))
+        
+        # Analysis save preferences
+        self.save_individual_default_var.set(self.prefs_manager.get_save_individual_default())
+        self.save_average_default_var.set(self.prefs_manager.get_save_average_default())
+        self.default_database_var.set(self.prefs_manager.get_default_database_name())
+        self.use_averages_suffix_var.set(self.prefs_manager.get_use_averages_suffix())
+        self.enable_quick_save_var.set(self.prefs_manager.get_enable_quick_save())
         
         # Color space preferences
         self.export_include_rgb_var.set(self.prefs_manager.get_export_include_rgb())
@@ -1279,6 +1371,13 @@ class PreferencesDialog:
             self.prefs_manager.set_export_include_rgb(self.export_include_rgb_var.get())
             self.prefs_manager.set_export_include_lab(self.export_include_lab_var.get())
             self.prefs_manager.set_export_include_cmy(self.export_include_cmy_var.get())
+            
+            # Analysis save preferences
+            self.prefs_manager.set_save_individual_default(self.save_individual_default_var.get())
+            self.prefs_manager.set_save_average_default(self.save_average_default_var.get())
+            self.prefs_manager.set_default_database_name(self.default_database_var.get())
+            self.prefs_manager.set_use_averages_suffix(self.use_averages_suffix_var.get())
+            self.prefs_manager.set_enable_quick_save(self.enable_quick_save_var.get())
             
             # Compare mode preferences
             self.prefs_manager.set_auto_save_averages(self.auto_save_averages_var.get())
