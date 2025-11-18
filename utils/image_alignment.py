@@ -417,3 +417,68 @@ class ImageAlignmentManager:
     def is_auto_crop_enabled(self) -> bool:
         """Check if auto-crop is enabled."""
         return self.auto_crop_enabled
+    
+    def bulk_align_images(self, image_paths: list, output_dir: str, 
+                         progress_callback=None) -> Tuple[list, list]:
+        """
+        Align multiple images in batch and save to output directory.
+        
+        Args:
+        image_paths: List of file paths to images to align
+            output_dir: Directory to save aligned images
+            progress_callback: Optional callback function(current, total, filename, status)
+                             called for each image processed
+        
+        Returns:
+            Tuple of (successful_files, failed_files)
+            successful_files: List of (input_path, output_path) tuples
+            failed_files: List of (input_path, error_message) tuples
+        """
+        if not self.has_reference():
+            raise ValueError("No reference image set. Set reference before bulk processing.")
+        
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        
+        successful = []
+        failed = []
+        total = len(image_paths)
+        
+        for idx, image_path in enumerate(image_paths, 1):
+            try:
+                # Notify progress
+                filename = os.path.basename(image_path)
+                if progress_callback:
+                    progress_callback(idx, total, filename, "Processing...")
+                
+                # Load image
+                pil_image = Image.open(image_path)
+                
+                # Align image
+                aligned_image, info = self.align_image(pil_image)
+                
+                if info['success']:
+                    # Generate output filename
+                    base_name = os.path.splitext(filename)[0]
+                    ext = os.path.splitext(filename)[1]
+                    output_filename = f"{base_name}_aligned{ext}"
+                    output_path = os.path.join(output_dir, output_filename)
+                    
+                    # Save aligned image
+                    aligned_image.save(output_path)
+                    
+                    successful.append((image_path, output_path))
+                    if progress_callback:
+                        progress_callback(idx, total, filename, f"✓ Aligned ({info['num_matches']} matches)")
+                else:
+                    failed.append((image_path, info['message']))
+                    if progress_callback:
+                        progress_callback(idx, total, filename, f"✗ Failed: {info['message']}")
+                
+            except Exception as e:
+                error_msg = str(e)
+                failed.append((image_path, error_msg))
+                if progress_callback:
+                    progress_callback(idx, total, filename, f"✗ Error: {error_msg}")
+        
+        return successful, failed

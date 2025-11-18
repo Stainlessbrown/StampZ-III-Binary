@@ -64,6 +64,10 @@ class MenuManager:
             label="Auto-Align to Reference",
             command=self.app.auto_align_image
         )
+        alignment_menu.add_command(
+            label="Bulk Auto-Align Multiple Images...",
+            command=self.app.bulk_align_images
+        )
         alignment_menu.add_separator()
         
         # Auto-crop toggle with checkmark

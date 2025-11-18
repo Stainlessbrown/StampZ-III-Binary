@@ -1876,3 +1876,11 @@ class StampZApp:
             messagebox.showinfo("Cleared", "Reference template cleared.")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to clear reference: {str(e)}")
+    
+    def bulk_align_images(self):
+        """Open dialog for bulk image alignment."""
+        try:
+            from gui.bulk_alignment_dialog import BulkAlignmentDialog
+            BulkAlignmentDialog(parent=self.root, alignment_manager=self.alignment_manager)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open bulk alignment dialog:\n\n{str(e)}")

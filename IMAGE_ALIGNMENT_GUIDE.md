@@ -48,7 +48,27 @@ Uses **ORB (Oriented FAST and Rotated BRIEF)** feature detection:
 - You can apply the same template/sampling markers
 - Precise color comparison across multiple stamps
 
-### 3. Save/Load Reference (Optional)
+### 3. Bulk Auto-Align Multiple Images
+
+**File → Image Alignment → Bulk Auto-Align Multiple Images...**
+
+**Process many images at once:**
+1. Set or load a reference template first
+2. Select **File → Image Alignment → Bulk Auto-Align Multiple Images...**
+3. Click **Select Images...** to choose all images you want to align
+4. Click **Browse...** to select an output directory
+5. Click **Process Images** to start batch processing
+6. Watch real-time progress as each image is aligned and saved
+
+**Result:**
+- All images are aligned to the reference automatically
+- Aligned images saved with `_aligned` suffix (e.g., `stamp02_aligned.tif`)
+- Progress log shows success/failure for each image
+- Perfect for processing 10s or 100s of stamps efficiently!
+
+**Time saved:** Process entire collections in minutes vs hours of manual work
+
+### 4. Save/Load Reference (Optional)
 
 **Save for reuse:**
 - **File → Image Alignment → Save Reference...**
@@ -59,8 +79,9 @@ Uses **ORB (Oriented FAST and Rotated BRIEF)** feature detection:
 - **File → Image Alignment → Load Reference...**
 - Instantly ready to align new images
 
-## Example Use Case
+## Example Use Cases
 
+### Single Image Workflow
 **Scenario:** Analyzing 10 examples of the 1¢ Franklin stamp
 
 1. Load best quality 1¢ stamp → **Set as Reference Template**
@@ -71,6 +92,20 @@ Uses **ORB (Oriented FAST and Rotated BRIEF)** feature detection:
 6. Repeat for all 10 stamps
 
 **Time saved:** Minutes per stamp vs manual repositioning
+
+### Bulk Processing Workflow
+**Scenario:** Processing 50 examples of the 2¢ Washington stamp
+
+1. Load best quality 2¢ stamp → **Set as Reference Template**
+2. **Save Reference...** for future use
+3. Select **Bulk Auto-Align Multiple Images...**
+4. Select all 50 stamp images
+5. Choose output directory
+6. Click **Process Images** and let it run!
+7. All 50 stamps aligned in a few minutes
+8. Open each aligned image and apply the same template
+
+**Time saved:** Hours of repetitive work → a few minutes of batch processing!
 
 ## What Features Does It Match?
 
