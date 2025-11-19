@@ -83,7 +83,7 @@ def create_plotly_visualization(df, show_trendline=False, show_polynomial=False,
     hover_text = []
     for idx, row in valid_df.iterrows():
         text = row.get('DataID', f'Point {idx}')
-        if 'Cluster' in row and pd.notna(row['Cluster']):
+        if 'Cluster' in row and pd.notna(row['Cluster']) and str(row['Cluster']).strip() != '':
             text += f"<br>Cluster: {int(row['Cluster'])}"
         if 'DeltaE' in row and pd.notna(row['DeltaE']):
             text += f"<br>ΔE: {row['DeltaE']:.4f}"
