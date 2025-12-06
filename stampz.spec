@@ -171,6 +171,9 @@ hiddenimports += [
     'tksheet',
 ]
 
+# Exclude deprecated pkg_resources runtime hook to avoid dependency issues
+excludedimports = ['pkg_resources']
+
 # Platform specific settings
 if sys.platform == 'darwin':
     # macOS - use original StampZ icon (convert on-the-fly if needed)
@@ -213,7 +216,7 @@ a = Analysis(
     hookspath=['.'],  # Look for hooks in current directory
     hooksconfig={},
     runtime_hooks=['runtime_hook.py'],
-    excludes=[],
+    excludes=excludedimports,  # Exclude pkg_resources to avoid deprecated dependency issues
     noarchive=False,
 )
 
