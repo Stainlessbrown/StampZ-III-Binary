@@ -16,11 +16,11 @@ jobs:
             name: windows-x64
             ext: .exe
             python-version: '3.12'
-          - os: macos-14
+          - os: macos-15-intel
             name: mac-intel
             ext: ""
             python-version: '3.12'
-          - os: macos-14
+          - os: macos-13
             name: mac-intel-legacy
             ext: ""
             python-version: '3.11'
