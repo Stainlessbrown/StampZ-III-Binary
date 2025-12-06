@@ -22,3 +22,4 @@ tksheet==7.5.14
 
 # Build dependencies
 pyinstaller==6.3.0
+jaraco.text  # Required for pkg_resources compatibility with PyInstaller
