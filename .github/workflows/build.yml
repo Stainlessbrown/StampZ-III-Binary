@@ -15,25 +15,33 @@ jobs:
           - os: windows-latest
             name: windows-x64
             ext: .exe
+            python-version: '3.12'
           - os: macos-14
             name: mac-intel
             ext: ""
+            python-version: '3.12'
+          - os: macos-14
+            name: mac-intel-legacy
+            ext: ""
+            python-version: '3.11'
           - os: macos-latest
             name: mac-arm
             ext: ""
+            python-version: '3.12'
           - os: ubuntu-22.04  # Modern Linux build for Ubuntu 22.04+ and Mint 22
             name: linux-x64
             ext: ""
+            python-version: '3.12'
     
     runs-on: ${{ matrix.os }}
     
     steps:
     - uses: actions/checkout@v4
     
-    - name: Set up Python 3.12
+    - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
       with:
-        python-version: '3.12'
+        python-version: ${{ matrix.python-version }}
     
     - name: Install dependencies
       run: |
@@ -197,7 +205,7 @@ jobs:
             new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
           );
           
-          // Group artifacts by workflow run (each build creates 4 artifacts: mac-intel, mac-arm, windows-x64, linux-x64)
+          # Group artifacts by workflow run (each build creates 5 artifacts: mac-intel, mac-intel-legacy, mac-arm, windows-x64, linux-x64)
           const artifactsByWorkflowRun = {};
           for (const artifact of sortedArtifacts) {
             const runId = artifact.workflow_run.id;
