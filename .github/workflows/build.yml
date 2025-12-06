@@ -20,10 +20,6 @@ jobs:
             name: mac-intel
             ext: ""
             python-version: '3.12'
-          - os: macos-13
-            name: mac-intel-legacy
-            ext: ""
-            python-version: '3.11'
           - os: macos-latest
             name: mac-arm
             ext: ""
@@ -205,7 +201,7 @@ jobs:
             new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
           );
           
-          # Group artifacts by workflow run (each build creates 5 artifacts: mac-intel, mac-intel-legacy, mac-arm, windows-x64, linux-x64)
+          // Group artifacts by workflow run (each build creates 4 artifacts: mac-intel, mac-arm, windows-x64, linux-x64)
           const artifactsByWorkflowRun = {};
           for (const artifact of sortedArtifacts) {
             const runId = artifact.workflow_run.id;
