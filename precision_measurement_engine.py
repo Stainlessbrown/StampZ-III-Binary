@@ -229,7 +229,7 @@ class ArchitecturalMeasurement:
             return None
         return self.calculate_distance_pixels() / pixels_per_mm
     
-    def get_dimension_line_geometry(self, offset=25):
+    def get_dimension_line_geometry(self, offset=15):
         """Calculate geometry for architectural dimension lines"""
         x1, y1 = self.start_point
         x2, y2 = self.end_point
@@ -319,7 +319,7 @@ class MeasurementRenderer:
     """Renders architectural-style measurements on matplotlib plots"""
     
     @staticmethod
-    def draw_measurement(ax, measurement, pixels_per_mm, precision=2, offset=25):
+    def draw_measurement(ax, measurement, pixels_per_mm, precision=2, offset=15):
         """Draw a single architectural measurement on matplotlib axis"""
         
         # Get dimension line geometry
@@ -360,7 +360,7 @@ class MeasurementRenderer:
         """Draw all measurements with automatic offset staggering"""
         for i, measurement in enumerate(measurements):
             # Stagger offsets to avoid overlapping dimension lines
-            offset = 25 + (i * 20)
+            offset = 15 + (i * 20)
             MeasurementRenderer.draw_measurement(ax, measurement, pixels_per_mm, precision, offset)
 
 class MeasurementExporter:

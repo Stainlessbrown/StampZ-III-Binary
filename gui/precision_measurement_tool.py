@@ -75,6 +75,7 @@ class PrecisionMeasurementTool:
         self.show_labels_on_image = True  # Show measurement labels on the image
         self.data_logged = False  # Track if measurements have been logged to avoid duplicates
         self.measurement_line_color = "red"  # Default measurement line color
+        self.use_fixed_offset = False  # Whether to use fixed offset for all measurements
         
         self.setup_ui()
         
@@ -327,18 +328,23 @@ class PrecisionMeasurementTool:
                        variable=self.show_labels_var,
                        command=self.toggle_labels_display).pack(anchor="w")
         
-        # Line color selection
+        self.fixed_offset_var = tk.BooleanVar(value=self.use_fixed_offset)
+        ttk.Checkbutton(options_frame, text="Use same offset for all", 
+                       variable=self.fixed_offset_var,
+                       command=self.toggle_fixed_offset).pack(anchor="w")
+        
+        # Line color selection (for NEW measurements)
         color_frame = ttk.Frame(options_frame)
         color_frame.pack(fill="x", pady=(5, 0), anchor="w")
         
-        ttk.Label(color_frame, text="Line color:", font=("Arial", 8)).pack(side="left")
+        ttk.Label(color_frame, text="New line color:", font=("Arial", 8)).pack(side="left")
         
         self.line_color_var = tk.StringVar(value=self.measurement_line_color)
         color_menu = ttk.Combobox(color_frame, textvariable=self.line_color_var, 
-                                 values=["red", "white", "black"], 
-                                 state="readonly", width=8)
+                                 values=["red", "blue", "green", "yellow", "cyan", "magenta", "white", "black", "orange"], 
+                                 state="readonly", width=10)
         color_menu.pack(side="left", padx=(5, 0))
-        color_menu.bind("<<ComboboxSelected>>", self.change_line_color)
+        color_menu.bind("<<ComboboxSelected>>", self.change_default_line_color)
         
         # Keyboard shortcuts info (compact)
         ttk.Label(tools_frame, text="Keys: ←↑↓→ nudge, Shift+arrows coarse", 
@@ -357,7 +363,7 @@ class PrecisionMeasurementTool:
         scrollbar.pack(side="right", fill="y")
         
         self.measurements_listbox = tk.Listbox(list_container, yscrollcommand=scrollbar.set, 
-                                              font=("Monaco", 8))
+                                              font=("Monaco", 11))
         self.measurements_listbox.pack(side="left", fill="both", expand=True)
         scrollbar.config(command=self.measurements_listbox.yview)
         
@@ -378,14 +384,21 @@ class PrecisionMeasurementTool:
         ttk.Button(list_buttons, text="Clear All", 
                   command=self.clear_all_measurements).pack(side="right", padx=2)
         
-        # Edit buttons
+        # Edit buttons - first row
         edit_buttons = ttk.Frame(list_frame)
-        edit_buttons.pack(fill="x", pady=(2, 5))
+        edit_buttons.pack(fill="x", pady=(2, 0))
         
         ttk.Button(edit_buttons, text="Edit Label", 
                   command=self.edit_selected_label).pack(side="left", padx=2, fill="x", expand=True)
         ttk.Button(edit_buttons, text="Add/Edit Note 📝", 
                   command=self.edit_selected_note).pack(side="right", padx=2, fill="x", expand=True)
+        
+        # Edit buttons - second row (color)
+        color_edit_buttons = ttk.Frame(list_frame)
+        color_edit_buttons.pack(fill="x", pady=(2, 5))
+        
+        ttk.Button(color_edit_buttons, text="Change Color 🎨", 
+                  command=self.edit_selected_color).pack(fill="x", padx=2)
         
         # Help text
         help_text = ttk.Label(list_frame, 
@@ -798,11 +811,12 @@ class PrecisionMeasurementTool:
             
     def draw_first_click_marker(self, x, y):
         """Draw a temporary marker for the first click"""
-        # Add a temporary cross marker
+        # Add a temporary cross marker using the current line color
         marker_size = 8
-        self.ax.plot([x-marker_size, x+marker_size], [y, y], 'r-', linewidth=2, alpha=0.7)
-        self.ax.plot([x, x], [y-marker_size, y+marker_size], 'r-', linewidth=2, alpha=0.7)
-        self.ax.plot(x, y, 'ro', markersize=4, alpha=0.7)
+        color = self.measurement_line_color
+        self.ax.plot([x-marker_size, x+marker_size], [y, y], '-', color=color, linewidth=2, alpha=0.7)
+        self.ax.plot([x, x], [y-marker_size, y+marker_size], '-', color=color, linewidth=2, alpha=0.7)
+        self.ax.plot(x, y, 'o', color=color, markersize=4, alpha=0.7)
         self.canvas.draw()
         
     def apply_snap_constraint(self, start_point, end_point):
@@ -867,8 +881,15 @@ class PrecisionMeasurementTool:
         if distance_mm is None:
             return
             
-        # Get dimension line geometry
-        geometry = measurement.get_dimension_line_geometry(offset=30 + len(self.measurements) * 15)
+        # Get dimension line geometry with offset
+        # Option 1: Fixed offset for all measurements (use_fixed_offset=True)
+        # Option 2: Staggered offset to prevent overlap (use_fixed_offset=False)
+        if self.use_fixed_offset:
+            offset = 15  # Same offset for all measurements
+        else:
+            measurement_index = self.measurements.index(measurement) if measurement in self.measurements else 0
+            offset = 15 + measurement_index * 15  # Staggered offsets
+        geometry = measurement.get_dimension_line_geometry(offset=offset)
         
         x1, y1 = measurement.start_point
         x2, y2 = measurement.end_point
@@ -898,9 +919,20 @@ class PrecisionMeasurementTool:
             label_text = measurement.label
             
         # Draw label text with contrasting background for visibility
-            # Use black background for white lines, white background for dark lines
-            bg_color = 'black' if measurement.color == 'white' else 'white'
-            text_color = 'white' if measurement.color == 'white' else measurement.color
+            # Light colors (yellow, cyan, white) need dark background
+            # Dark colors (blue, red, green, black, etc.) need light background
+            light_colors = ['yellow', 'cyan', 'white', 'magenta']
+            
+            if measurement.color in light_colors:
+                bg_color = 'black'
+                text_color = measurement.color
+            elif measurement.color == 'black':
+                bg_color = 'white'
+                text_color = 'black'
+            else:
+                # Dark/saturated colors: use white background
+                bg_color = 'white'
+                text_color = measurement.color
             
             self.ax.text(text_pos[0], text_pos[1], label_text,
                         ha='center', va='center', color=text_color,
@@ -1019,18 +1051,18 @@ class PrecisionMeasurementTool:
         if self.measurement_engine.image:
             self.load_image_into_plot()
     
-    def change_line_color(self, event=None):
-        """Change the color of measurement lines"""
-        new_color = self.line_color_var.get()
-        self.measurement_line_color = new_color
-        
-        # Update all existing measurements to use the new color
-        for measurement in self.measurements:
-            measurement.color = new_color
-        
-        # Redraw image to show new color
+    def toggle_fixed_offset(self):
+        """Toggle between fixed offset and staggered offset"""
+        self.use_fixed_offset = self.fixed_offset_var.get()
+        # Redraw image to update offsets
         if self.measurement_engine.image:
             self.load_image_into_plot()
+    
+    def change_default_line_color(self, event=None):
+        """Change the default color for NEW measurements"""
+        new_color = self.line_color_var.get()
+        self.measurement_line_color = new_color
+        # This only affects new measurements, not existing ones
         
     def set_dpi_directly(self):
         """Set DPI directly without needing a reference measurement"""
@@ -1067,6 +1099,7 @@ class PrecisionMeasurementTool:
         context_menu = tk.Menu(self.root, tearoff=0)
         context_menu.add_command(label="Edit Label", command=lambda: self.edit_measurement_label(selection[0]))
         context_menu.add_command(label="Add/Edit Note", command=lambda: self.edit_measurement_note(selection[0]))
+        context_menu.add_command(label="Change Color 🎨", command=lambda: self.edit_measurement_color(selection[0]))
         context_menu.add_separator()
         context_menu.add_command(label="Delete", command=lambda: self.delete_selected_measurement())
         
@@ -1122,6 +1155,79 @@ class PrecisionMeasurementTool:
             messagebox.showinfo("No Selection", "Please select a measurement from the list first.")
             return
         self.edit_measurement_note(selection[0])
+    
+    def edit_selected_color(self):
+        """Edit color of selected measurement (button handler)"""
+        selection = self.measurements_listbox.curselection()
+        if not selection:
+            messagebox.showinfo("No Selection", "Please select a measurement from the list first.")
+            return
+        self.edit_measurement_color(selection[0])
+    
+    def edit_measurement_color(self, index):
+        """Change the color of a specific measurement"""
+        if index >= len(self.measurements):
+            return
+            
+        measurement = self.measurements[index]
+        
+        # Create a custom dialog for color selection
+        color_dialog = tk.Toplevel(self.root)
+        color_dialog.title(f"Change Color - {measurement.label}")
+        color_dialog.geometry("350x200")
+        
+        ttk.Label(color_dialog, text=f"Select color for: {measurement.label}", 
+                 font=("Arial", 10, "bold")).pack(pady=10)
+        
+        # Current color indicator
+        current_frame = ttk.Frame(color_dialog)
+        current_frame.pack(pady=5)
+        ttk.Label(current_frame, text="Current color:").pack(side="left")
+        ttk.Label(current_frame, text=f"  {measurement.color}  ", 
+                 background=measurement.color if measurement.color not in ['white', 'black'] else measurement.color,
+                 foreground='white' if measurement.color in ['black', 'blue', 'red', 'green'] else 'black',
+                 relief="solid", borderwidth=1).pack(side="left", padx=5)
+        
+        # Color selection
+        color_frame = ttk.Frame(color_dialog)
+        color_frame.pack(pady=10)
+        
+        ttk.Label(color_frame, text="New color:").pack()
+        
+        color_var = tk.StringVar(value=measurement.color)
+        colors = ["red", "blue", "green", "yellow", "cyan", "magenta", "orange", "purple", "white", "black"]
+        
+        color_combo = ttk.Combobox(color_frame, textvariable=color_var, 
+                                   values=colors, state="readonly", width=15)
+        color_combo.pack(pady=5)
+        
+        # Button frame
+        button_frame = ttk.Frame(color_dialog)
+        button_frame.pack(pady=15)
+        
+        def apply_color():
+            new_color = color_var.get()
+            measurement.color = new_color
+            self.update_measurements_list()
+            self.data_logged = False
+            
+            # Redraw if image is loaded
+            if self.measurement_engine.image:
+                self.load_image_into_plot()
+            
+            color_dialog.destroy()
+            messagebox.showinfo("Color Changed", f"Color updated to {new_color} for:\n{measurement.label}")
+        
+        def cancel():
+            color_dialog.destroy()
+        
+        ttk.Button(button_frame, text="Apply", command=apply_color).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="Cancel", command=cancel).pack(side="left", padx=5)
+        
+        # Center the dialog
+        color_dialog.transient(self.root)
+        color_dialog.grab_set()
+        color_dialog.focus_set()
     
     def edit_measurement_note(self, index):
         """Edit the note of a measurement"""
