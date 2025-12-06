@@ -106,6 +106,9 @@ except Exception:
 hiddenimports += [
     'initialize_env',  # Critical: Entry point environment setup
     'cv2',  # OpenCV for image processing
+    'jaraco.text',  # Fix for pkg_resources deprecation issue
+    'jaraco.functools',  # Fix for pkg_resources deprecation issue
+    'jaraco.context',  # Fix for pkg_resources deprecation issue
     'gui.gauge_perforation_ui',  # Perforation gauge measurement dialog
     'gui.perforation_ui',  # Legacy perforation measurement dialog
     'app.analysis_manager',  # CRITICAL: Contains spectral analysis database fixes
