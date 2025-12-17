@@ -380,6 +380,15 @@ class ImageAlignmentManager:
             'filepath': self.reference_filepath
         }
     
+    def get_reference_image(self) -> Optional[Image.Image]:
+        """
+        Get the reference image.
+        
+        Returns:
+            PIL Image or None if no reference set
+        """
+        return self.reference_image if self.has_reference() else None
+    
     def set_alignment_mode(self, mode: str):
         """
         Set the alignment mode.

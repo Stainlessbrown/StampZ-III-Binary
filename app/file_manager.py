@@ -70,6 +70,11 @@ class FileManager:
                 # Update image dimensions display
                 width, height = image.size
                 self.app.control_panel.update_image_dimensions(width, height)
+
+                # Compose status bar text with mode, bit-depth, ICC
+                status_text = self._compose_status_text(image, metadata, width, height)
+                if hasattr(self.app, 'control_panel'):
+                    self.app.control_panel.update_image_status(status_text)
                 
                 # Show format information to user
                 self._show_format_info(filename, metadata)
@@ -116,6 +121,25 @@ class FileManager:
             
         except Exception as e:
             logger.warning(f"Error showing format info: {e}")
+
+    def _compose_status_text(self, image, metadata, width, height):
+        """Create the status bar text: MODE • <bits>-bit • WxH • ICC: <name>"""
+        try:
+            mode = getattr(image, 'mode', None) or metadata.get('photometric') or 'RGB'
+            bpc = metadata.get('original_bit_depth')
+            if isinstance(bpc, (list, tuple)):
+                # If all equal, show single; else join
+                uniq = sorted(set(bpc))
+                bpc_str = f"{uniq[0]}-bit" if len(uniq) == 1 else " / ".join(str(x) for x in bpc)
+            elif isinstance(bpc, int):
+                bpc_str = f"{bpc}-bit"
+            else:
+                # Fallback based on mode
+                bpc_str = "16-bit" if mode in ('I;16','I;16B','I;16L') else ("32-bit" if mode in ('I','F') else "8-bit")
+            icc = metadata.get('icc_profile_name') or ('sRGB' if 'Converted from embedded profile' in metadata.get('color_profile','') else 'None')
+            return f"{mode} • {bpc_str} • {width}×{height} • ICC: {icc}"
+        except Exception:
+            return f"{image.mode if hasattr(image,'mode') else 'RGB'} • {width}×{height}"
 
     def save_image(self):
         """Save the cropped or aligned image with format optimization."""
@@ -243,6 +267,13 @@ class FileManager:
                         base_filename = os.path.basename(filepath)
                         self.root.title(f"StampZ - {base_filename}")
                         self.app.control_panel.update_current_filename(filepath)
+                        w2, h2 = new_image.size
+                        self.app.control_panel.update_image_dimensions(w2, h2)
+                        try:
+                            status_text2 = self._compose_status_text(new_image, new_metadata, w2, h2)
+                            self.app.control_panel.update_image_status(status_text2)
+                        except Exception:
+                            pass
                     except ImageLoadError as e:
                         messagebox.showerror("Error", f"Failed to load cropped image: {str(e)}")
 

@@ -86,6 +86,7 @@ class ReorganizedControlPanel(ttk.Frame):
         
         # File info
         self.current_filename = tk.StringVar(value="No file loaded")
+        self.image_status = tk.StringVar(value="")  # e.g., RGB • 16-bit • 683×812 • ICC: sRGB
         
         # Mouse coordinates
         self.mouse_x = tk.StringVar(value="--")
@@ -186,7 +187,11 @@ class ReorganizedControlPanel(ttk.Frame):
         ttk.Label(coord_row, text="Size:", font=('Arial', 12)).pack(side=tk.LEFT)
         ttk.Label(coord_row, textvariable=self.image_dimensions, 
                  font=('Arial', 12, 'bold'), foreground='#009900').pack(
-                     side=tk.LEFT, padx=(2, 5))
+                     side=tk.LEFT, padx=(2, 8))
+        
+        # Right next to size: image technical status (mode • bits • ICC)
+        status_lbl = ttk.Label(coord_row, textvariable=self.image_status, font=('Arial', 11), foreground="#444")
+        status_lbl.pack(side=tk.LEFT, padx=(0, 5))
         
         # Right: Zoom controls (compact with slider)
         zoom_frame = ttk.Frame(coord_row)
@@ -821,6 +826,14 @@ class ReorganizedControlPanel(ttk.Frame):
                     base_filename = os.path.basename(file_path)
                     self.main_app.root.title(f"StampZ_II - {base_filename}")
                     self.main_app.control_panel.update_current_filename(file_path)
+                    # Update dimensions and status bar
+                    w, h = image.size
+                    self.main_app.control_panel.update_image_dimensions(w, h)
+                    try:
+                        status_text = self.main_app.file_manager._compose_status_text(image, metadata, w, h)
+                        self.main_app.control_panel.update_image_status(status_text)
+                    except Exception:
+                        pass
                 except ImageLoadError as e:
                     messagebox.showerror("Error", str(e))
                 except Exception as e:
@@ -921,6 +934,10 @@ class ReorganizedControlPanel(ttk.Frame):
     def update_image_dimensions(self, width: int, height: int):
         """Update image dimensions display."""
         self.image_dimensions.set(f"{width}×{height}")
+    
+    def update_image_status(self, status_text: str):
+        """Update the technical status (mode • bits • ICC)."""
+        self.image_status.set(status_text or "")
 
     def update_crop_dimensions(self, width: int, height: int):
         """Update crop dimension display."""

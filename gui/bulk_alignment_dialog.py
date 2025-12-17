@@ -148,6 +148,14 @@ class BulkAlignmentDialog:
             command=self._select_output_dir
         ).pack(side=tk.RIGHT)
         
+        # Option to copy reference image
+        self.copy_reference_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            output_frame,
+            text="Copy reference image to output directory",
+            variable=self.copy_reference_var
+        ).pack(anchor=tk.W, pady=(5, 0))
+        
         # Progress section (initially hidden)
         self.progress_frame = ttk.LabelFrame(main_frame, text="Progress", padding=10)
         
@@ -334,6 +342,18 @@ class BulkAlignmentDialog:
         self._update_status("Starting bulk alignment...", append=False)
         
         try:
+            # Copy reference image if requested
+            if self.copy_reference_var.get():
+                try:
+                    ref_image = self.alignment_manager.get_reference_image()
+                    if ref_image is not None:
+                        ref_filename = "reference_template.tif"
+                        ref_path = os.path.join(self.output_directory, ref_filename)
+                        ref_image.save(ref_path)
+                        self._update_status(f"✓ Copied reference template to output directory")
+                except Exception as e:
+                    self._update_status(f"⚠ Could not copy reference: {str(e)}")
+            
             # Process images
             successful, failed = self.alignment_manager.bulk_align_images(
                 self.selected_files,

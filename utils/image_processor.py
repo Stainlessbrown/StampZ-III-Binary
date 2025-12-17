@@ -41,7 +41,14 @@ def load_image(file_path: Union[str, Path]) -> Tuple[Image.Image, dict]:
     Raises:
         ImageLoadError: If the file cannot be loaded or is not a valid image
     """
-    metadata = {'format_info': '', 'precision_preserved': False, 'original_bit_depth': None}
+    metadata = {
+        'format_info': '',
+        'precision_preserved': False,
+        'original_bit_depth': None,        # bits per channel if known (int or list)
+        'samples_per_pixel': None,         # channels count if known
+        'photometric': None,               # e.g., 'RGB', 'GRAY'
+        'icc_profile_name': None,          # if embedded
+    }
     
     try:
         file_path = Path(file_path)
@@ -62,7 +69,9 @@ def load_image(file_path: Union[str, Path]) -> Tuple[Image.Image, dict]:
                     'precision_preserved': tiff_metadata.get('true_16bit', False),
                     'original_bit_depth': tiff_metadata.get('bits_per_sample'),
                     'data_type': tiff_metadata.get('data_type'),
-                    'value_range': tiff_metadata.get('value_range')
+                    'value_range': tiff_metadata.get('value_range'),
+                    'samples_per_pixel': tiff_metadata.get('samples_per_pixel'),
+                    'photometric': tiff_metadata.get('photometric')
                 })
                 
                 # Convert numpy array to PIL Image
@@ -106,6 +115,10 @@ def load_image(file_path: Union[str, Path]) -> Tuple[Image.Image, dict]:
                 
                 # Get embedded profile
                 input_profile = ImageCms.ImageCmsProfile(image.info['icc_profile'])
+                try:
+                    metadata['icc_profile_name'] = ImageCms.getProfileName(input_profile)
+                except Exception:
+                    metadata['icc_profile_name'] = 'Embedded ICC'
                 
                 # Create transformation
                 transform = ImageCms.buildTransform(input_profile, srgb_profile, 'RGB', 'RGB')
@@ -127,6 +140,22 @@ def load_image(file_path: Union[str, Path]) -> Tuple[Image.Image, dict]:
             if image.mode != 'RGB':
                 image = image.convert('RGB')
             metadata['color_profile'] = "No embedded profile, converted to RGB"
+        
+        # Derive fallback bit-depth/channels if missing
+        try:
+            metadata.setdefault('samples_per_pixel', len(image.getbands()))
+            if metadata.get('original_bit_depth') is None:
+                # Infer from mode
+                if image.mode in ('I;16', 'I;16B', 'I;16L'):
+                    metadata['original_bit_depth'] = 16
+                elif image.mode in ('I', 'F'):
+                    # 32-bit int or 32-bit float; treat as 32
+                    metadata['original_bit_depth'] = 32
+                else:
+                    metadata['original_bit_depth'] = 8
+            metadata.setdefault('photometric', image.mode)
+        except Exception:
+            pass
                 
         return image, metadata
         
