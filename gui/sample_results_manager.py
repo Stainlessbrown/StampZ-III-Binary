@@ -417,8 +417,24 @@ class SampleResultsManager(tk.Frame):
         dialog.transient(self)  # Make dialog modal
         dialog.grab_set()
         
-        # Center the dialog - make it taller for notes field
-        dialog.geometry("450x420")
+        # Center the dialog relative to parent window (multi-monitor aware)
+        dialog.update_idletasks()
+        dialog_width = 450
+        dialog_height = 420
+        
+        # Get parent window position
+        try:
+            parent_window = self.winfo_toplevel()
+            parent_x = parent_window.winfo_x()
+            parent_y = parent_window.winfo_y()
+            parent_width = parent_window.winfo_width()
+            parent_height = parent_window.winfo_height()
+            x = parent_x + (parent_width - dialog_width) // 2
+            y = parent_y + (parent_height - dialog_height) // 2
+            dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
+        except:
+            # Fallback to simple centering if parent position unavailable
+            dialog.geometry(f"{dialog_width}x{dialog_height}")
         
         # Color name entry
         name_frame = ttk.Frame(dialog, padding="10")
@@ -874,9 +890,27 @@ class SampleResultsManager(tk.Frame):
             # Create dialog
             dialog = tk.Toplevel(self)
             dialog.title("Save Results")
-            dialog.geometry("500x550")
             dialog.transient(self)
             dialog.grab_set()
+            
+            # Center dialog relative to parent window (multi-monitor aware)
+            dialog.update_idletasks()
+            dialog_width = 500
+            dialog_height = 550
+            
+            # Get parent window position
+            try:
+                parent_window = self.winfo_toplevel()
+                parent_x = parent_window.winfo_x()
+                parent_y = parent_window.winfo_y()
+                parent_width = parent_window.winfo_width()
+                parent_height = parent_window.winfo_height()
+                x = parent_x + (parent_width - dialog_width) // 2
+                y = parent_y + (parent_height - dialog_height) // 2
+                dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
+            except:
+                # Fallback to simple centering if parent position unavailable
+                dialog.geometry(f"{dialog_width}x{dialog_height}")
             
             # Main content frame
             content_frame = ttk.Frame(dialog, padding="20")

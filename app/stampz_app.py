@@ -335,21 +335,22 @@ class StampZApp:
         
         dialog = Toplevel(self.root)
         dialog.title("Load Template")
+        dialog.transient(self.root)
+        dialog.grab_set()
         
+        # Center dialog relative to parent window (multi-monitor aware)
+        dialog.update_idletasks()
         dialog_width = 400
         dialog_height = 300
-        
-        screen_width = self.root.winfo_screenwidth()
-        screen_height = self.root.winfo_screenheight()
-        
-        x = screen_width - dialog_width - 50
-        y = (screen_height - dialog_height) // 2
+        parent_x = self.root.winfo_x()
+        parent_y = self.root.winfo_y()
+        parent_width = self.root.winfo_width()
+        parent_height = self.root.winfo_height()
+        x = parent_x + (parent_width - dialog_width) // 2
+        y = parent_y + (parent_height - dialog_height) // 2
         
         dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
         dialog.resizable(False, False)
-        
-        dialog.transient(self.root)
-        dialog.grab_set()
         dialog.focus_force()
         
         Label(dialog, text="Select a coordinate set to load:", font=("Arial", 12)).pack(pady=10)

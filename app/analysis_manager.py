@@ -158,15 +158,20 @@ class AnalysisManager:
         """Ask user to choose RGB or CMY for channel analysis."""
         dialog = tk.Toplevel(self.root)
         dialog.title("Select Channel Analysis Mode")
-        dialog.geometry("450x250")
         dialog.transient(self.root)
         dialog.grab_set()
         
-        # Center dialog
+        # Center dialog relative to parent window (multi-monitor aware)
         dialog.update_idletasks()
-        x = (dialog.winfo_screenwidth() // 2) - (450 // 2)
-        y = (dialog.winfo_screenheight() // 2) - (250 // 2)
-        dialog.geometry(f"450x250+{x}+{y}")
+        dialog_width = 450
+        dialog_height = 250
+        parent_x = self.root.winfo_x()
+        parent_y = self.root.winfo_y()
+        parent_width = self.root.winfo_width()
+        parent_height = self.root.winfo_height()
+        x = parent_x + (parent_width - dialog_width) // 2
+        y = parent_y + (parent_height - dialog_height) // 2
+        dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
         
         result = None
         
@@ -246,15 +251,20 @@ class AnalysisManager:
         """Ask user to choose between regular color analysis and RGB-CMY analysis."""
         dialog = tk.Toplevel(self.root)
         dialog.title("Select Analysis Type")
-        dialog.geometry("400x250")
         dialog.transient(self.root)
         dialog.grab_set()
         
-        # Center dialog
+        # Center dialog relative to parent window (multi-monitor aware)
         dialog.update_idletasks()
-        x = (dialog.winfo_screenwidth() // 2) - (400 // 2)
-        y = (dialog.winfo_screenheight() // 2) - (250 // 2)
-        dialog.geometry(f"400x250+{x}+{y}")
+        dialog_width = 400
+        dialog_height = 250
+        parent_x = self.root.winfo_x()
+        parent_y = self.root.winfo_y()
+        parent_width = self.root.winfo_width()
+        parent_height = self.root.winfo_height()
+        x = parent_x + (parent_width - dialog_width) // 2
+        y = parent_y + (parent_height - dialog_height) // 2
+        dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
         
         result = None
         
@@ -401,22 +411,24 @@ class AnalysisManager:
     def _show_rgb_cmy_analysis_complete_dialog(self, analysis_results: Dict, sample_set_name: str):
         """Show RGB-CMY analysis complete dialog with export options."""
         dialog = tk.Toplevel(self.root)
+        dialog.transient(self.root)
+        dialog.grab_set()
         
         # Determine mode for title
         mode = analysis_results.get('mode', 'rgb')
         mode_label = {"rgb": "RGB", "cmy": "CMY"}[mode]
         dialog.title(f"{mode_label} Channel Analysis Complete")
         
-        # Consistent width for both modes
+        # Center dialog relative to parent window (multi-monitor aware)
+        dialog.update_idletasks()
         dialog_width = 600
         dialog_height = 700
-        
-        screen_width = self.root.winfo_screenwidth()
-        screen_height = self.root.winfo_screenheight()
-        
-        x = screen_width - dialog_width - 50
-        y = (screen_height - dialog_height) // 2
-        
+        parent_x = self.root.winfo_x()
+        parent_y = self.root.winfo_y()
+        parent_width = self.root.winfo_width()
+        parent_height = self.root.winfo_height()
+        x = parent_x + (parent_width - dialog_width) // 2
+        y = parent_y + (parent_height - dialog_height) // 2
         dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
         
         # Header
@@ -586,15 +598,20 @@ class AnalysisManager:
                 mode_label = {"rgb": "RGB", "cmy": "CMY"}[mode]
                 info_dialog = tk.Toplevel(dialog)
                 info_dialog.title(f"{mode_label} Channel Export Information")
-                info_dialog.geometry("400x300")
                 info_dialog.transient(dialog)
                 info_dialog.grab_set()
                 
-                # Center info dialog
+                # Center info dialog relative to parent (multi-monitor aware)
                 info_dialog.update_idletasks()
-                x = (info_dialog.winfo_screenwidth() // 2) - (400 // 2)
-                y = (info_dialog.winfo_screenheight() // 2) - (300 // 2)
-                info_dialog.geometry(f"400x500+{x}+{y}")
+                info_width = 400
+                info_height = 500
+                parent_x = dialog.winfo_x()
+                parent_y = dialog.winfo_y()
+                parent_width = dialog.winfo_width()
+                parent_height = dialog.winfo_height()
+                x = parent_x + (parent_width - info_width) // 2
+                y = parent_y + (parent_height - info_height) // 2
+                info_dialog.geometry(f"{info_width}x{info_height}+{x}+{y}")
                 
                 # Info dialog UI
                 info_frame = ttk.Frame(info_dialog, padding=20)
@@ -740,16 +757,19 @@ class AnalysisManager:
         """Show simple analysis complete dialog without export options."""
         dialog = tk.Toplevel(self.root)
         dialog.title("Color Analysis Complete")
+        dialog.transient(self.root)
+        dialog.grab_set()
         
+        # Center dialog relative to parent window (multi-monitor aware)
+        dialog.update_idletasks()
         dialog_width = 600
         dialog_height = 600
-        
-        screen_width = self.root.winfo_screenwidth()
-        screen_height = self.root.winfo_screenheight()
-        
-        x = screen_width - dialog_width - 50
-        y = (screen_height - dialog_height) // 2
-        
+        parent_x = self.root.winfo_x()
+        parent_y = self.root.winfo_y()
+        parent_width = self.root.winfo_width()
+        parent_height = self.root.winfo_height()
+        x = parent_x + (parent_width - dialog_width) // 2
+        y = parent_y + (parent_height - dialog_height) // 2
         dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
         
         # Header
@@ -843,11 +863,7 @@ class AnalysisManager:
             command=dialog.destroy
         ).pack(side="right")
         
-        dialog.transient(self.root)
-        dialog.grab_set()
-        
-        # Center on screen
-        dialog.update_idletasks()
+        # Focus dialog
         dialog.focus_force()
         
         self.root.wait_window(dialog)
@@ -2053,16 +2069,21 @@ class AnalysisManager:
             # Create dialog window
             dialog = Toplevel(self.root)
             dialog.title("Plot_3D Data Manager")
-            dialog.geometry("500x600")
             dialog.resizable(False, False)
-            
-            # Center dialog
             dialog.transient(self.root)
             dialog.grab_set()
+            
+            # Center dialog relative to parent window (multi-monitor aware)
             dialog.update_idletasks()
-            x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
-            y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
-            dialog.geometry(f"+{x}+{y}")
+            dialog_width = 500
+            dialog_height = 600
+            parent_x = self.root.winfo_x()
+            parent_y = self.root.winfo_y()
+            parent_width = self.root.winfo_width()
+            parent_height = self.root.winfo_height()
+            x = parent_x + (parent_width - dialog_width) // 2
+            y = parent_y + (parent_height - dialog_height) // 2
+            dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
             
             # Title
             Label(dialog, text="Plot_3D Data Manager", font=("Arial", 16, "bold")).pack(pady=10)
@@ -3407,14 +3428,20 @@ class AnalysisManager:
             if result:
                 progress_dialog = tk.Toplevel(self.root)
                 progress_dialog.title("Creating Libraries")
-                progress_dialog.geometry("300x100")
                 progress_dialog.transient(self.root)
                 progress_dialog.grab_set()
 
+                # Center dialog relative to parent window (multi-monitor aware)
                 progress_dialog.update_idletasks()
-                x = (progress_dialog.winfo_screenwidth() // 2) - (progress_dialog.winfo_width() // 2)
-                y = (progress_dialog.winfo_screenheight() // 2) - (progress_dialog.winfo_height() // 2)
-                progress_dialog.geometry(f"+{x}+{y}")
+                dialog_width = 300
+                dialog_height = 100
+                parent_x = self.root.winfo_x()
+                parent_y = self.root.winfo_y()
+                parent_width = self.root.winfo_width()
+                parent_height = self.root.winfo_height()
+                x = parent_x + (parent_width - dialog_width) // 2
+                y = parent_y + (parent_height - dialog_height) // 2
+                progress_dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
 
                 progress_label = ttk.Label(progress_dialog, text="Creating standard libraries...")
                 progress_label.pack(expand=True)
@@ -3783,15 +3810,20 @@ class AnalysisManager:
             # Create a selection dialog
             dialog = Toplevel(self.root)
             dialog.title("Select Data to View")
-            dialog.geometry("450x350")
             dialog.transient(self.root)
             dialog.grab_set()
             
-            # Center dialog
+            # Center dialog relative to parent window (multi-monitor aware)
             dialog.update_idletasks()
-            x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
-            y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
-            dialog.geometry(f"+{x}+{y}")
+            dialog_width = 450
+            dialog_height = 350
+            parent_x = self.root.winfo_x()
+            parent_y = self.root.winfo_y()
+            parent_width = self.root.winfo_width()
+            parent_height = self.root.winfo_height()
+            x = parent_x + (parent_width - dialog_width) // 2
+            y = parent_y + (parent_height - dialog_height) // 2
+            dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
             
             # Header
             from tkinter import Label, Listbox, Button, Frame, Scrollbar
@@ -3911,21 +3943,22 @@ class AnalysisManager:
             return
             
         try:
-            # Create extraction dialog (orphaned for multi-screen use)
+            # Create extraction dialog (not transient to allow multi-screen use)
             dialog = tk.Toplevel()
             dialog.title("Black Ink Extractor")
-            dialog.geometry("650x700")  # Wider for better layout
-            # Remove transient and grab_set to allow moving to different screens
-            # dialog.transient(self.root)  # Commented out to orphan the dialog
-            # dialog.grab_set()  # Commented out to allow interaction with other windows
+            # Note: Not setting transient/grab_set to allow moving to different screens
             
-            # Center dialog
+            # Center dialog relative to parent window (multi-monitor aware)
             dialog.update_idletasks()
-            screen_width = dialog.winfo_screenwidth()
-            screen_height = dialog.winfo_screenheight()
-            x = (screen_width // 2) - (dialog.winfo_reqwidth() // 2)
-            y = (screen_height // 2) - (dialog.winfo_reqheight() // 2)
-            dialog.geometry(f"+{x}+{y}")
+            dialog_width = 650
+            dialog_height = 700
+            parent_x = self.root.winfo_x()
+            parent_y = self.root.winfo_y()
+            parent_width = self.root.winfo_width()
+            parent_height = self.root.winfo_height()
+            x = parent_x + (parent_width - dialog_width) // 2
+            y = parent_y + (parent_height - dialog_height) // 2
+            dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
             
             # Header
             header_frame = ttk.Frame(dialog)
