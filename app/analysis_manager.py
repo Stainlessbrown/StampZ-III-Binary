@@ -158,10 +158,10 @@ class AnalysisManager:
         """Ask user to choose RGB or CMY for channel analysis."""
         dialog = tk.Toplevel(self.root)
         dialog.title("Select Channel Analysis Mode")
-        dialog.transient(self.root)
-        # Note: Not using grab_set on macOS to prevent dialog disappearing issues
+        # Note: Not using transient() on macOS to allow free movement across monitors
         import sys
         if sys.platform != 'darwin':
+            dialog.transient(self.root)
             dialog.grab_set()
         
         # Center dialog relative to parent window (multi-monitor aware)
@@ -254,10 +254,10 @@ class AnalysisManager:
         """Ask user to choose between regular color analysis and RGB-CMY analysis."""
         dialog = tk.Toplevel(self.root)
         dialog.title("Select Analysis Type")
-        dialog.transient(self.root)
-        # Note: Not using grab_set on macOS to prevent dialog disappearing issues
+        # Note: Not using transient() on macOS to allow free movement across monitors
         import sys
         if sys.platform != 'darwin':
+            dialog.transient(self.root)
             dialog.grab_set()
         
         # Center dialog relative to parent window (multi-monitor aware)
@@ -418,6 +418,17 @@ class AnalysisManager:
         """Show RGB-CMY analysis complete dialog with export options."""
         dialog = tk.Toplevel(self.root)
         # Note: Not using transient() to allow free movement across monitors
+        
+        # On macOS, set window attributes to prevent disappearing when moved
+        import sys
+        if sys.platform == 'darwin':
+            try:
+                # Make the window independent and always visible
+                dialog.attributes('-topmost', False)
+                dialog.lift()
+                dialog.attributes('-topmost', False)  # Disable topmost after lift
+            except:
+                pass
         
         # Determine mode for title
         mode = analysis_results.get('mode', 'rgb')
@@ -766,6 +777,17 @@ class AnalysisManager:
         dialog = tk.Toplevel(self.root)
         dialog.title("Color Analysis Complete")
         # Note: Not using transient() to allow free movement across monitors
+        
+        # On macOS, set window attributes to prevent disappearing when moved
+        import sys
+        if sys.platform == 'darwin':
+            try:
+                # Make the window independent and always visible
+                dialog.attributes('-topmost', False)
+                dialog.lift()
+                dialog.attributes('-topmost', False)  # Disable topmost after lift
+            except:
+                pass
         
         # Center dialog relative to parent window (multi-monitor aware)
         dialog.update_idletasks()

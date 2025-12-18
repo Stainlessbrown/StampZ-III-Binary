@@ -416,6 +416,16 @@ class SampleResultsManager(tk.Frame):
         dialog.title("Add Color to Library")
         # Note: Not using transient() to allow free movement across monitors on macOS
         
+        # On macOS, set window attributes to prevent disappearing when moved
+        import sys
+        if sys.platform == 'darwin':
+            try:
+                dialog.attributes('-topmost', False)
+                dialog.lift()
+                dialog.attributes('-topmost', False)
+            except:
+                pass
+        
         # Center the dialog relative to parent window (multi-monitor aware)
         dialog.update_idletasks()
         dialog_width = 450
@@ -890,6 +900,16 @@ class SampleResultsManager(tk.Frame):
             dialog = tk.Toplevel(self)
             dialog.title("Save Results")
             # Note: Not using transient() to allow free movement across monitors on macOS
+            
+            # On macOS, set window attributes to prevent disappearing when moved
+            import sys
+            if sys.platform == 'darwin':
+                try:
+                    dialog.attributes('-topmost', False)
+                    dialog.lift()
+                    dialog.attributes('-topmost', False)
+                except:
+                    pass
             
             # Center dialog relative to parent window (multi-monitor aware)
             dialog.update_idletasks()
