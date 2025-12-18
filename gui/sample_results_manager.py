@@ -414,8 +414,7 @@ class SampleResultsManager(tk.Frame):
         # Create a dialog for color name and library selection
         dialog = tk.Toplevel(self)
         dialog.title("Add Color to Library")
-        dialog.transient(self)  # Make dialog modal
-        dialog.grab_set()
+        # Note: Not using transient() to allow free movement across monitors on macOS
         
         # Center the dialog relative to parent window (multi-monitor aware)
         dialog.update_idletasks()
@@ -890,8 +889,7 @@ class SampleResultsManager(tk.Frame):
             # Create dialog
             dialog = tk.Toplevel(self)
             dialog.title("Save Results")
-            dialog.transient(self)
-            dialog.grab_set()
+            # Note: Not using transient() to allow free movement across monitors on macOS
             
             # Center dialog relative to parent window (multi-monitor aware)
             dialog.update_idletasks()

@@ -336,7 +336,10 @@ class StampZApp:
         dialog = Toplevel(self.root)
         dialog.title("Load Template")
         dialog.transient(self.root)
-        dialog.grab_set()
+        # Note: Not using grab_set on macOS to prevent dialog disappearing issues
+        import sys
+        if sys.platform != 'darwin':
+            dialog.grab_set()
         
         # Center dialog relative to parent window (multi-monitor aware)
         dialog.update_idletasks()

@@ -159,7 +159,10 @@ class AnalysisManager:
         dialog = tk.Toplevel(self.root)
         dialog.title("Select Channel Analysis Mode")
         dialog.transient(self.root)
-        dialog.grab_set()
+        # Note: Not using grab_set on macOS to prevent dialog disappearing issues
+        import sys
+        if sys.platform != 'darwin':
+            dialog.grab_set()
         
         # Center dialog relative to parent window (multi-monitor aware)
         dialog.update_idletasks()
@@ -252,7 +255,10 @@ class AnalysisManager:
         dialog = tk.Toplevel(self.root)
         dialog.title("Select Analysis Type")
         dialog.transient(self.root)
-        dialog.grab_set()
+        # Note: Not using grab_set on macOS to prevent dialog disappearing issues
+        import sys
+        if sys.platform != 'darwin':
+            dialog.grab_set()
         
         # Center dialog relative to parent window (multi-monitor aware)
         dialog.update_idletasks()
@@ -411,8 +417,7 @@ class AnalysisManager:
     def _show_rgb_cmy_analysis_complete_dialog(self, analysis_results: Dict, sample_set_name: str):
         """Show RGB-CMY analysis complete dialog with export options."""
         dialog = tk.Toplevel(self.root)
-        dialog.transient(self.root)
-        dialog.grab_set()
+        # Note: Not using transient() to allow free movement across monitors
         
         # Determine mode for title
         mode = analysis_results.get('mode', 'rgb')
@@ -599,7 +604,10 @@ class AnalysisManager:
                 info_dialog = tk.Toplevel(dialog)
                 info_dialog.title(f"{mode_label} Channel Export Information")
                 info_dialog.transient(dialog)
-                info_dialog.grab_set()
+                # Note: Not using grab_set on macOS to prevent dialog disappearing issues
+                import sys
+                if sys.platform != 'darwin':
+                    info_dialog.grab_set()
                 
                 # Center info dialog relative to parent (multi-monitor aware)
                 info_dialog.update_idletasks()
@@ -757,8 +765,7 @@ class AnalysisManager:
         """Show simple analysis complete dialog without export options."""
         dialog = tk.Toplevel(self.root)
         dialog.title("Color Analysis Complete")
-        dialog.transient(self.root)
-        dialog.grab_set()
+        # Note: Not using transient() to allow free movement across monitors
         
         # Center dialog relative to parent window (multi-monitor aware)
         dialog.update_idletasks()
@@ -884,7 +891,10 @@ class AnalysisManager:
             dialog.title(f"Save {mode_label} Channel Results")
             dialog.geometry("550x700")
             dialog.transient(parent_dialog)
-            dialog.grab_set()
+            # Note: Not using grab_set on macOS to prevent dialog disappearing issues
+            import sys
+            if sys.platform != 'darwin':
+                dialog.grab_set()
             
             # Main content frame
             content_frame = ttk.Frame(dialog, padding="20")
@@ -2071,7 +2081,10 @@ class AnalysisManager:
             dialog.title("Plot_3D Data Manager")
             dialog.resizable(False, False)
             dialog.transient(self.root)
-            dialog.grab_set()
+            # Note: Not using grab_set on macOS to prevent dialog disappearing issues
+            import sys
+            if sys.platform != 'darwin':
+                dialog.grab_set()
             
             # Center dialog relative to parent window (multi-monitor aware)
             dialog.update_idletasks()
@@ -3429,7 +3442,10 @@ class AnalysisManager:
                 progress_dialog = tk.Toplevel(self.root)
                 progress_dialog.title("Creating Libraries")
                 progress_dialog.transient(self.root)
-                progress_dialog.grab_set()
+                # Note: Not using grab_set on macOS to prevent dialog disappearing issues
+                import sys
+                if sys.platform != 'darwin':
+                    progress_dialog.grab_set()
 
                 # Center dialog relative to parent window (multi-monitor aware)
                 progress_dialog.update_idletasks()
@@ -3811,7 +3827,10 @@ class AnalysisManager:
             dialog = Toplevel(self.root)
             dialog.title("Select Data to View")
             dialog.transient(self.root)
-            dialog.grab_set()
+            # Note: Not using grab_set on macOS to prevent dialog disappearing issues
+            import sys
+            if sys.platform != 'darwin':
+                dialog.grab_set()
             
             # Center dialog relative to parent window (multi-monitor aware)
             dialog.update_idletasks()
