@@ -75,9 +75,11 @@ class DismissibleMessageBox:
         dialog.title(title)
         dialog.resizable(False, False)
         
-        # Make modal
-        dialog.transient(parent if parent else dialog.master)
-        dialog.grab_set()
+        # Make modal (but not transient on macOS to allow multi-monitor movement)
+        import sys
+        if sys.platform != 'darwin':
+            dialog.transient(parent if parent else dialog.master)
+            dialog.grab_set()
         
         # Main content frame
         content_frame = ttk.Frame(dialog, padding="20")
@@ -152,11 +154,28 @@ class DismissibleMessageBox:
         )
         ok_button.pack(side=tk.RIGHT)
         
-        # Center dialog
+        # Center dialog relative to parent window (multi-monitor aware)
         dialog.update_idletasks()
-        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_reqwidth() // 2)
-        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_reqheight() // 2)
-        dialog.geometry(f"+{x}+{y}")
+        if parent:
+            try:
+                parent_x = parent.winfo_x()
+                parent_y = parent.winfo_y()
+                parent_width = parent.winfo_width()
+                parent_height = parent.winfo_height()
+                dialog_width = dialog.winfo_reqwidth()
+                dialog_height = dialog.winfo_reqheight()
+                x = parent_x + (parent_width - dialog_width) // 2
+                y = parent_y + (parent_height - dialog_height) // 2
+                dialog.geometry(f"+{x}+{y}")
+            except:
+                # Fallback to screen center if parent positioning fails
+                x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_reqwidth() // 2)
+                y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_reqheight() // 2)
+                dialog.geometry(f"+{x}+{y}")
+        else:
+            x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_reqwidth() // 2)
+            y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_reqheight() // 2)
+            dialog.geometry(f"+{x}+{y}")
         
         # Focus OK button
         ok_button.focus_set()
@@ -190,8 +209,11 @@ class DismissibleMessageBox:
         dialog.title(title)
         dialog.resizable(False, False)
         
-        dialog.transient(parent if parent else dialog.master)
-        dialog.grab_set()
+        # Make modal (but not transient on macOS to allow multi-monitor movement)
+        import sys
+        if sys.platform != 'darwin':
+            dialog.transient(parent if parent else dialog.master)
+            dialog.grab_set()
         
         content_frame = ttk.Frame(dialog, padding="20")
         content_frame.pack(fill=tk.BOTH, expand=True)
@@ -260,10 +282,28 @@ class DismissibleMessageBox:
         )
         ok_button.pack(side=tk.RIGHT)
         
+        # Center dialog relative to parent window (multi-monitor aware)
         dialog.update_idletasks()
-        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_reqwidth() // 2)
-        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_reqheight() // 2)
-        dialog.geometry(f"+{x}+{y}")
+        if parent:
+            try:
+                parent_x = parent.winfo_x()
+                parent_y = parent.winfo_y()
+                parent_width = parent.winfo_width()
+                parent_height = parent.winfo_height()
+                dialog_width = dialog.winfo_reqwidth()
+                dialog_height = dialog.winfo_reqheight()
+                x = parent_x + (parent_width - dialog_width) // 2
+                y = parent_y + (parent_height - dialog_height) // 2
+                dialog.geometry(f"+{x}+{y}")
+            except:
+                # Fallback to screen center if parent positioning fails
+                x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_reqwidth() // 2)
+                y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_reqheight() // 2)
+                dialog.geometry(f"+{x}+{y}")
+        else:
+            x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_reqwidth() // 2)
+            y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_reqheight() // 2)
+            dialog.geometry(f"+{x}+{y}")
         
         ok_button.focus_set()
         dialog.bind('<Return>', lambda e: on_ok())

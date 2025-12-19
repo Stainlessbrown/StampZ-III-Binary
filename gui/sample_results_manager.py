@@ -873,11 +873,12 @@ class SampleResultsManager(tk.Frame):
                 for file in saved_files:
                     success_msg += f"• {file}\n"
                 
-                # Use dismissible success message
+                # Use dismissible success message with parent window for proper positioning
                 showsuccess_dismissible(
                     title="Quick Save Complete",
                     message=success_msg,
-                    message_id="quick_save_success"
+                    message_id="quick_save_success",
+                    parent=self.winfo_toplevel()
                 )
             else:
                 # Show error
