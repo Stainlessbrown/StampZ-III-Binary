@@ -1499,6 +1499,23 @@ class RealtimePlot3DSheet:
             # Filter using the new logic that includes centroid data
             df = df[has_valid_data].copy()
             
+            # ADDITIONAL FIX: Exclude centroid summary rows (1-6) from data sent to K-means
+            # These rows are reserved for cluster summaries and should not be treated as data points
+            if '_original_sheet_row' in df.columns:
+                # Convert to numeric first to handle any string values
+                print(f"  DEBUG: _original_sheet_row dtype BEFORE conversion: {df['_original_sheet_row'].dtype}")
+                print(f"  DEBUG: Sample values BEFORE: {df['_original_sheet_row'].head(3).tolist()}")
+                df['_original_sheet_row'] = pd.to_numeric(df['_original_sheet_row'], errors='coerce')
+                print(f"  DEBUG: _original_sheet_row dtype AFTER conversion: {df['_original_sheet_row'].dtype}")
+                print(f"  DEBUG: Sample values AFTER: {df['_original_sheet_row'].head(3).tolist()}")
+                centroid_summary_mask = df['_original_sheet_row'] >= 7  # Keep only rows 7+ (display rows 8+)
+                rows_before = len(df)
+                df = df[centroid_summary_mask].copy()
+                rows_after = len(df)
+                if rows_before != rows_after:
+                    print(f"  🔧 Filtered out {rows_before - rows_after} centroid summary rows (keeping only data rows 8+)")
+                    print(f"  Remaining data rows: {rows_after}")
+            
             # Reset index to ensure consecutive numbering starting from 0
             # This prevents "positional indexers are out-of-bounds" errors in K-means clustering
             df.reset_index(drop=True, inplace=True)

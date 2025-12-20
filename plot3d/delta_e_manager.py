@@ -1618,6 +1618,18 @@ class DeltaEManager:
         print("DEBUG: Delta E Calculate button clicked!")
         self.logger.info("Delta E Calculate button clicked")
         
+        # CRITICAL CHECK: ΔE requires an external spreadsheet
+        # Internal worksheets have reserved rows 1-6 for cluster summaries which complicates indexing
+        if self.file_path is None:
+            messagebox.showerror(
+                "External Spreadsheet Required",
+                "ΔE calculation requires an external spreadsheet file.\n\n"
+                "Please save your data to a .ods file first using the 'Save Spreadsheet' button, "
+                "then open that file in Plot_3D to use ΔE calculations.\n\n"
+                "Internal worksheets are not supported for ΔE due to the reserved cluster summary area (rows 2-7)."
+            )
+            return
+        
         # Check if GUI components exist
         if self.frame is None or self.apply_button is None:
             self.logger.error("GUI components not initialized")

@@ -237,6 +237,11 @@ class KmeansManager:
         # Copy the dataframe
         dataframe = dataframe.copy()
         
+        # CRITICAL FIX: Ensure _original_sheet_row is numeric if it exists
+        if '_original_sheet_row' in dataframe.columns:
+            dataframe['_original_sheet_row'] = pd.to_numeric(dataframe['_original_sheet_row'], errors='coerce')
+            self.logger.info(f"Converted _original_sheet_row to numeric type")
+        
         # Only clear existing centroid data if we're not in realtime mode or if explicitly requested
         # In realtime mode, preserve existing centroid data from the database
         if '_original_sheet_row' not in dataframe.columns:
@@ -860,6 +865,9 @@ class KmeansManager:
         if '_original_sheet_row' not in self.data.columns:
             raise ValueError("Realtime method called but _original_sheet_row column not found")
         
+        # CRITICAL FIX: Ensure _original_sheet_row is numeric before any operations
+        self.data['_original_sheet_row'] = pd.to_numeric(self.data['_original_sheet_row'], errors='coerce')
+        
         print(f"\n📝 REALTIME K-MEANS ROW MAPPING:")
         print(f"  Input display rows: {start}-{end}")
         
@@ -944,6 +952,18 @@ class KmeansManager:
     def _apply_kmeans_gui(self):
         """Handle Apply button click for K-means clustering"""
         try:
+            # CRITICAL CHECK: K-means requires an external spreadsheet
+            # Internal worksheets have reserved rows 1-6 for cluster summaries which complicates indexing
+            if self.file_path is None:
+                messagebox.showerror(
+                    "External Spreadsheet Required",
+                    "K-means clustering requires an external spreadsheet file.\n\n"
+                    "Please save your data to a .ods file first using the 'Save Spreadsheet' button, "
+                    "then open that file in Plot_3D to use K-means clustering.\n\n"
+                    "Internal worksheets are not supported for K-means due to the reserved cluster summary area (rows 2-7)."
+                )
+                return
+            
             # Get values from GUI with proper validation
             self.logger.info("Retrieving values from GUI inputs")
             
