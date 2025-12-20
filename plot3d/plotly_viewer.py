@@ -377,22 +377,18 @@ def _add_spheres_to_plot(fig, df):
         print(f"DEBUG: Rendering sphere at ({center_x}, {center_y}, {center_z}) with radius {radius}, color={color}")
         
         # Create sphere mesh with enough points for smooth appearance
-        u = np.linspace(0, 2 * np.pi, 20)
-        v = np.linspace(0, np.pi, 20)
+        u = np.linspace(0, 2 * np.pi, 15)
+        v = np.linspace(0, np.pi, 15)
         x = center_x + radius * np.outer(np.cos(u), np.sin(v))
         y = center_y + radius * np.outer(np.sin(u), np.sin(v))
         z = center_z + radius * np.outer(np.ones(np.size(u)), np.cos(v))
         
-        # Create a colormap array for the surface
-        colorarray = np.zeros_like(x)
-        
-        # Use Surface trace with proper colorscale for single color
+        # Use Surface trace with color parameter directly (no surfacecolor array)
         fig.add_trace(go.Surface(
             x=x, y=y, z=z,
-            surfacecolor=colorarray,  # Use uniform surface coloring
-            colorscale=[[0, color], [1, color]],  # Map color
+            colorscale=[[0, color], [1, color]],  # Map color directly
             showscale=False,
-            opacity=0.3,  # Slightly transparent
+            opacity=0.25,  # Slightly transparent
             name=f'Sphere ({color})',
             hoverinfo='skip',
             showlegend=True
