@@ -369,6 +369,11 @@ def _add_spheres_to_plot(fig, df):
         center_y = row['Centroid_Y']
         center_z = row['Centroid_Z']
         radius = row.get('Radius', 0.02)
+        # Handle NaN radius values
+        if pd.isna(radius):
+            radius = 0.02
+        else:
+            radius = float(radius)
         # Match matplotlib logic: use Sphere column for color, default to gray if NaN
         color = row.get('Sphere', 'gray')
         if pd.isna(color):
