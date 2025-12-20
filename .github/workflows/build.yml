@@ -136,15 +136,23 @@ jobs:
       run: |
         cd dist
         echo "Current dist contents:"
-        ls -la
-        # macOS: Create zip of the .app bundle (already named correctly)
+        ls -lah
+        find . -name "*.app" -o -name "StampZ*" | head -20
+        # Check if app bundle exists with either name
         if [ -d "StampZ-III_${{ matrix.name }}.app" ]; then
+          echo "Found renamed app bundle"
           zip -r StampZ-III_${{ matrix.name }}.zip StampZ-III_${{ matrix.name }}.app
           echo "Created macOS app bundle: StampZ-III_${{ matrix.name }}.zip"
-          ls -la StampZ-III_${{ matrix.name }}.zip
+          ls -lah StampZ-III_${{ matrix.name }}.zip
+        elif [ -d "StampZ-III.app" ]; then
+          echo "Found original app bundle, renaming..."
+          mv StampZ-III.app StampZ-III_${{ matrix.name }}.app
+          zip -r StampZ-III_${{ matrix.name }}.zip StampZ-III_${{ matrix.name }}.app
+          echo "Created macOS app bundle: StampZ-III_${{ matrix.name }}.zip"
+          ls -lah StampZ-III_${{ matrix.name }}.zip
         else
-          echo "ERROR: StampZ-III_${{ matrix.name }}.app not found!"
-          ls -la
+          echo "ERROR: No app bundle found!"
+          ls -lah
           exit 1
         fi
         
@@ -162,9 +170,21 @@ jobs:
       run: |
         cd dist
         echo "Current dist contents:"
-        ls -la
-        echo "Files already correctly named:"
-        ls -la StampZ-III_${{ matrix.name }}
+        ls -lah
+        find . -name "StampZ*" -o -name "*StampZ*" | head -20
+        echo "Looking for executable:"
+        if [ -f "StampZ-III_${{ matrix.name }}" ]; then
+          echo "Found correctly named executable"
+          ls -lah StampZ-III_${{ matrix.name }}
+        elif [ -f "StampZ-III" ]; then
+          echo "Found original executable, renaming..."
+          mv StampZ-III StampZ-III_${{ matrix.name }}
+          ls -lah StampZ-III_${{ matrix.name }}
+        else
+          echo "ERROR: No executable found!"
+          ls -lah
+          exit 1
+        fi
     
     - name: Upload macOS app bundle
       if: startsWith(matrix.os, 'macos')
