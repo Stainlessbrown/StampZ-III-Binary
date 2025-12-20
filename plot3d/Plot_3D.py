@@ -18,6 +18,13 @@ import platform
 import threading
 import os
 # Optional seaborn import for styling
+# Background color options for 3D plot pane:
+# - 'white': Clean white background for high contrast
+# - 'light_grey': Light grey (default seaborn whitegrid style)
+# - 'light_blue': Light blue for softer contrast
+# - 'light_yellow': Light yellow/cream for warm contrast
+BG_COLOR_PANE = 'white'  # Change this to customize the plotted area background
+
 try:
     import seaborn as sns
     sns.set_style("whitegrid", {'axes.grid': False})
@@ -420,6 +427,11 @@ class Plot3DApp:
             ax = self.fig.add_subplot(111, projection='3d')
             # Store reference to current axes for direct rotation
             self.current_ax = ax
+            
+            # Apply background color to the 3D plot pane
+            ax.xaxis.pane.set_facecolor(BG_COLOR_PANE)
+            ax.yaxis.pane.set_facecolor(BG_COLOR_PANE)
+            ax.zaxis.pane.set_facecolor(BG_COLOR_PANE)
             
             # Update zoom controls with new axes reference if available
             if hasattr(self, 'zoom_controls') and self.zoom_controls:
