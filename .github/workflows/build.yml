@@ -136,26 +136,30 @@ jobs:
         echo "Current dist contents before packaging:"
         ls -lah
         
-        # Find and zip the app bundle
-        APP_NAME=$(find . -maxdepth 1 -name "*.app" -type d | head -1 | xargs basename)
-        if [ -z "$APP_NAME" ]; then
+        # Check for either the renamed or original app bundle
+        if [ -d "StampZ-III_${{ matrix.name }}.app" ]; then
+          echo "Found correctly named app bundle"
+          APP_DIR="StampZ-III_${{ matrix.name }}.app"
+        elif [ -d "StampZ-III.app" ]; then
+          echo "Found original app bundle, renaming..."
+          mv "StampZ-III.app" "StampZ-III_${{ matrix.name }}.app"
+          APP_DIR="StampZ-III_${{ matrix.name }}.app"
+        else
           echo "ERROR: No .app bundle found!"
           ls -lah
           exit 1
         fi
         
-        echo "Found app bundle: $APP_NAME"
-        
-        # Rename if needed and create zip
-        if [ "$APP_NAME" != "StampZ-III_${{ matrix.name }}.app" ]; then
-          mv "$APP_NAME" "StampZ-III_${{ matrix.name }}.app"
-          APP_NAME="StampZ-III_${{ matrix.name }}.app"
-        fi
-        
         # Create the zip file
-        zip -r "StampZ-III_${{ matrix.name }}.zip" "$APP_NAME"
-        echo "Created zip: StampZ-III_${{ matrix.name }}.zip"
-        ls -lah StampZ-III_${{ matrix.name }}.zip
+        echo "Creating zip from: $APP_DIR"
+        zip -r "StampZ-III_${{ matrix.name }}.zip" "$APP_DIR"
+        
+        echo "Verifying zip was created:"
+        ls -lah "StampZ-III_${{ matrix.name }}.zip"
+        if [ ! -f "StampZ-III_${{ matrix.name }}.zip" ]; then
+          echo "ERROR: Zip file was not created!"
+          exit 1
+        fi
         
     - name: Package Windows output
       if: matrix.os == 'windows-latest'
