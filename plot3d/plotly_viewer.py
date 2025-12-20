@@ -383,18 +383,19 @@ def _add_spheres_to_plot(fig, df):
         y = center_y + radius * np.outer(np.sin(u), np.sin(v))
         z = center_z + radius * np.outer(np.ones(np.size(u)), np.cos(v))
         
+        # Create a colormap array for the surface
+        colorarray = np.zeros_like(x)
+        
         # Use Surface trace with proper colorscale for single color
         fig.add_trace(go.Surface(
             x=x, y=y, z=z,
-            surfacecolor=np.ones_like(x),  # Use uniform surface color
-            colorscale=[[0, color], [1, color]],  # Map color to the uniform surface
+            surfacecolor=colorarray,  # Use uniform surface coloring
+            colorscale=[[0, color], [1, color]],  # Map color
             showscale=False,
             opacity=0.3,  # Slightly transparent
             name=f'Sphere ({color})',
             hoverinfo='skip',
-            showlegend=True,
-            marker=dict(opacity=0.3),
-            contours=dict(x=dict(highlight=False), y=dict(highlight=False), z=dict(highlight=False))
+            showlegend=True
         ))
 
 
