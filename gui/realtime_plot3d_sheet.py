@@ -468,6 +468,10 @@ class RealtimePlot3DSheet:
         self.save_changes_btn = ttk.Button(toolbar, text="💾 Save Changes to DB", command=self._save_changes)
         self.save_changes_btn.pack(side=tk.LEFT, padx=5)
         
+        # Clear cluster data button
+        self.clear_cluster_btn = ttk.Button(toolbar, text="🗑️ Clear Cluster Data", command=self._clear_cluster_data)
+        self.clear_cluster_btn.pack(side=tk.LEFT, padx=5)
+        
         self.plot3d_btn = ttk.Button(toolbar, text="Open in Plot_3D", command=self._open_in_plot3d)
         self.plot3d_btn.pack(side=tk.LEFT, padx=5)
         
@@ -1439,11 +1443,13 @@ class RealtimePlot3DSheet:
             # Create DataFrame
             df = pd.DataFrame(data, columns=self.PLOT3D_COLUMNS)
             
-            # Remove empty rows
-            df = df.replace('', np.nan).dropna(how='all').fillna('')
+            # CRITICAL FIX: Don't remove empty rows - preserve the structure!
+            # Rows 2-7 are intentionally reserved for cluster summary and must be preserved
+            # Only replace empty strings with empty strings to maintain cell formatting
+            df = df.replace('', '')
             
-            # Reset index after filtering to ensure consecutive numbering
-            df.reset_index(drop=True, inplace=True)
+            # DO NOT reset index - keep original row positions
+            # This preserves rows 2-7 for cluster summary area
             
             # Save to ODS format (Plot_3D compatible)
             df.to_excel(file_path, engine='odf', index=False)
@@ -3208,6 +3214,58 @@ class RealtimePlot3DSheet:
             
         except Exception as e:
             logger.error(f"Error adding real-time sample: {e}")
+    
+    def _clear_cluster_data(self):
+        """Clear all K-means cluster data (cluster_id, centroids, delta_e) from the database."""
+        result = messagebox.askyesno(
+            "Clear Cluster Data",
+            "This will clear ALL K-means cluster data from the database:\n\n"
+            "• Cluster assignments\n"
+            "• Centroid coordinates\n"
+            "• ΔE values\n"
+            "• Sphere settings\n\n"
+            "Your coordinate data (X, Y, Z) will NOT be affected.\n\n"
+            "This cannot be undone. Continue?"
+        )
+        
+        if not result:
+            return
+        
+        try:
+            from utils.color_analysis_db import ColorAnalysisDB
+            import sqlite3
+            
+            db = ColorAnalysisDB(self.sample_set_name)
+            
+            # Clear cluster-related columns in the database
+            with sqlite3.connect(db.db_path) as conn:
+                cursor = conn.execute("""
+                    UPDATE color_measurements 
+                    SET cluster_id = NULL, 
+                        centroid_x = NULL, 
+                        centroid_y = NULL, 
+                        centroid_z = NULL, 
+                        delta_e = NULL,
+                        sphere_color = NULL,
+                        sphere_radius = NULL
+                """)
+                rows_updated = cursor.rowcount
+                conn.commit()
+            
+            logger.info(f"Cleared cluster data from {rows_updated} rows")
+            
+            # Refresh the worksheet to show cleared data
+            self._refresh_from_stampz(force_complete_rebuild=True)
+            
+            messagebox.showinfo(
+                "Cluster Data Cleared",
+                f"Successfully cleared cluster data from {rows_updated} measurements.\n\n"
+                "The worksheet has been refreshed."
+            )
+            
+        except Exception as e:
+            logger.error(f"Error clearing cluster data: {e}")
+            messagebox.showerror("Error", f"Failed to clear cluster data:\n\n{str(e)}")
     
     def _save_changes(self):
         """Save current spreadsheet changes to internal database (manual save).
