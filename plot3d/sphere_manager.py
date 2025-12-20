@@ -38,17 +38,18 @@ class SphereManager:
         self.logger = logging.getLogger(__name__)
         
         # Define color mapping (similar to existing color dictionary but with yellow instead of black)
+        # Note: For Plotly compatibility, use full color names that work in both matplotlib and Plotly
         self.color_map = {
-            'red': 'r',
-            'green': 'g', 
-            'blue': 'b',
-            'yellow': 'y',  # Yellow instead of black
-            'cyan': 'c',
-            'magenta': 'm',
+            'red': 'red',
+            'green': 'green', 
+            'blue': 'blue',
+            'yellow': 'yellow',
+            'cyan': 'cyan',
+            'magenta': 'magenta',
             'orange': 'orange',
             'purple': 'purple',
             'brown': 'brown',
-            'pink': 'pink',
+            'pink': 'hotpink',  # Changed from 'pink' to 'hotpink' for Plotly compatibility
             'lime': 'lime',
             'navy': 'navy',
             'teal': 'teal'
