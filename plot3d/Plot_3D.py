@@ -1827,8 +1827,11 @@ class Plot3DApp:
                     print(f"Could not get axis limits: {e}")
             
             # Open the interactive view
-            print("Opening Plotly interactive view...")
-            open_interactive_view(self.df, 
+            print(f"Opening Plotly interactive view... show_spheres={show_spheres}, sphere_data is None: {sphere_data is None}")
+            if sphere_data is not None:
+                print(f"DEBUG: sphere_data shape: {sphere_data.shape}, columns: {sphere_data.columns.tolist()}")
+                print(f"DEBUG: sphere_data first row:\n{sphere_data.head()}")
+            open_interactive_view(self.df,
                                 show_trendline=show_trendline,
                                 show_polynomial=show_polynomial,
                                 show_cubic=show_cubic,
