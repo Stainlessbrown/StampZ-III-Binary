@@ -1307,10 +1307,22 @@ class DeltaEManager:
                             self.logger.info(f"Preparing to update {len(updates)} cells")
                             
                             try:
-                                # Open and update
+                                # Open and update - use appropriate library based on file format
                                 self.logger.info(f"Opening {self.file_path} for updating")
-                                ods_doc = ezodf.opendoc(self.file_path)
-                                sheet = ods_doc.sheets[0]
+                                
+                                if self.file_path.endswith('.xlsx'):
+                                    # Excel format
+                                    from openpyxl import load_workbook
+                                    wb = load_workbook(self.file_path)
+                                    ws = wb.active
+                                    use_excel = True
+                                    self.logger.info("Using openpyxl for Excel file")
+                                else:
+                                    # ODS format
+                                    ods_doc = ezodf.opendoc(self.file_path)
+                                    sheet = ods_doc.sheets[0]
+                                    use_excel = False
+                                    self.logger.info("Using ezodf for ODS file")
                                 
                                 # Check if we need to add centroid columns
                                 header_row = 0  # Header row index
@@ -1346,10 +1358,16 @@ class DeltaEManager:
                                 for row_idx, value in updates:
                                     try:
                                         # Update ONLY the ΔE value
-                                        # Format as string like K-means does for consistency
-                                        cell = sheet[row_idx, delta_e_col_idx]
-                                        cell.set_value(format(value, '.4f'))
-                                        self.logger.debug(f"Updated ∆E at row {row_idx} to {value}")
+                                        if use_excel:
+                                            # Excel: row_idx is 1-based, column is 1-based
+                                            excel_row = row_idx + 1  # Convert sheet row to Excel row
+                                            ws.cell(row=excel_row, column=delta_e_col_idx, value=round(value, 4))
+                                            self.logger.debug(f"Updated ∆E at Excel row {excel_row} to {value}")
+                                        else:
+                                            # ODS: use set_value method
+                                            cell = sheet[row_idx, delta_e_col_idx]
+                                            cell.set_value(format(value, '.4f'))
+                                            self.logger.debug(f"Updated ∆E at row {row_idx} to {value}")
                                     except Exception as cell_error:
                                         self.logger.warning(f"Failed to update cell at row {row_idx}: {str(cell_error)}")
                                 
@@ -1365,10 +1383,13 @@ class DeltaEManager:
                                 temp_path = f"{self.file_path}.new"
                                 self.logger.info(f"Saving to temporary file: {temp_path}")
                                 try:
-                                    ods_doc.saveas(temp_path)
-                                    
-                                    # Close document
-                                    del ods_doc
+                                    if use_excel:
+                                        wb.save(temp_path)
+                                        self.logger.info("Excel file saved to temporary location")
+                                    else:
+                                        ods_doc.saveas(temp_path)
+                                        # Close document
+                                        del ods_doc
                                     
                                     # Replace original with new file
                                     self.logger.info("Replacing original file with updated version (∆E column only)")
@@ -1440,7 +1461,10 @@ class DeltaEManager:
                                     self.logger.error(f"Save verification failed: {str(verify_exception)}")
                                     # If verification doc was created, clean it up
                                     if 'verify_doc' in locals():
-                                        del verify_doc
+                                        if use_excel:
+                                            pass  # Excel workbooks don't need explicit cleanup
+                                        else:
+                                            del verify_doc
                                 # Remove backup if everything succeeded and centroid data was preserved
                                 if os.path.exists(backup_path) and centroid_preserved:
                                     try:
