@@ -116,21 +116,26 @@ class KMeansFileHandler:
                     cluster_centroids = self._calculate_centroids()
                     
                     # Write cluster assignments to data rows
+                    # Note: row_indices are 0-based DataFrame indices
+                    # Sheet rows: row 1 = header, row 2+ = data (DataFrame indices 0+)
                     for i, idx in enumerate(row_indices):
                         cluster_value = clusters.iloc[i]
                         if pd.notna(cluster_value):
-                            excel_row = idx + 2  # +1 for 0-based to 1-based, +1 for header row
-                            ws.cell(row=excel_row, column=cluster_col, value=int(cluster_value))
-                            self.logger.debug(f"Updated Excel row {excel_row} with cluster {int(cluster_value)}")
+                            # Map DataFrame index to sheet row: index 0 -> row 2, index 1 -> row 3, etc.
+                            sheet_row = idx + 2
+                            ws.cell(row=sheet_row, column=cluster_col, value=int(cluster_value))
+                            self.logger.info(f"Wrote cluster {int(cluster_value)} to data point at sheet row {sheet_row} (DataFrame index {idx})")
                     
-                    # Write centroid data to fixed rows
+                    # Write centroid data to fixed rows (ONLY the coordinate columns, not Cluster column)
+                    # The Cluster column in these rows should only be updated if they were selected for clustering
                     for cluster_num, centroid in cluster_centroids.items():
                         excel_row = cluster_num + 2  # Row 2 for cluster 0, row 3 for cluster 1, etc.
-                        ws.cell(row=excel_row, column=cluster_col, value=cluster_num)
+                        # IMPORTANT: Only write centroid coordinates, NOT the cluster value
+                        # The cluster value in these rows is only set if they were in the clustering range
                         ws.cell(row=excel_row, column=centroid_x_col, value=round(centroid[0], 4))
                         ws.cell(row=excel_row, column=centroid_y_col, value=round(centroid[1], 4))
                         ws.cell(row=excel_row, column=centroid_z_col, value=round(centroid[2], 4))
-                        self.logger.info(f"Updated Excel row {excel_row} with centroid for cluster {cluster_num}")
+                        self.logger.info(f"Updated Excel row {excel_row} with centroid coordinates for cluster {cluster_num}")
                     
                     # Save the workbook
                     wb.save(self.file_path)
