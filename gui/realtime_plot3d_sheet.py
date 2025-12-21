@@ -2603,27 +2603,33 @@ class RealtimePlot3DSheet:
             imported_data_rows = len(import_result.data) if import_result.data else 0
             min_rows = 7 + imported_data_rows + 10  # 7 reserved rows + data + 10 buffer
             
-            # Clear the new sheet and set up structure
+            # Ensure sheet has enough rows
             current_rows = worksheet.sheet.get_total_rows()
-            if current_rows > 0:
-                worksheet.sheet.delete_rows(0, current_rows)
+            logger.info(f"Current sheet has {current_rows} rows, need {min_rows} rows")
             
-            # Create structure
-            empty_rows = [[''] * len(self.PLOT3D_COLUMNS)] * min_rows
-            worksheet.sheet.insert_rows(rows=empty_rows, idx=0)
+            # Add rows if needed (tksheet.Sheet auto-allocates as needed when setting data)
+            # We'll just insert data and let tksheet handle row allocation
             
-            # Insert centroid data first (rows 1-6)
+            # Insert centroid data first (rows 1-6, 0-based indexing)
             if import_result.centroid_data:
                 for cluster_id, centroid_row in import_result.centroid_data:
                     if 0 <= cluster_id <= 5:  # Valid centroid area
-                        centroid_row_idx = 1 + cluster_id  # Rows 1-6 for clusters 0-5
-                        worksheet.sheet.set_row_data(centroid_row_idx, values=centroid_row)
-                        logger.info(f"Populated centroid for cluster {cluster_id} in new worksheet")
+                        centroid_row_idx = 1 + cluster_id  # Rows 1-6 for clusters 0-5 (0-based)
+                        # Set each cell in the row individually using tksheet API
+                        for col_idx, value in enumerate(centroid_row):
+                            if col_idx < len(self.PLOT3D_COLUMNS):
+                                worksheet.sheet.set_cell_data(centroid_row_idx, col_idx, value)
+                        logger.info(f"Populated centroid for cluster {cluster_id} in new worksheet at row {centroid_row_idx + 1}")
             
-            # Insert imported data starting at row 7 (data area)
+            # Insert imported data starting at row 7 (0-based: row index 7 = display row 8)
             if import_result.data:
                 for i, row in enumerate(import_result.data):
-                    worksheet.sheet.set_row_data(7 + i, values=row)
+                    sheet_row_idx = 7 + i  # 0-based row index
+                    # Set each cell in the row individually
+                    for col_idx, value in enumerate(row):
+                        if col_idx < len(self.PLOT3D_COLUMNS):
+                            worksheet.sheet.set_cell_data(sheet_row_idx, col_idx, value)
+                logger.info(f"Inserted {imported_data_rows} data rows starting at sheet row 8")
             
             # Apply formatting to the new worksheet
             worksheet._apply_formatting()
@@ -2633,6 +2639,8 @@ class RealtimePlot3DSheet:
             
         except Exception as e:
             logger.error(f"Error populating new worksheet: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             raise
     
     def _import_external_data(self, importer, file_path):
