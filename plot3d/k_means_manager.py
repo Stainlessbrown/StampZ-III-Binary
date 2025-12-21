@@ -1111,6 +1111,7 @@ class KmeansManager:
             self.logger.error(f"Error verifying file access: {str(e)}")
             return False
     
+    
     def _save_cluster_assignments_dataframe_mode(self):
         """
         Save cluster assignments in DataFrame-only mode (internal worksheet).
@@ -1193,15 +1194,13 @@ class KmeansManager:
     
     def save_cluster_assignments(self):
         """
-        Save cluster assignments to the current open .ods file with proper file locking.
+        Save cluster assignments to the current open file (.ods or .xlsx).
         
-        This function implements file locking to prevent conflicts when multiple
-        processes try to access the same file. It also performs thorough error
-        checking and provides detailed user feedback.
+        This function supports both ODS (LibreOffice) and XLSX (Excel) formats.
+        It implements file locking and backup creation to prevent data loss.
         
         For internal worksheet mode (no file), delegates to DataFrame-only save.
         """
-        lockfile = None
         try:
             # Check if we're in DataFrame-only mode (internal worksheet)
             if self.file_path is None:
@@ -1220,355 +1219,25 @@ class KmeansManager:
             end = int(self.end_row.get())
             start, end = self.validate_row_range(start, end)
             
-            # Verify file is .ods format
-            if not self.file_path.endswith('.ods'):
-                raise ValueError("Only .ods files are supported for saving cluster assignments")
+            # Check file format is supported
+            if not (self.file_path.endswith('.xlsx') or self.file_path.endswith('.ods')):
+                raise ValueError(f"Unsupported file format: {self.file_path}. Only .xlsx and .ods files are supported.")
             
-            # Inform user of the process
-            msg = (f"Saving cluster assignments for rows {start}-{end}:\n\n"
-                  "1. Your original .ods file will be updated directly\n"
-                  "2. Only the Cluster column will be modified\n\n"
-                  "Continue?")
+            # Get row indices to save
+            row_indices = self._get_row_indices(start, end)
             
-            if not messagebox.askokcancel("Save Clusters", msg):
-                return
-                
-            # Create and acquire lock file to prevent concurrent access
-            lock_path = f"{self.file_path}.lock"
-            self.logger.info(f"Attempting to acquire lock: {lock_path}")
+            # Use the file handler to save clusters
+            from .k_means_file_handler import KMeansFileHandler
+            handler = KMeansFileHandler(self.data, self.file_path, self.logger)
+            success = handler.save_clusters(start, end, row_indices)
             
-            # Try to acquire the lock with timeout
-            max_attempts = 3
-            attempt = 0
-            lock_acquired = False
-            
-            while attempt < max_attempts and not lock_acquired:
-                try:
-                    # Create lock file if it doesn't exist
-                    lockfile = open(lock_path, 'w+')
-                    
-                    # Try to acquire an exclusive lock (non-blocking)
-                    fcntl.flock(lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    lock_acquired = True
-                    self.logger.info("Lock acquired successfully")
-                    
-                except IOError as e:
-                    if e.errno == errno.EACCES or e.errno == errno.EAGAIN:
-                        # File is locked by another process
-                        attempt += 1
-                        self.logger.warning(f"File is locked, attempt {attempt}/{max_attempts}")
-                        
-                        if attempt < max_attempts:
-                            # Ask user if they want to retry
-                            if not messagebox.askretrycancel("File Locked", 
-                                f"The file appears to be in use by another program.\n\n"
-                                f"Attempt {attempt} of {max_attempts}.\n\n"
-                                "Would you like to try again?"):
-                                if lockfile:
-                                    lockfile.close()
-                                return
-                            time.sleep(1)  # Wait before trying again
-                        else:
-                            if lockfile:
-                                lockfile.close()
-                            messagebox.showerror("File Locked", 
-                                "The file is locked by another program and cannot be accessed.\n\n"
-                                "Please close any applications that might be using this file and try again.")
-                            return
-                    else:
-                        # Other IO error
-                        if lockfile:
-                            lockfile.close()
-                        raise
-            
-            if not lock_acquired:
-                if lockfile:
-                    lockfile.close()
-                messagebox.showerror("File Locked", 
-                    "Could not acquire file lock after multiple attempts.\n\n"
-                    "Please close any applications that might be using this file and try again.")
-                return
-                
-            try:
-                # Get the exact rows we're working with
-                row_indices = self._get_row_indices(start, end)
-                
-                # Get cluster assignments for our selected range
+            if success:
+                # Update the in-memory data to match the saved version
                 clusters = self.data.iloc[row_indices]['Cluster']
-                valid_clusters = clusters[clusters.notna()]
+                self.data.iloc[row_indices, self.data.columns.get_loc('Cluster')] = clusters.values
                 
-                if not valid_clusters.empty:
-                    try:
-                        # First verify we can access the file
-                        if not os.access(self.file_path, os.W_OK):
-                            raise IOError(f"File {self.file_path} is not writable")
-                        
-                        # Create backup of original file
-                        backup_path = f"{self.file_path}.bak"
-                        self.logger.info(f"Creating backup at: {backup_path}")
-                        import shutil
-                        shutil.copy2(self.file_path, backup_path)
-                        
-                        # Get column structure
-                        self.logger.info("Reading file structure")
-                        df = pd.read_excel(self.file_path, engine='odf')
-                        
-                        # Verify required columns exist
-                        required_columns = ['Cluster', 'Centroid_X', 'Centroid_Y', 'Centroid_Z']
-                        missing_columns = [col for col in required_columns if col not in df.columns]
-                        if missing_columns:
-                            raise ValueError(f"Required columns missing from spreadsheet: {missing_columns}")
-                            
-                        # Get column indices
-                        cluster_col_idx = df.columns.get_loc('Cluster')
-                        centroid_x_col_idx = df.columns.get_loc('Centroid_X')
-                        centroid_y_col_idx = df.columns.get_loc('Centroid_Y')
-                        centroid_z_col_idx = df.columns.get_loc('Centroid_Z')
-                        
-                        self.logger.info(f"Found required columns - Cluster: {cluster_col_idx}, Centroid_X: {centroid_x_col_idx}, Centroid_Y: {centroid_y_col_idx}, Centroid_Z: {centroid_z_col_idx}")
-                        # Store centroid column indices
-                        centroid_col_indices = {
-                            'Centroid_X': centroid_x_col_idx,
-                            'Centroid_Y': centroid_y_col_idx,
-                            'Centroid_Z': centroid_z_col_idx
-                        }
-                        
-                        # Define fixed rows for storing centroids
-                        # Row 2 (index 1) for Cluster 0, Row 3 (index 2) for Cluster 1, etc.
-                        centroid_row_mapping = {}
-                        unique_clusters = sorted(self.data['Cluster'].dropna().unique())
-                        for i, cluster_id in enumerate(unique_clusters):
-                            # Add 2 to start at row 2 (first data row)
-                            # We want:
-                            # - Cluster 0 to be at sheet row 2 (first data row)
-                            # - Cluster 1 to be at sheet row 3 
-                            # - and so on
-                            # Map cluster_id directly to final sheet row number
-                            # No additional offset needed later
-                            centroid_row_mapping[int(cluster_id)] = i + 1  # Map cluster 0 to row 1, cluster 1 to row 2
-                            self.logger.debug(f"Mapping cluster {cluster_id} directly to sheet row {i + 2}")
-                            self.logger.info(f"Cluster {cluster_id} will be stored at sheet row {i + 2}")
-                        self.logger.info(f"Centroid row mapping: {centroid_row_mapping}")
-                        # Calculate centroids for each cluster
-                        cluster_centroids = {}
-                        for cluster_num in self.data['Cluster'].dropna().unique():
-                            # Convert cluster column to string for safe comparison
-                            cluster_col_str = self.data['Cluster'].astype(str)
-                            target_cluster_str = str(cluster_num)
-                            cluster_mask = cluster_col_str == target_cluster_str
-                            
-                            centroid = [
-                                self.data.loc[cluster_mask, 'Xnorm'].mean(),
-                                self.data.loc[cluster_mask, 'Ynorm'].mean(),
-                                self.data.loc[cluster_mask, 'Znorm'].mean()
-                            ]
-                            cluster_centroids[int(cluster_num)] = centroid
-                            self.logger.info(f"Calculated centroid for cluster {int(cluster_num)}: {centroid}")
-                            self.logger.info(f"Calculated centroid for cluster {int(cluster_num)}: {centroid}")
-                        data_point_updates = []
-                        for i, idx in enumerate(row_indices):
-                            sheet_row_idx = idx + 1
-                            cluster_value = clusters.iloc[i]
-                            if pd.notna(cluster_value):
-                                cluster_int = int(cluster_value)
-                                data_point_updates.append({
-                                    'row': sheet_row_idx,
-                                    'cluster': cluster_int
-                                })
-                        
-                        # Prepare updates for centroid rows (fixed rows for each cluster)
-                        centroid_updates = []
-                        for cluster_num, centroid in cluster_centroids.items():
-                            # Get the fixed row for this cluster
-                            fixed_row = centroid_row_mapping.get(cluster_num)
-                            # No conversion needed as mapping already contains the correct sheet row
-                            sheet_row_idx = fixed_row
-                            self.logger.debug(f"Using fixed_row {fixed_row} directly as sheet_row_idx (no additional offset needed)")
-                            centroid_updates.append({
-                                    'row': sheet_row_idx,
-                                    'cluster': cluster_num,
-                                    'centroid': centroid
-                                })
-                            self.logger.info(f"Will store cluster {cluster_num} centroid at row {sheet_row_idx} (direct mapping: cluster {cluster_num} -> sheet row {sheet_row_idx})")
-                        if data_point_updates or centroid_updates:
-                            self.logger.info(f"Preparing to update {len(data_point_updates)} data points and {len(centroid_updates)} centroid rows")
-                            # Helper method to verify the save
-                            def _verify_centroid_data(verify_doc, rows_to_verify):
-                                verify_sheet = verify_doc.sheets[0]
-                                verification_count = min(5, len(rows_to_verify))
-                                self.logger.info(f"Verifying {verification_count} sample updates")
-                                
-                                for update in rows_to_verify[:verification_count]:
-                                    # Use cluster value to determine the correct row for verification
-                                    cluster_value = update['cluster']
-                                    row_idx = int(cluster_value) + 1  # Map cluster 0 to row 1, cluster 1 to row 2, etc.
-                                    centroid = update['centroid']
-                                    self.logger.debug(f"Verifying centroid for cluster {cluster_value} at row {row_idx}")
-                          
-                                    # Verify cluster value
-                                    cluster_cell = verify_sheet[row_idx, cluster_col_idx]
-                                    if cluster_cell.value != cluster_value:
-                                        self.logger.error(f"Cluster value mismatch at row {row_idx}: expected {cluster_value}, got {cluster_cell.value}")
-                                        raise ValueError(f"Cluster save verification failed at row {row_idx}")
-                                    
-                                    # Verify centroid coordinates
-                                    if centroid is not None:
-                                        # Verify all centroid columns
-                                        centroid_x_cell = verify_sheet[row_idx, centroid_col_indices['Centroid_X']]
-                                        centroid_y_cell = verify_sheet[row_idx, centroid_col_indices['Centroid_Y']]
-                                        centroid_z_cell = verify_sheet[row_idx, centroid_col_indices['Centroid_Z']]
-                                        
-                                        # Allow for minor floating point differences in verification
-                                        tolerance = 0.0001  # Tolerance for floating point comparisons
-                                        x_diff = abs(float(centroid_x_cell.value) - centroid[0])
-                                        y_diff = abs(float(centroid_y_cell.value) - centroid[1])
-                                        z_diff = abs(float(centroid_z_cell.value) - centroid[2])
-                                        
-                                        if x_diff > tolerance or y_diff > tolerance or z_diff > tolerance:
-                                            self.logger.error(f"Centroid coordinate mismatch at row {row_idx}:")
-                                            self.logger.error(f"Expected: [{centroid[0]:.6f}, {centroid[1]:.6f}, {centroid[2]:.6f}]")
-                                            self.logger.error(f"Got: [{float(centroid_x_cell.value):.6f}, {float(centroid_y_cell.value):.6f}, {float(centroid_z_cell.value):.6f}]")
-                                            self.logger.error(f"Diff: [{x_diff:.6f}, {y_diff:.6f}, {z_diff:.6f}]")
-                                            raise ValueError(f"Centroid save verification failed at row {row_idx}")
-                                
-                                # Log verification results
-                                centroid_cols = ", ".join([f"{col}:{idx}" for col, idx in centroid_col_indices.items()])
-                                self.logger.info(f"Centroid columns successfully verified: {centroid_cols}")
-                                
-                            try:
-                                # Open and update
-                                ods_doc = ezodf.opendoc(self.file_path)
-                                sheet = ods_doc.sheets[0]
-                                # First, clear existing centroid data in the fixed rows
-                                for row_idx in range(2, len(centroid_row_mapping) + 1):  # Changed upper bound calculation
-                                    for col_name, col_idx in centroid_col_indices.items():
-                                        try:
-                                            cell = sheet[row_idx, col_idx]
-                                            if cell is not None:
-                                                cell.set_value("")
-                                        except Exception:
-                                            pass
-                                
-                                # Apply updates to data points (cluster assignments only)
-                                for update in data_point_updates:
-                                    try:
-                                        row_idx = update['row']
-                                        cluster_value = update['cluster']
-                                        cluster_cell = sheet[row_idx, cluster_col_idx]
-                                        cluster_cell.set_value(cluster_value)
-                                        self.logger.debug(f"Updated row {row_idx} with cluster {cluster_value}")
-                                    except Exception as e:
-                                        self.logger.warning(f"Failed to update cluster at row {row_idx}: {str(e)}")
-                                
-                                # Apply updates to centroid rows
-                                for update in centroid_updates:
-                                    try:
-                                        row_idx = update['row']
-                                        cluster_value = update['cluster']
-                                        centroid = update['centroid']
-                                        
-                                        # Update cluster value
-                                        cluster_cell = sheet[row_idx, cluster_col_idx]
-                                        cluster_cell.set_value(cluster_value)
-                                        
-                                        # Update centroid coordinates
-
-                                        sheet[row_idx, centroid_col_indices['Centroid_X']].set_value(format(centroid[0], '.4f'))
-                                        sheet[row_idx, centroid_col_indices['Centroid_Y']].set_value(format(centroid[1], '.4f'))
-                                        sheet[row_idx, centroid_col_indices['Centroid_Z']].set_value(format(centroid[2], '.4f'))
-                                        
-                                        self.logger.info(f"Updated centroid for cluster {cluster_value} at row {row_idx} with values: {centroid}")
-                                    except Exception as e:
-                                        self.logger.error(f"Failed to update centroid at row {row_idx}: {str(e)}")
-                                        raise
-                                
-                                # Define temp_path at the start of the operation
-                                temp_path = f"{self.file_path}.new"
-                                self.logger.info(f"Saving to temporary file: {temp_path}")
-                                
-                                try:
-                                    # Save to temporary file first
-                                    ods_doc.saveas(temp_path)
-                                    
-                                    # Close original document before verification
-                                    del ods_doc
-                                    
-                                    # Verify the save
-                                    verify_doc = ezodf.opendoc(temp_path)
-                                    _verify_centroid_data(verify_doc, centroid_updates)
-                                    del verify_doc
-                                    
-                                    # If verification passed, replace original with new file
-                                    os.replace(temp_path, self.file_path)
-                                    
-                                    self.logger.info("File saved and verified successfully")
-                                    
-                                except Exception as e:
-                                    self.logger.error(f"Error during file operations: {str(e)}")
-                                    raise IOError(f"Failed to complete file operations: {str(e)}")
-                                    
-                                finally:
-                                    # Clean up temporary file regardless of success/failure
-                                    try:
-                                        if os.path.exists(temp_path):
-                                            os.remove(temp_path)
-                                    except Exception as cleanup_error:
-                                        self.logger.warning(f"Could not clean up temporary file: {str(cleanup_error)}")
-                            except Exception as e:
-                                self.logger.error(f"Error updating spreadsheet: {str(e)}")
-                                raise
-                    finally:
-                        # Clean up backup file if it exists
-                        try:
-                            if os.path.exists(backup_path):
-                                os.remove(backup_path)
-                        except Exception:
-                            self.logger.warning(f"Could not remove backup file: {backup_path}")
-                            pass
-                        
-                        # Clean up document objects
-                        for doc_name in ['ods_doc', 'verify_doc']:
-                            try:
-                                if doc_name in locals():
-                                    del locals()[doc_name]
-                            except Exception:
-                                pass
-                    
-                    # Count how many clusters we saved
-                    cluster_counts = valid_clusters.value_counts().to_dict()
-                    cluster_info = "\n".join(f"Cluster {k}: {v} points" for k, v in sorted(cluster_counts.items()))
-                    # Remove duplicate line
-                    
-                    # Success message
-                    success_msg = (
-                        f"Clusters and centroid coordinates saved for rows {start}-{end}!\n\n"
-                        f"Cluster summary:\n{cluster_info}\n\n"
-                        f"Original .ods file has been updated with:\n"
-                        f"- Cluster assignments\n"
-                        f"- Centroid_X, Centroid_Y, Centroid_Z coordinates\n\n"
-                        f"NEXT STEP: You can now calculate ΔE values by clicking the 'Calculate' button in the ΔE CIE2000 panel."
-                    )
-                    
-                    messagebox.showinfo("Clusters Saved", success_msg)
-                    
-                    # Update the in-memory data to match the saved version
-                    self.data.iloc[row_indices, self.data.columns.get_loc('Cluster')] = clusters.values
-                else:
-                    messagebox.showwarning("Warning", 
-                        f"No cluster assignments found for rows {start}-{end}")
-            
-            finally:
-                # Always release the lock, even if an error occurred
-                if lockfile:
-                    self.logger.info("Releasing file lock")
-                    fcntl.flock(lockfile, fcntl.LOCK_UN)
-                    lockfile.close()
-                    try:
-                        os.remove(lock_path)
-                        self.logger.info("Lock file removed")
-                    except Exception as e:
-                        self.logger.warning(f"Could not remove lock file: {str(e)}")
         except Exception as e:
+            self.logger.error(f"Error saving cluster assignments: {str(e)}")
             messagebox.showerror("Error", 
                 "Failed to save cluster assignments.\n\n"
                 "Please check file permissions and make sure the file isn't open in another program.")
