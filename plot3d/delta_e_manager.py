@@ -1475,15 +1475,25 @@ class DeltaEManager:
                                         if not use_excel:
                                             del verify_doc
                                     centroid_preserved = True  # Assume success to avoid blocking the save
-                                # Remove backup if everything succeeded and centroid data was preserved
-                                if os.path.exists(backup_path) and centroid_preserved:
+                                # Remove backup if everything succeeded
+                                # For Excel, skip backup cleanup since verification was skipped
+                                if not use_excel:
+                                    if os.path.exists(backup_path) and centroid_preserved:
+                                        try:
+                                            os.remove(backup_path)
+                                            self.logger.info("Backup file removed")
+                                        except Exception as e:
+                                            self.logger.warning(f"Could not remove backup file: {str(e)}")
+                                    elif os.path.exists(backup_path):
+                                        self.logger.info(f"Keeping backup file at {backup_path} as a precaution")
+                                else:
+                                    # Excel: remove backup since save was successful
                                     try:
-                                        os.remove(backup_path)
-                                        self.logger.info("Backup file removed")
+                                        if os.path.exists(backup_path):
+                                            os.remove(backup_path)
+                                            self.logger.info("Excel backup file removed")
                                     except Exception as e:
-                                        self.logger.warning(f"Could not remove backup file: {str(e)}")
-                                elif os.path.exists(backup_path):
-                                    self.logger.info(f"Keeping backup file at {backup_path} as a precaution")
+                                        self.logger.warning(f"Could not remove Excel backup: {str(e)}")
                                 # Count how many values were actually calculated
                                 successful_updates = sum(1 for _, value in delta_e_values if value is not None)
                                 
