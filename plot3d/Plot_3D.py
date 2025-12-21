@@ -47,6 +47,7 @@ from .sphere_manager import SphereManager
 from .reference_point_calculator import ReferencePointCalculator
 from .group_display_manager import GroupDisplayManager
 from .zoom_controls import ZoomControls
+from gui.collapsible_controls import CollapsibleSection
 from logging import getLogger
 # Initialize logging
 setup_logging()
@@ -1400,6 +1401,9 @@ class Plot3DApp:
         # Create control frame inside canvas
         self.control_frame = ttk.Frame(control_canvas)
         
+        # IMPORTANT: Configure grid for control frame to display grid-based widgets (collapsible sections)
+        self.control_frame.grid_columnconfigure(0, weight=1)  # Make column expandable
+        
         # Add control frame to canvas with proper width (370px to match the increased canvas width)
         canvas_frame_window = control_canvas.create_window((0, 0), window=self.control_frame, anchor='nw', width=370)  # Slightly less than canvas width
         
@@ -1431,7 +1435,10 @@ class Plot3DApp:
         )
         self.rotation_controls.grid(row=1, column=0, sticky='ew', padx=5, pady=5)
         
-        # Initialize zoom controls immediately after rotation controls for better workflow
+        # Initialize zoom controls in a collapsible section (expanded by default)
+        zoom_section = CollapsibleSection(self.control_frame, "🔍 Zoom Controls", expanded=True)
+        zoom_section.grid(row=2, column=0, sticky='ew', padx=5, pady=5)
+        
         try:
             # Ensure figure exists
             if not hasattr(self, 'fig') or self.fig is None:
@@ -1457,13 +1464,13 @@ class Plot3DApp:
                 
             # Initialize the zoom controls with all required components
             self.zoom_controls = ZoomControls(
-                self.control_frame,
+                zoom_section.content_frame,
                 self.fig,
                 self.canvas, 
                 ax,
                 on_zoom_change=self._on_zoom_change
             )
-            self.zoom_controls.grid(row=2, column=0, sticky='nsew', padx=5, pady=5)
+            self.zoom_controls.pack(fill=tk.BOTH, expand=True)
             print("Successfully initialized zoom controls")
         except Exception as e:
             print(f"Error initializing zoom controls: {e}")
@@ -1515,9 +1522,12 @@ class Plot3DApp:
         )
         button_frame.grid(row=6, column=0, sticky='ew', padx=5, pady=5)
 
-        # Create highlight frame and manager
-        self.highlight_frame = ttk.Frame(self.control_frame)
-        self.highlight_frame.grid(row=7, column=0, sticky='ew', padx=5, pady=5)
+        # Create highlight frame and manager in a collapsible section
+        point_id_section = CollapsibleSection(self.control_frame, "📍 Point Identification", expanded=False)
+        point_id_section.grid(row=3, column=0, sticky='ew', padx=5, pady=5)
+        
+        self.highlight_frame = ttk.Frame(point_id_section.content_frame)
+        self.highlight_frame.pack(fill=tk.BOTH, expand=True)
         # Initialize highlight manager
         self.highlight_manager = HighlightManager(
             self.root,
@@ -1528,22 +1538,13 @@ class Plot3DApp:
             self.use_rgb,
         )
 
-        # Create visualization options frame
+        # Create group display / K-means section in a collapsible section
+        kmeans_section = CollapsibleSection(self.control_frame, "📊 K-means Clustering", expanded=False)
+        kmeans_section.grid(row=4, column=0, sticky='ew', padx=5, pady=5)
         
-        # Create group display frame with explicit LabelFrame and styling
-        group_display_frame = ttk.LabelFrame(self.control_frame, text="Group Display")
-        group_display_frame.grid(row=8, column=0, sticky='nsew', padx=5, pady=5)
-
-        # Force minimum size and prevent frame from shrinking
-        group_display_frame.grid_propagate(False)
-        group_display_frame.configure(height=180, width=350)  # Adjusted height
-        group_display_frame.grid_columnconfigure(0, weight=1)
-
-        # Add style for better visibility
-        style = ttk.Style()
-        style.configure('GroupDisplay.TLabelframe', borderwidth=2, relief='solid')
-        style.configure('GroupDisplay.TLabelframe.Label', font=('Arial', 10, 'bold'))
-        group_display_frame.configure(style='GroupDisplay.TLabelframe')
+        # Create group display frame inside collapsible section
+        group_display_frame = ttk.Frame(kmeans_section.content_frame)
+        group_display_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
         # Initialize group display manager
         self.group_display_manager = GroupDisplayManager(
@@ -1552,14 +1553,14 @@ class Plot3DApp:
             self.df,
             on_visibility_change=self.refresh_plot
         )
-
-        # Force frame update and ensure proper layout
-        group_display_frame.update()
-        group_display_frame.update_idletasks()
         
-        # Create trendline frame after group display
-        self.trendline_frame = ttk.LabelFrame(self.control_frame, text="Trend Lines")
-        self.trendline_frame.grid(row=9, column=0, sticky='ew', padx=5, pady=5)
+        # Create trendline section in a collapsible section
+        trendline_section = CollapsibleSection(self.control_frame, "📏 Trend Lines", expanded=False)
+        trendline_section.grid(row=5, column=0, sticky='ew', padx=5, pady=5)
+        
+        # Create inner frame for trendline controls
+        self.trendline_frame = ttk.Frame(trendline_section.content_frame)
+        self.trendline_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
         # Add linear trendline toggle
         ttk.Checkbutton(
@@ -1618,23 +1619,16 @@ class Plot3DApp:
             command=self.refresh_plot
         ).grid(row=3, column=0, columnspan=2, sticky='w', padx=5, pady=5)
 
-        # Create K-Means clustering GUI
-        if hasattr(self, 'kmeans_manager') and self.kmeans_manager:
-            kmeans_frame = self.kmeans_manager.create_gui(self.control_frame)
-            if kmeans_frame:
-                kmeans_frame.grid(row=10, column=0, sticky='ew', padx=5, pady=5)
-                print("K-Means clustering GUI created successfully")
-            else:
-                print("Warning: Failed to create K-Means clustering GUI")
-        else:
-            print("Warning: K-Means manager not available")
+        # Create ΔE Analysis section in a collapsible section
+        delta_e_section = CollapsibleSection(self.control_frame, "🔬 ΔE Analysis", expanded=False)
+        delta_e_section.grid(row=6, column=0, sticky='ew', padx=5, pady=5)
         
-        # Create ΔE Manager GUI
+        # Create ΔE Manager GUI inside collapsible section
         if hasattr(self, 'delta_e_manager') and self.delta_e_manager:
             try:
-                delta_e_frame = self.delta_e_manager.create_gui(self.control_frame)
+                delta_e_frame = self.delta_e_manager.create_gui(delta_e_section.content_frame)
                 if delta_e_frame:
-                    delta_e_frame.grid(row=11, column=0, sticky='ew', padx=5, pady=5)
+                    delta_e_frame.pack(fill=tk.BOTH, expand=True)
                     print("ΔE Manager GUI created successfully")
                 else:
                     print("Warning: Failed to create ΔE Manager GUI")
@@ -1643,17 +1637,30 @@ class Plot3DApp:
         else:
             print("Warning: ΔE Manager not available")
         
-        # Create sphere visibility frame with scrollable content
-        sphere_frame = ttk.LabelFrame(self.control_frame, text="Sphere Visibility")
-        sphere_frame.grid(row=12, column=0, sticky='nsew', padx=5, pady=5)
-
-        # Force minimum size and prevent frame from shrinking
-        sphere_frame.grid_propagate(False)
-        sphere_frame.configure(height=350, width=350)  # Further increased height
+        # Create K-Means clustering GUI inside kmeans_section
+        if hasattr(self, 'kmeans_manager') and self.kmeans_manager:
+            kmeans_frame = self.kmeans_manager.create_gui(kmeans_section.content_frame)
+            if kmeans_frame:
+                kmeans_frame.pack(fill=tk.BOTH, expand=True)
+                print("K-Means clustering GUI created successfully")
+            else:
+                print("Warning: Failed to create K-Means clustering GUI")
+        else:
+            print("Warning: K-Means manager not available")
+        
+        # Create sphere visibility section in a collapsible section
+        sphere_section = CollapsibleSection(self.control_frame, "🚪 Sphere Visibility", expanded=False)
+        sphere_section.grid(row=7, column=0, sticky='ew', padx=5, pady=5)
+        
+        # Create sphere visibility frame inside the section with grid layout for canvas + scrollbar
+        sphere_frame = ttk.Frame(sphere_section.content_frame)
+        sphere_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
         sphere_frame.grid_columnconfigure(0, weight=1)
+        sphere_frame.grid_rowconfigure(0, weight=1)
 
-        # Create scrollable canvas with explicit size
-        canvas = tk.Canvas(sphere_frame, height=320, width=330)  # Explicit dimensions
+        # Create scrollable canvas
+        canvas = tk.Canvas(sphere_frame, height=280)
         canvas.grid(row=0, column=0, sticky='nsew', padx=5, pady=5)
 
         # Add scrollbar

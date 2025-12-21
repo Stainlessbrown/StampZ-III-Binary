@@ -72,13 +72,13 @@ class RealtimePlot3DSheet:
             self._create_window()
             print("DEBUG: Window created successfully")
             
-            print("DEBUG: About to setup spreadsheet...")
-            self._setup_spreadsheet()
-            print("DEBUG: Spreadsheet setup complete")
-            
             print("DEBUG: About to setup toolbar...")
             self._setup_toolbar()
             print("DEBUG: Toolbar setup complete")
+            
+            print("DEBUG: About to setup spreadsheet...")
+            self._setup_spreadsheet()
+            print("DEBUG: Spreadsheet setup complete")
             
             # TEMPORARILY DISABLED: Add simple header after all setup is complete
             # self._add_simple_header()  # Disabled to test freezing issue
@@ -454,29 +454,31 @@ class RealtimePlot3DSheet:
     
     def _setup_toolbar(self):
         """Setup toolbar with action buttons."""
-        toolbar = ttk.Frame(self.window)
+        # Create main toolbar frame with explicit height management
+        toolbar = tk.Frame(self.window, bg='lightgray', height=40)
         toolbar.pack(fill=tk.X, padx=10, pady=(0, 10))
+        # Don't use pack_propagate - let pack() handle it naturally
         
         # Create buttons with explicit references
         self.refresh_btn = ttk.Button(toolbar, text="Refresh from StampZ", command=self._refresh_from_stampz)
-        self.refresh_btn.pack(side=tk.LEFT, padx=5)
+        self.refresh_btn.pack(side=tk.LEFT, padx=5, pady=5)
         
         self.save_btn = ttk.Button(toolbar, text="Save to File", command=self._save_to_file)
-        self.save_btn.pack(side=tk.LEFT, padx=5)
+        self.save_btn.pack(side=tk.LEFT, padx=5, pady=5)
         
         # More prominent save button for database changes
         self.save_changes_btn = ttk.Button(toolbar, text="💾 Save Changes to DB", command=self._save_changes)
-        self.save_changes_btn.pack(side=tk.LEFT, padx=5)
+        self.save_changes_btn.pack(side=tk.LEFT, padx=5, pady=5)
         
         # Clear cluster data button
         self.clear_cluster_btn = ttk.Button(toolbar, text="🗑️ Clear Cluster Data", command=self._clear_cluster_data)
-        self.clear_cluster_btn.pack(side=tk.LEFT, padx=5)
+        self.clear_cluster_btn.pack(side=tk.LEFT, padx=5, pady=5)
         
         self.plot3d_btn = ttk.Button(toolbar, text="Open in Plot_3D", command=self._open_in_plot3d)
-        self.plot3d_btn.pack(side=tk.LEFT, padx=5)
+        self.plot3d_btn.pack(side=tk.LEFT, padx=5, pady=5)
         
         self.refresh_plot3d_btn = ttk.Button(toolbar, text="Refresh Plot_3D", command=self._refresh_plot3d)
-        self.refresh_plot3d_btn.pack(side=tk.LEFT, padx=5)
+        self.refresh_plot3d_btn.pack(side=tk.LEFT, padx=5, pady=5)
         
         # Note: Removed redundant "Push Changes to Plot_3D" button - same functionality as "Refresh Plot_3D"
         
@@ -484,11 +486,11 @@ class RealtimePlot3DSheet:
         ttk.Separator(toolbar, orient='vertical').pack(side=tk.LEFT, fill='y', padx=10)
         
         self.export_plot3d_btn = ttk.Button(toolbar, text="Export for Standalone Plot_3D", command=self._export_for_plot3d)
-        self.export_plot3d_btn.pack(side=tk.LEFT, padx=5)
+        self.export_plot3d_btn.pack(side=tk.LEFT, padx=5, pady=5)
         
         # Create import menu button
         self.import_menu_btn = ttk.Menubutton(toolbar, text="Import Data")
-        self.import_menu_btn.pack(side=tk.LEFT, padx=5)
+        self.import_menu_btn.pack(side=tk.LEFT, padx=5, pady=5)
         
         # Create import menu - simplified to just legacy import
         import_menu = tk.Menu(self.import_menu_btn, tearoff=0)
@@ -496,15 +498,38 @@ class RealtimePlot3DSheet:
         self.import_menu_btn.configure(menu=import_menu)
         
         self.auto_refresh_btn = ttk.Button(toolbar, text="Auto-Refresh: ON", command=self._toggle_auto_refresh)
-        self.auto_refresh_btn.pack(side=tk.LEFT, padx=20)
+        self.auto_refresh_btn.pack(side=tk.LEFT, padx=20, pady=5)
         
         # Data type toggle (for color analysis databases)
         ttk.Separator(toolbar, orient='vertical').pack(side=tk.LEFT, fill='y', padx=10)
         self.rgb_toggle = ttk.Checkbutton(toolbar, text="Use RGB Data", variable=self.use_rgb_data, command=self._on_data_type_toggle)
-        self.rgb_toggle.pack(side=tk.LEFT, padx=5)
+        self.rgb_toggle.pack(side=tk.LEFT, padx=5, pady=5)
         self.rgb_toggle.configure(state='disabled')  # Initially disabled until data is loaded
         
-        print("DEBUG: Toolbar buttons created with explicit commands")
+        # Centroid start row spinbox - wrap in a frame with proper sizing
+        ttk.Separator(toolbar, orient='vertical').pack(side=tk.LEFT, fill='y', padx=10)
+        centroid_frame = tk.Frame(toolbar, bg='lightgray')
+        centroid_frame.pack(side=tk.LEFT, padx=5, pady=5)
+        
+        ttk.Label(centroid_frame, text="Centroid Start Row:", font=('Arial', 9)).pack(side=tk.LEFT, padx=0)
+        self.centroid_start_row = tk.StringVar(value="")  # Blank = default (rows 2-7)
+        centroid_spinbox = ttk.Spinbox(
+            centroid_frame, 
+            from_=1, 
+            to=1000, 
+            textvariable=self.centroid_start_row,
+            width=5,
+            justify='center'
+        )
+        centroid_spinbox.pack(side=tk.LEFT, padx=5)
+        
+        # Force window layout calculation
+        self.window.update_idletasks()
+        
+        print("DEBUG: Centroid spinbox created in main toolbar (left side after RGB toggle)")
+        print(f"  Toolbar height after layout: {toolbar.winfo_height()}")
+        print(f"  Toolbar width: {toolbar.winfo_width()}")
+        print(f"  Spinbox widget: {centroid_spinbox}")
         
         # Status labels
         status_frame = ttk.Frame(toolbar)
@@ -521,6 +546,25 @@ class RealtimePlot3DSheet:
         self.auto_refresh_enabled = True
         self.refresh_job = None
         
+        print("DEBUG: Toolbar setup complete")
+        
+    def _get_centroid_start_row(self):
+        """Get the custom centroid start row from spinbox, or None if blank (use default 2-7).
+        
+        Returns:
+            int: Row number (0-based for DataFrame indexing) or None to use default rows 2-7
+        """
+        value = self.centroid_start_row.get().strip()
+        if value:
+            try:
+                row_num = int(value)
+                # Convert from display row (1-based) to DataFrame index (0-based)
+                # Display row 8 = DataFrame row 7
+                return row_num - 1
+            except ValueError:
+                return None
+        return None
+    
     def _on_data_type_toggle(self):
         """Handle toggle between L*a*b* and RGB data for color analysis databases."""
         if self.data_source_type == 'color_analysis' and self.database_measurements:
@@ -707,16 +751,26 @@ class RealtimePlot3DSheet:
                         y_norm = max(0.0, min(1.0, g_val / 255.0))
                         z_norm = max(0.0, min(1.0, b_val / 255.0))
                     else:
-                        # L*a*b* color data (default) - normalize using L*a*b* ranges
+                        # L*a*b* color data (default)
                         a_val = measurement.get('a_value', 0.0)
                         b_val = measurement.get('b_value', 0.0)
                         
-                        # L*: 0-100 → 0-1
-                        # a*: -128 to +127 → 0-1 
-                        # b*: -128 to +127 → 0-1
-                        x_norm = max(0.0, min(1.0, (l_val if l_val is not None else 0.0) / 100.0))
-                        y_norm = max(0.0, min(1.0, ((a_val if a_val is not None else 0.0) + 128.0) / 255.0))
-                        z_norm = max(0.0, min(1.0, ((b_val if b_val is not None else 0.0) + 128.0) / 255.0))
+                        # CRITICAL: Check if data is ALREADY normalized (0-1 range)
+                        # If so, use as-is. If not, apply normalization.
+                        # This prevents double-normalization of imported Plot_3D data
+                        if 0 <= l_val <= 1 and 0 <= a_val <= 1 and 0 <= b_val <= 1:
+                            # Data is already normalized (0-1) - use as-is
+                            x_norm = max(0.0, min(1.0, l_val))
+                            y_norm = max(0.0, min(1.0, a_val))
+                            z_norm = max(0.0, min(1.0, b_val))
+                        else:
+                            # Data is raw L*a*b* - normalize it
+                            # L*: 0-100 → 0-1
+                            # a*: -128 to +127 → 0-1 
+                            # b*: -128 to +127 → 0-1
+                            x_norm = max(0.0, min(1.0, (l_val if l_val is not None else 0.0) / 100.0))
+                            y_norm = max(0.0, min(1.0, ((a_val if a_val is not None else 0.0) + 128.0) / 255.0))
+                            z_norm = max(0.0, min(1.0, ((b_val if b_val is not None else 0.0) + 128.0) / 255.0))
                     
                     # Debug output for first few rows
                     if i < 5:
@@ -1081,11 +1135,22 @@ class RealtimePlot3DSheet:
                 if i < 10:  # Debug first 10 rows
                     print(f"    DEBUG Row {i} (display {i+1}): {row_data[:8] if len(row_data) >= 8 else row_data}...")
                 
-                # CRITICAL FIX: Handle centroid area (rows 1-6) vs data area (rows 7+) differently
-                is_centroid_area = (1 <= i <= 6)  # Rows 2-7 in display (0-indexed rows 1-6)
-                is_data_area = (i >= 7)  # Rows 8+ in display (0-indexed rows 7+)
+                # CRITICAL FIX: Handle centroid area vs data area with custom start row support
+                # This works for both internal databases and external worksheets
+                custom_centroid_start = self._get_centroid_start_row()  # None if using default (rows 2-7)
                 
-                print(f"    Row {i}: is_centroid_area={is_centroid_area}, is_data_area={is_data_area}")
+                # Determine centroid area based on custom start row or defaults
+                if custom_centroid_start is not None:
+                    # Custom centroid area: from custom_start to custom_start+5 (up to 6 centroid rows)
+                    # custom_centroid_start is already 0-based (row 8 in display = index 7)
+                    is_centroid_area = custom_centroid_start <= i <= custom_centroid_start + 5
+                    is_data_area = i > custom_centroid_start + 5  # Data rows start after centroids
+                else:
+                    # Default centroid area: rows 1-6 (display 2-7)
+                    is_centroid_area = (1 <= i <= 6)
+                    is_data_area = (i >= 7)
+                
+                print(f"    Row {i}: is_centroid_area={is_centroid_area}, is_data_area={is_data_area}, custom_start={custom_centroid_start}")
                 
                 if is_centroid_area:
                     # Handle centroid area - only process if there's centroid data
@@ -1098,20 +1163,47 @@ class RealtimePlot3DSheet:
                     marker = row_data[6] if len(row_data) > 6 and row_data[6] else '.'
                     color = row_data[7] if len(row_data) > 7 and row_data[7] else 'blue'
                     
+                    # When custom centroid row is specified, allow BOTH auto-assignment AND manual override
+                    # If user leaves Cluster column blank: auto-assign sequential (0, 1, 2, etc.)
+                    # If user enters a value: use that value instead
+                    cluster_id = None
+                    
+                    if custom_centroid_start is not None:
+                        # Custom centroid area mode: check if user manually entered cluster ID
+                        if cluster is not None and str(cluster).strip():
+                            # User manually entered a cluster number - use it
+                            try:
+                                cluster_id = int(float(str(cluster).strip()))
+                                print(f"    Custom centroid: row {i} -> cluster {cluster_id} (manual assignment from Column E)")
+                            except (ValueError, TypeError):
+                                # Invalid entry in Column E, fall back to sequential
+                                cluster_id = i - custom_centroid_start
+                                print(f"    Custom centroid: row {i} -> cluster {cluster_id} (invalid Column E, using sequential)")
+                        else:
+                            # Column E is blank - use sequential assignment
+                            cluster_id = i - custom_centroid_start
+                            print(f"    Custom centroid: row {i} -> cluster {cluster_id} (sequential assignment)")
+                    else:
+                        # Default centroid area (rows 2-7): use Cluster column value
+                        if cluster is not None and str(cluster).strip():
+                            try:
+                                cluster_id = int(float(str(cluster).strip()))
+                            except (ValueError, TypeError):
+                                pass
+                    
                     # Process if we have ANY meaningful centroid data
                     # Allow partial data - user might be building it up incrementally
-                    has_cluster = cluster is not None and str(cluster).strip()
                     has_centroid = (centroid_x is not None and str(centroid_x).strip() and
                                   centroid_y is not None and str(centroid_y).strip() and
                                   centroid_z is not None and str(centroid_z).strip())
                     has_sphere_data = ((sphere_color is not None and str(sphere_color).strip()) or
                                      (sphere_radius is not None and str(sphere_radius).strip()))
+                    has_cluster_id = cluster_id is not None
                     
-                    # Process if we have at least cluster + centroid coordinates, or any sphere data with cluster
-                    if (has_cluster and has_centroid) or (has_cluster and has_sphere_data):
+                    # Process if we have at least centroid coordinates (cluster_id is always available now)
+                    if has_cluster_id and (has_centroid or has_sphere_data):
                         
                         try:
-                            cluster_id = int(float(str(cluster).strip()))
                             
                             # Handle centroid coordinates - use None if not provided
                             centroid_x_val = float(str(centroid_x).strip()) if centroid_x and str(centroid_x).strip() else None
@@ -1324,29 +1416,19 @@ class RealtimePlot3DSheet:
                             # We have valid coordinate data - attempt to insert new measurement
                             print(f"    ✅ Row {i}: Data validation passed - proceeding with insertion")
                             
-                            # CRITICAL FIX: Convert normalized Plot_3D values back to raw L*a*b* for database storage
-                            # Database expects raw L*a*b* ranges, but we have normalized 0-1 values
-                            if 0 <= x_pos_val <= 1 and 0 <= y_pos_val <= 1 and 0 <= z_pos_val <= 1:
-                                # These are normalized Plot_3D values - convert back to L*a*b*
-                                l_raw = x_pos_val * 100.0  # Xnorm (0-1) -> L* (0-100)
-                                a_raw = (y_pos_val * 255.0) - 128.0  # Ynorm (0-1) -> a* (-128 to +127)
-                                b_raw = (z_pos_val * 255.0) - 128.0  # Znorm (0-1) -> b* (-128 to +127)
-                                print(f"      Converted normalized to L*a*b*: ({x_pos_val:.3f},{y_pos_val:.3f},{z_pos_val:.3f}) -> ({l_raw:.1f},{a_raw:.1f},{b_raw:.1f})")
-                            else:
-                                # Assume these are already raw L*a*b* values
-                                l_raw = x_pos_val
-                                a_raw = y_pos_val
-                                b_raw = z_pos_val
-                                print(f"      Using as raw L*a*b*: ({l_raw:.1f},{a_raw:.1f},{b_raw:.1f})")
+                            # IMPORTANT: Imported Plot_3D data is ALREADY normalized (0-1)
+                            # Store it as-is in database using the normalized values directly
+                            # Do NOT convert back to L*a*b* - that causes double normalization
+                            print(f"      Storing normalized coordinates directly: X={x_pos_val:.3f}, Y={y_pos_val:.3f}, Z={z_pos_val:.3f}")
                             
                             insert_success = db.insert_new_measurement(
                                 image_name=image_name,
                                 coordinate_point=coord_point,
-                                x_pos=x_pos_val or 0.0,  # Keep normalized for x_pos (Plot_3D display)
-                                y_pos=y_pos_val or 0.0,  # Keep normalized for y_pos (Plot_3D display)
-                                l_value=l_raw,  # Raw L* value for database
-                                a_value=a_raw,  # Raw a* value for database
-                                b_value=b_raw,  # Raw b* value for database
+                                x_pos=x_pos_val or 0.0,  # Normalized value (0-1)
+                                y_pos=y_pos_val or 0.0,  # Normalized value (0-1)
+                                l_value=x_pos_val or 0.0,  # Store normalized X as L value (will be treated as normalized)
+                                a_value=y_pos_val or 0.0,  # Store normalized Y as a value (will be treated as normalized)
+                                b_value=z_pos_val or 0.0,  # Store normalized Z as b value (will be treated as normalized)
                                 rgb_r=0.0, rgb_g=0.0, rgb_b=0.0,  # Default RGB values
                                 cluster_id=cluster_id,
                                 delta_e=delta_e_val,
@@ -3034,11 +3116,12 @@ class RealtimePlot3DSheet:
                 )
                 return
             
-            # Clear current sheet data
+            # Clear current sheet data using correct tksheet API
             try:
                 current_rows = self.sheet.get_total_rows()
                 if current_rows > 0:
-                    self.sheet.delete_rows(0, current_rows)
+                    # tksheet.delete_rows takes a list of row indices, not a range
+                    self.sheet.delete_rows(list(range(current_rows)))
             except Exception as clear_error:
                 logger.warning(f"Error clearing sheet: {clear_error}")
             
@@ -3078,13 +3161,10 @@ class RealtimePlot3DSheet:
             # Insert imported data into sheet
             if import_data:
                 try:
-                    # Add empty rows first to accommodate data
-                    empty_rows = [[''] * len(self.PLOT3D_COLUMNS)] * len(import_data)
-                    self.sheet.insert_rows(rows=empty_rows, idx=0)
-                    
-                    # Set the actual data
-                    for i, row in enumerate(import_data):
-                        self.sheet.set_row_data(i, values=row)
+                    # Set data cell by cell using correct tksheet API
+                    for row_idx, row_data in enumerate(import_data):
+                        for col_idx, value in enumerate(row_data):
+                            self.sheet.set_cell_data(row_idx, col_idx, value)
                     
                     logger.info(f"Imported {len(import_data)} rows into spreadsheet")
                     

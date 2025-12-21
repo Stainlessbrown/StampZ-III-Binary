@@ -2466,12 +2466,11 @@ class AnalysisManager:
                     from gui.realtime_plot3d_sheet import RealtimePlot3DSheet
                     print("DEBUG: Imported RealtimePlot3DSheet successfully")
                     
-                    # Create worksheet WITHOUT initial data loading to avoid freezing
-                    # User can manually refresh data once window is open
+                    # Create worksheet WITH data loading - now that we have data in database
                     worksheet = RealtimePlot3DSheet(
                         parent=self.root,
                         sample_set_name=new_worksheet_name,
-                        load_initial_data=False  # Prevent freezing during creation
+                        load_initial_data=True  # Load imported data from database
                     )
                     print("DEBUG: Worksheet window created successfully")
                     
@@ -2488,10 +2487,8 @@ class AnalysisManager:
                             f"✅ Successfully imported '{new_worksheet_name}'!\n\n"
                             f"• Imported {result.rows_imported} data rows{centroid_msg}\n"
                             f"• Saved {measurement_count} measurements to database\n"
-                            f"• Worksheet window opened (empty to avoid freezing)\n\n"
-                            f"📋 To load your data:\n"
-                            f"Click the 'Refresh from StampZ' button in the worksheet\n\n"
-                            f"This prevents UI freezing with large datasets!"
+                            f"• Worksheet window opened with your data loaded\n\n"
+                            f"You can now view and edit your imported color data!"
                         )
                     
                     # Show success message after a short delay to avoid modal conflicts

@@ -387,8 +387,26 @@ class ExternalDataImporter:
                         # Convert to string and clean
                         value = str(value).strip()
                         
+                        # Special handling for Cluster column - convert floats to integers
+                        if target_col == 'Cluster':
+                            try:
+                                # Handle float values like '1.0' -> '1'
+                                if value and value != '':
+                                    float_val = float(value)
+                                    # Only convert if it's not NaN
+                                    if not np.isnan(float_val):
+                                        value = str(int(float_val))
+                                    else:
+                                        value = self.DEFAULTS[target_col]
+                                else:
+                                    value = self.DEFAULTS[target_col]
+                            except (ValueError, TypeError):
+                                if value != '':  # Only warn if not already empty
+                                    warnings.append(f"Row {idx+1}: Invalid cluster value '{value}', using default")
+                                value = self.DEFAULTS[target_col]
+                        
                         # Special handling for numeric columns
-                        if target_col in ['Xnorm', 'Ynorm', 'Znorm', 'Centroid_X', 'Centroid_Y', 'Centroid_Z', '∆E', 'Radius']:
+                        elif target_col in ['Xnorm', 'Ynorm', 'Znorm', 'Centroid_X', 'Centroid_Y', 'Centroid_Z', '∆E', 'Radius']:
                             try:
                                 # Convert to float to validate, then back to string for consistency
                                 float_val = float(value)
@@ -451,8 +469,21 @@ class ExternalDataImporter:
                             value = self.DEFAULTS[target_col]
                         else:
                             value = str(value).strip()
+                            # Handle Cluster column - convert floats to integers
+                            if target_col == 'Cluster':
+                                try:
+                                    if value and value != '':
+                                        float_val = float(value)
+                                        if not np.isnan(float_val):
+                                            value = str(int(float_val))
+                                        else:
+                                            value = self.DEFAULTS[target_col]
+                                    else:
+                                        value = self.DEFAULTS[target_col]
+                                except (ValueError, TypeError):
+                                    value = self.DEFAULTS[target_col]
                             # Handle numeric columns
-                            if target_col in ['Xnorm', 'Ynorm', 'Znorm', 'Centroid_X', 'Centroid_Y', 'Centroid_Z', '∆E', 'Radius']:
+                            elif target_col in ['Xnorm', 'Ynorm', 'Znorm', 'Centroid_X', 'Centroid_Y', 'Centroid_Z', '∆E', 'Radius']:
                                 try:
                                     if value and value != '':
                                         float_val = float(value)

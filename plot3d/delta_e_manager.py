@@ -72,6 +72,7 @@ class DeltaEManager:
         self.file_path = None
         # Initialize GUI components as None
         self.frame = None
+        self.centroid_start_row = None  # StringVar for centroid start row spinbox
         self.start_row = None
         self.end_row = None
         self.apply_button = None
@@ -1625,29 +1626,74 @@ class DeltaEManager:
             
         # Create a frame for ΔE controls
         try:
-            self.frame = tk.LabelFrame(parent, text="ΔE CIE2000", padx=2, pady=1)
-            # Create a single row for all controls
-            control_frame = tk.Frame(self.frame)
-            control_frame.pack(fill=tk.X, pady=1)
+            # Create main frame WITHOUT packing - let caller handle packing
+            self.frame = tk.Frame(parent, bg='white')
+            # Don't pack here - caller will pack it
+            self.frame.grid_columnconfigure(0, weight=1)
+            
+            # Create centroid start row frame (similar to realtime worksheet spinbox)
+            centroid_frame = tk.Frame(self.frame, bg='white')
+            centroid_frame.pack(fill=tk.X, pady=5, padx=5, expand=False)
+            
+            tk.Label(centroid_frame, text="Centroid Start Row:", font=("Arial", 9), bg='white').pack(side=tk.LEFT, padx=2)
+            
+            self.centroid_start_row = tk.StringVar(value="")  # Blank = default (rows 2-7)
+            centroid_spinbox = tk.Spinbox(
+                centroid_frame,
+                from_=2,
+                to=999,
+                textvariable=self.centroid_start_row,
+                width=4,
+                justify='center',
+                font=("Arial", 9)
+            )
+            centroid_spinbox.pack(side=tk.LEFT, padx=2)
+            
+            tk.Label(centroid_frame, text="(blank=2-7)", font=("Arial", 8), bg='white', fg='gray').pack(side=tk.LEFT, padx=2)
+            
+            # Create a single row for ΔE calculation controls
+            control_frame = tk.Frame(self.frame, bg='white')
+            control_frame.pack(fill=tk.X, pady=8, padx=5, expand=False)
         
-            # Row range inputs in a more compact layout
-            tk.Label(control_frame, text="Rows:", font=("Arial", 9)).pack(side=tk.LEFT)
-            self.start_row = tk.Entry(control_frame, width=3)
+            # Row range inputs using Spinbox widgets for better control
+            tk.Label(control_frame, text="Data Rows:", font=("Arial", 9), bg='white').pack(side=tk.LEFT, padx=2)
+            
+            # Start row spinbox
+            self.start_row = tk.Spinbox(
+                control_frame, 
+                from_=1, 
+                to=999, 
+                width=4,
+                justify='center',
+                font=("Arial", 9)
+            )
+            self.start_row.delete(0, tk.END)
             self.start_row.insert(0, "2")
-            self.start_row.pack(side=tk.LEFT, padx=1)
-            tk.Label(control_frame, text="-").pack(side=tk.LEFT)
-            self.end_row = tk.Entry(control_frame, width=3)
+            self.start_row.pack(side=tk.LEFT, padx=2)
+            
+            tk.Label(control_frame, text="to", font=("Arial", 9), bg='white').pack(side=tk.LEFT, padx=2)
+            
+            # End row spinbox
+            self.end_row = tk.Spinbox(
+                control_frame, 
+                from_=1, 
+                to=999, 
+                width=4,
+                justify='center',
+                font=("Arial", 9)
+            )
+            self.end_row.delete(0, tk.END)
             self.end_row.insert(0, "999")
-            self.end_row.pack(side=tk.LEFT, padx=1)
+            self.end_row.pack(side=tk.LEFT, padx=2)
             
             # Action buttons
-            self.apply_button = tk.Button(control_frame, text="Calculate", command=self._calculate_delta_e_gui,
-                                        font=("Arial", 9))
-            self.apply_button.pack(side=tk.LEFT, padx=1)
+            self.apply_button = tk.Button(control_frame, text="Calculate ΔE", command=self._calculate_delta_e_gui,
+                                        font=("Arial", 9), bg="lightgreen")
+            self.apply_button.pack(side=tk.LEFT, padx=5)
             
             # Help button for workflow guidance
             help_button = tk.Button(control_frame, text="?", command=self._show_workflow_guide,
-                                  font=("Arial", 9), width=1, bg="lightblue")
+                                  font=("Arial", 9), width=2, bg="lightblue")
             help_button.pack(side=tk.LEFT, padx=2)
             
             self.logger.info("ΔE GUI components created successfully")
