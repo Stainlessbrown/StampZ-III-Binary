@@ -118,13 +118,17 @@ class KMeansFileHandler:
                     # Write cluster assignments to data rows
                     # Note: row_indices are 0-based DataFrame indices
                     # Sheet rows: row 1 = header, row 2+ = data (DataFrame indices 0+)
+                    cluster_write_count = 0
                     for i, idx in enumerate(row_indices):
                         cluster_value = clusters.iloc[i]
                         if pd.notna(cluster_value):
                             # Map DataFrame index to sheet row: index 0 -> row 2, index 1 -> row 3, etc.
                             sheet_row = idx + 2
-                            ws.cell(row=sheet_row, column=cluster_col, value=int(cluster_value))
+                            cell = ws.cell(row=sheet_row, column=cluster_col)
+                            cell.value = int(cluster_value)
+                            cluster_write_count += 1
                             self.logger.info(f"Wrote cluster {int(cluster_value)} to data point at sheet row {sheet_row} (DataFrame index {idx})")
+                    self.logger.info(f"Total cluster assignments written to data rows: {cluster_write_count}")
                     
                     # Write centroid data to fixed rows (ONLY the coordinate columns, not Cluster column)
                     # The Cluster column in these rows should only be updated if they were selected for clustering
