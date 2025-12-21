@@ -130,16 +130,17 @@ class KMeansFileHandler:
                             self.logger.info(f"Wrote cluster {int(cluster_value)} to data point at sheet row {sheet_row} (DataFrame index {idx})")
                     self.logger.info(f"Total cluster assignments written to data rows: {cluster_write_count}")
                     
-                    # Write centroid data to fixed rows (ONLY the coordinate columns, not Cluster column)
-                    # The Cluster column in these rows should only be updated if they were selected for clustering
+                    # Write centroid data to fixed rows
+                    # Row 2-7 are reserved for cluster 0-5 centroid data
                     for cluster_num, centroid in cluster_centroids.items():
-                        excel_row = cluster_num + 2  # Row 2 for cluster 0, row 3 for cluster 1, etc.
-                        # IMPORTANT: Only write centroid coordinates, NOT the cluster value
-                        # The cluster value in these rows is only set if they were in the clustering range
+                        excel_row = int(cluster_num) + 2  # Row 2 for cluster 0, row 3 for cluster 1, etc.
+                        # Always write the cluster number for identification
+                        ws.cell(row=excel_row, column=cluster_col, value=int(cluster_num))
+                        # Write centroid coordinates
                         ws.cell(row=excel_row, column=centroid_x_col, value=round(centroid[0], 4))
                         ws.cell(row=excel_row, column=centroid_y_col, value=round(centroid[1], 4))
                         ws.cell(row=excel_row, column=centroid_z_col, value=round(centroid[2], 4))
-                        self.logger.info(f"Updated Excel row {excel_row} with centroid coordinates for cluster {cluster_num}")
+                        self.logger.info(f"Updated Excel row {excel_row} with cluster {int(cluster_num)} and centroid coordinates")
                     
                     # Save the workbook
                     wb.save(self.file_path)

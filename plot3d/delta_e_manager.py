@@ -1355,14 +1355,16 @@ class DeltaEManager:
                                         self.logger.info(f"  Row {row}: ∆E = {val}")
                                 
                                 # Apply ONLY ΔE updates - do not touch any other columns
+                                update_count = 0
                                 for row_idx, value in updates:
                                     try:
                                         # Update ONLY the ΔE value
                                         if use_excel:
-                                            # Excel: row_idx is 1-based, column is 1-based
-                                            excel_row = row_idx + 1  # Convert sheet row to Excel row
-                                            ws.cell(row=excel_row, column=delta_e_col_idx, value=round(value, 4))
-                                            self.logger.debug(f"Updated ∆E at Excel row {excel_row} to {value}")
+                                            # Excel: row_idx is 1-based sheet row, Excel also 1-based
+                                            # No conversion needed - row_idx is already sheet row
+                                            ws.cell(row=row_idx, column=delta_e_col_idx, value=round(value, 4))
+                                            update_count += 1
+                                            self.logger.info(f"Updated ∆E at Excel row {row_idx} to {value}")
                                         else:
                                             # ODS: use set_value method
                                             cell = sheet[row_idx, delta_e_col_idx]
@@ -1370,6 +1372,9 @@ class DeltaEManager:
                                             self.logger.debug(f"Updated ∆E at row {row_idx} to {value}")
                                     except Exception as cell_error:
                                         self.logger.warning(f"Failed to update cell at row {row_idx}: {str(cell_error)}")
+                                
+                                if use_excel:
+                                    self.logger.info(f"Total \u0394E updates written to Excel: {update_count}/{len(updates)}")
                                 
                                 # Create a file backup before saving
                                 pre_save_backup = f"{self.file_path}.presave"
