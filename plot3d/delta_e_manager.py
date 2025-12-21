@@ -876,7 +876,18 @@ class DeltaEManager:
         if self.file_path and os.path.exists(self.file_path):
             try:
                 self.logger.info(f"Reloading data from file before ΔE calculation: {self.file_path}")
-                updated_data = pd.read_excel(self.file_path, engine='odf')
+                # Use correct engine based on file format
+                engine = 'odf' if self.file_path.endswith('.ods') else 'openpyxl'
+                updated_data = pd.read_excel(self.file_path, engine=engine)
+                
+                # For Excel files, ensure Cluster column is integer type (not float)
+                if self.file_path.endswith('.xlsx') and 'Cluster' in updated_data.columns:
+                    # Convert cluster values to integers while preserving NaN
+                    # Use pandas Int64 nullable integer type to handle NaN
+                    updated_data['Cluster'] = updated_data['Cluster'].apply(
+                        lambda x: int(x) if pd.notna(x) else x
+                    )
+                    self.logger.info(f"Converted Cluster column to integer type for Excel file (NaN values preserved)")
                 
                 # Verify required columns (with alias support)
                 missing = []
@@ -1297,14 +1308,18 @@ class DeltaEManager:
                             delta_e_values.append((i, delta_e))
                             
                         # Prepare updates
+                        # Note: idx is DataFrame index (0-based), sheet rows are 1-based with row 1 as header
+                        # So sheet_row_idx = idx + 2 (add 1 for header, add 1 for 1-based indexing)
                         updates = []
                         for idx, value in delta_e_values:
-                            sheet_row_idx = idx + 1
+                            sheet_row_idx = idx + 2  # Convert DataFrame index to Excel row (1-based, accounting for header)
                             if value is not None:
                                 updates.append((sheet_row_idx, value))
                         
                         if updates:
                             self.logger.info(f"Preparing to update {len(updates)} cells")
+                            # Initialize centroid_preserved flag - will be set based on verification results
+                            centroid_preserved = True
                             
                             try:
                                 # Open and update - use appropriate library based on file format
@@ -1364,16 +1379,18 @@ class DeltaEManager:
                                     try:
                                         # Update ONLY the ΔE value
                                         if use_excel:
-                                            # Excel: row_idx is 1-based sheet row, Excel also 1-based
-                                            # No conversion needed - row_idx is already sheet row
-                                            ws.cell(row=row_idx, column=delta_e_col_idx, value=round(value, 4))
+                                            # Excel: row_idx is 1-based sheet row, openpyxl columns are also 1-based
+                                            # delta_e_col_idx is 0-based from pandas, so add 1 for openpyxl
+                                            ws.cell(row=row_idx, column=delta_e_col_idx + 1, value=round(value, 4))
                                             update_count += 1
                                             self.logger.info(f"Updated ∆E at Excel row {row_idx} to {value}")
                                         else:
-                                            # ODS: use set_value method
-                                            cell = sheet[row_idx, delta_e_col_idx]
+                                            # ODS: ezodf uses 0-based indexing for both rows and columns
+                                            # row_idx is 1-based (from our Excel-compatible format), so subtract 1 for ODS
+                                            ods_row_idx = row_idx - 1
+                                            cell = sheet[ods_row_idx, delta_e_col_idx]
                                             cell.set_value(format(value, '.4f'))
-                                            self.logger.debug(f"Updated ∆E at row {row_idx} to {value}")
+                                            self.logger.debug(f"Updated ∆E at ODS row {ods_row_idx} (sheet row {row_idx}) to {value}")
                                     except Exception as cell_error:
                                         self.logger.warning(f"Failed to update cell at row {row_idx}: {str(cell_error)}")
                                 
@@ -1415,7 +1432,6 @@ class DeltaEManager:
                                             self.logger.error(f"Failed to restore from backup: {str(restore_error)}")
                                     raise save_error
                                 # Verify the save (ODS only - Excel verification would require openpyxl again)
-                                centroid_preserved = True
                                 try:
                                     if not use_excel:
                                         self.logger.info("Verifying save operation")
@@ -1426,7 +1442,9 @@ class DeltaEManager:
                                         for row_idx, value in updates[:min(3, len(updates))]:
                                             # Verify ∆E value was saved correctly
                                             try:
-                                                delta_e_cell = verify_sheet[row_idx, delta_e_col_idx]
+                                                # ezodf uses 0-based indexing, row_idx is 1-based
+                                                ods_row_idx = row_idx - 1
+                                                delta_e_cell = verify_sheet[ods_row_idx, delta_e_col_idx]
                                                 
                                                 # Get cell value, handling empty or non-numeric values
                                                 cell_value = delta_e_cell.value
@@ -1448,7 +1466,9 @@ class DeltaEManager:
                                             for col_name, col_idx in centroid_col_indices.items():
                                                 if col_idx is not None:
                                                     for row_idx, _ in updates[:min(3, len(updates))]:
-                                                        centroid_cell = verify_sheet[row_idx, col_idx]
+                                                        # ezodf uses 0-based indexing, row_idx is 1-based
+                                                        ods_row_idx = row_idx - 1
+                                                        centroid_cell = verify_sheet[ods_row_idx, col_idx]
                                                         if centroid_cell.value is None:
                                                             self.logger.warning(f"Centroid data may have been lost for {col_name} at row {row_idx}")
                                                             centroid_preserved = False
@@ -1494,6 +1514,7 @@ class DeltaEManager:
                                             self.logger.info("Excel backup file removed")
                                     except Exception as e:
                                         self.logger.warning(f"Could not remove Excel backup: {str(e)}")
+                                
                                 # Count how many values were actually calculated
                                 successful_updates = sum(1 for _, value in delta_e_values if value is not None)
                                 
@@ -1507,11 +1528,10 @@ class DeltaEManager:
                                 )
                                 self.logger.info(completion_msg.replace('\n', ' '))
                                 
-                                # Show the completion message in a way that won't block the UI
+                                # Show the completion message
                                 if self.frame and self.frame.winfo_exists():
                                     self.frame.after(100, lambda: messagebox.showinfo("ΔE Calculation Complete", completion_msg))
                                 else:
-                                    # Fallback if frame doesn't exist
                                     messagebox.showinfo("ΔE Calculation Complete", completion_msg)
                             except (IOError, OSError) as e:
                                 self.logger.error(f"File operation failed: {str(e)}")
