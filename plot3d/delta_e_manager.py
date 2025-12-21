@@ -987,9 +987,9 @@ class DeltaEManager:
             if not os.access(self.file_path, os.W_OK):
                 raise IOError(f"File {self.file_path} is not writable")
             
-            # Verify file is .ods format
-            if not self.file_path.endswith('.ods'):
-                raise ValueError("Only .ods files are supported for saving ΔE calculations")
+            # Verify file is supported format
+            if not (self.file_path.endswith('.ods') or self.file_path.endswith('.xlsx')):
+                raise ValueError("Only .ods and .xlsx files are supported for saving ΔE calculations")
                 # Inform user of the process
             msg = (f"Calculating and saving ΔE values ONLY for rows {start_row}-{end_row}:\n\n"
                   "1. Your original .ods file will be updated directly\n"
@@ -1083,7 +1083,9 @@ class DeltaEManager:
                         
                         # Get column structure
                         self.logger.info("Reading file structure")
-                        df = pd.read_excel(self.file_path, engine='odf')
+                        # Determine which engine to use based on file extension
+                        engine = 'odf' if self.file_path.endswith('.ods') else 'openpyxl'
+                        df = pd.read_excel(self.file_path, engine=engine)
                         
                         # Check if required columns exist
                         required_columns = ['∆E', 'Centroid_X', 'Centroid_Y', 'Centroid_Z']

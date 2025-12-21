@@ -39,8 +39,17 @@ def load_data(file_path, use_rgb=False, handle_blank_rows=True, sheet_name=None)
             else:
                 print(f"Loaded first sheet (default)")
             print(f"======================\n")
+        elif file_extension == 'xlsx':
+            df = pd.read_excel(file_path, engine='openpyxl', sheet_name=sheet_name or 0)
+            print(f"Loaded {len(df)} rows from file")
+            if sheet_name:
+                logger.info(f"Loaded sheet '{sheet_name}' from {file_path}")
+                print(f"Successfully loaded sheet: {sheet_name}")
+            else:
+                print(f"Loaded first sheet (default)")
+            print(f"======================\n")
         else:
-            raise ValueError(f"Unsupported file format: {file_extension}. Only .ods files are supported.")
+            raise ValueError(f"Unsupported file format: {file_extension}. Only .ods and .xlsx files are supported.")
         
         # Add original row numbers for proper tracking before any processing
         df['original_row'] = df.index

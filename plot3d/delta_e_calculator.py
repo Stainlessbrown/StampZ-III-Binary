@@ -55,9 +55,9 @@ class DeltaECalculator:
             self.logger.error(f"File does not exist: {file_path}")
             raise ValueError(f"File does not exist: {file_path}")
             
-        if not file_path.endswith('.ods'):
-            self.logger.error(f"File is not an .ods file: {file_path}")
-            raise ValueError("Only .ods files are supported")
+        if not (file_path.endswith('.ods') or file_path.endswith('.xlsx')):
+            self.logger.error(f"File is not an .ods or .xlsx file: {file_path}")
+            raise ValueError("Only .ods and .xlsx files are supported")
             
         self.file_path = file_path
         self.logger.info(f"Set file path to: {file_path}")
@@ -75,7 +75,9 @@ class DeltaECalculator:
         """
         # Load the data to validate against
         try:
-            df = pd.read_excel(self.file_path, engine='odf')
+            # Determine which engine to use based on file extension
+            engine = 'odf' if self.file_path.endswith('.ods') else 'openpyxl'
+            df = pd.read_excel(self.file_path, engine=engine)
             self.logger.info(f"Loaded data with {len(df)} rows for validation")
         except Exception as e:
             self.logger.error(f"Failed to load data for validation: {e}")
@@ -462,30 +464,32 @@ class DeltaECalculator:
         try:
             # Load data from file
             self.logger.info(f"Loading data from {self.file_path}")
-            data = pd.read_excel(self.file_path, engine='odf')
+            # Determine which engine to use based on file extension
+            engine = 'odf' if self.file_path.endswith('.ods') else 'openpyxl'
+            data = pd.read_excel(self.file_path, engine=engine)
             
-        # Verify required columns exist with alias handling
-        required_columns = ['Xnorm', 'Ynorm', 'Znorm', 'Centroid_X', 'Centroid_Y', 'Centroid_Z', '∆E']
-        column_aliases = {'DeltaE': '∆E', 'deltae': '∆E', 'Delta_E': '∆E'}
-        
-        # Perform same alias mapping as in validate_data
-        for req_col in required_columns:
-            if req_col not in data.columns:
-                for alias, target in column_aliases.items():
-                    if target == req_col and alias in data.columns:
-                        data = data.rename(columns={alias: req_col})
-                        self.logger.info(f"Mapped column '{alias}' to expected '{req_col}'")
-                        break
-                    elif target == req_col and alias.lower() in [c.lower() for c in data.columns]:
-                        actual_col = next(c for c in data.columns if c.lower() == alias.lower())
-                        data = data.rename(columns={actual_col: req_col})
-                        self.logger.info(f"Mapped column '{actual_col}' to expected '{req_col}'")
-                        break
-        
-        missing_columns = [col for col in required_columns if col not in data.columns]
-        if missing_columns:
-            self.logger.error(f"Missing required columns: {missing_columns}")
-            raise ValueError(f"Missing required columns: {missing_columns}")
+            # Verify required columns exist with alias handling
+            required_columns = ['Xnorm', 'Ynorm', 'Znorm', 'Centroid_X', 'Centroid_Y', 'Centroid_Z', '∆E']
+            column_aliases = {'DeltaE': '∆E', 'deltae': '∆E', 'Delta_E': '∆E'}
+            
+            # Perform same alias mapping as in validate_data
+            for req_col in required_columns:
+                if req_col not in data.columns:
+                    for alias, target in column_aliases.items():
+                        if target == req_col and alias in data.columns:
+                            data = data.rename(columns={alias: req_col})
+                            self.logger.info(f"Mapped column '{alias}' to expected '{req_col}'")
+                            break
+                        elif target == req_col and alias.lower() in [c.lower() for c in data.columns]:
+                            actual_col = next(c for c in data.columns if c.lower() == alias.lower())
+                            data = data.rename(columns={actual_col: req_col})
+                            self.logger.info(f"Mapped column '{actual_col}' to expected '{req_col}'")
+                            break
+            
+            missing_columns = [col for col in required_columns if col not in data.columns]
+            if missing_columns:
+                self.logger.error(f"Missing required columns: {missing_columns}")
+                raise ValueError(f"Missing required columns: {missing_columns}")
             
             # Get indices for the selected row range
             row_indices = self._get_data_indices(start_row, end_row)
