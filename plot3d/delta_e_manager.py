@@ -1324,25 +1324,29 @@ class DeltaEManager:
                                     use_excel = False
                                     self.logger.info("Using ezodf for ODS file")
                                 
-                                # Check if we need to add centroid columns
-                                header_row = 0  # Header row index
-                                num_cols = len(sheet.row(header_row))
-                                
-                                # Create centroid columns if they don't exist
-                                for col_name in ['Centroid_X', 'Centroid_Y', 'Centroid_Z']:
-                                    if col_name not in col_indices:
-                                        # Add column to the right of the spreadsheet
-                                        col_idx = num_cols
-                                        num_cols += 1
-                                        
-                                        # Set header
-                                        cell = sheet[header_row, col_idx]
-                                        cell.set_value(col_name)
-                                        # Removed cell.value_type assignment that was causing errors
-                                        centroid_col_indices[col_name] = col_idx
-                                        self.logger.info(f"Created new column '{col_name}' at index {col_idx}")
-                                    else:
-                                        centroid_col_indices[col_name] = col_indices[col_name]
+                                # Check if we need to add centroid columns (ODS only - Excel columns should already exist)
+                                if not use_excel:
+                                    header_row = 0  # Header row index
+                                    num_cols = len(sheet.row(header_row))
+                                    
+                                    # Create centroid columns if they don't exist
+                                    for col_name in ['Centroid_X', 'Centroid_Y', 'Centroid_Z']:
+                                        if col_name not in col_indices:
+                                            # Add column to the right of the spreadsheet
+                                            col_idx = num_cols
+                                            num_cols += 1
+                                            
+                                            # Set header
+                                            cell = sheet[header_row, col_idx]
+                                            cell.set_value(col_name)
+                                            # Removed cell.value_type assignment that was causing errors
+                                            centroid_col_indices[col_name] = col_idx
+                                            self.logger.info(f"Created new column '{col_name}' at index {col_idx}")
+                                        else:
+                                            centroid_col_indices[col_name] = col_indices[col_name]
+                                else:
+                                    # Excel: columns should already exist from K-means clustering
+                                    self.logger.info("Excel file - assuming centroid columns already exist from K-means")
                                 
                                 # Log updates for debugging
                                 self.logger.info(f"Preparing to update {len(updates)} rows with ∆E values ONLY")
