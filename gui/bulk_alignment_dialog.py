@@ -128,6 +128,51 @@ class BulkAlignmentDialog:
         self.file_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.config(command=self.file_listbox.yview)
         
+        # Sensitivity settings section
+        sensitivity_frame = ttk.LabelFrame(main_frame, text="Alignment Sensitivity", padding=10)
+        sensitivity_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Min matches spinbox
+        min_matches_frame = ttk.Frame(sensitivity_frame)
+        min_matches_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        ttk.Label(min_matches_frame, text="Min Feature Matches:", width=20).pack(side=tk.LEFT)
+        self.min_matches_var = tk.IntVar(value=self.alignment_manager.min_matches)
+        ttk.Spinbox(
+            min_matches_frame,
+            from_=3,
+            to=50,
+            textvariable=self.min_matches_var,
+            width=5
+        ).pack(side=tk.LEFT, padx=5)
+        ttk.Label(
+            min_matches_frame,
+            text="(lower = more tolerant, 3-50)",
+            font=("Arial", 8),
+            foreground="gray"
+        ).pack(side=tk.LEFT)
+        
+        # RANSAC threshold spinbox
+        ransac_frame = ttk.Frame(sensitivity_frame)
+        ransac_frame.pack(fill=tk.X)
+        
+        ttk.Label(ransac_frame, text="RANSAC Pixel Threshold:", width=20).pack(side=tk.LEFT)
+        self.ransac_threshold_var = tk.DoubleVar(value=self.alignment_manager.ransac_threshold)
+        ttk.Spinbox(
+            ransac_frame,
+            from_=1.0,
+            to=20.0,
+            increment=0.5,
+            textvariable=self.ransac_threshold_var,
+            width=5
+        ).pack(side=tk.LEFT, padx=5)
+        ttk.Label(
+            ransac_frame,
+            text="(higher = more tolerant, 1.0-20.0)",
+            font=("Arial", 8),
+            foreground="gray"
+        ).pack(side=tk.LEFT)
+        
         # Output directory section
         output_frame = ttk.LabelFrame(main_frame, text="Output Directory", padding=10)
         output_frame.pack(fill=tk.X, pady=(0, 10))
@@ -340,6 +385,13 @@ class BulkAlignmentDialog:
         
         # Clear status
         self._update_status("Starting bulk alignment...", append=False)
+        
+        # Apply user-selected sensitivity thresholds
+        min_matches = self.min_matches_var.get()
+        ransac_threshold = self.ransac_threshold_var.get()
+        self.alignment_manager.min_matches = min_matches
+        self.alignment_manager.ransac_threshold = ransac_threshold
+        self._update_status(f"Sensitivity settings: min_matches={min_matches}, ransac_threshold={ransac_threshold}")
         
         try:
             # Copy reference image if requested
