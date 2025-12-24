@@ -189,11 +189,10 @@ class DatabaseViewer:
         
         for col, (heading, width) in self.column_configs.items():
             self.tree.heading(col, text=heading)
-            # Set column width based on visibility
-            if self.column_visibility[col]:
-                self.tree.column(col, width=width, minwidth=50)
-            else:
-                self.tree.column(col, width=0, minwidth=0)  # Hide column by setting width to 0
+            self.tree.column(col, width=width, minwidth=50)
+        
+        # Set initial displaycolumns based on visibility
+        self._update_displayed_columns()
         
         # Bind selection event
         self.tree.bind("<<TreeviewSelect>>", self._on_selection_changed)
@@ -1433,6 +1432,17 @@ class DatabaseViewer:
             print(f"Error getting current database path: {e}")
             return None
     
+    def _update_displayed_columns(self):
+        """Update the treeview to show/hide columns based on visibility settings."""
+        # Build list of visible columns in order
+        visible_cols = []
+        for col in self.tree["columns"]:
+            if self.column_visibility.get(col, True):  # Default to True if not in dict
+                visible_cols.append(col)
+        
+        # Update the treeview's displaycolumns
+        self.tree["displaycolumns"] = visible_cols
+    
     def _toggle_columns(self):
         """Open dialog to toggle column visibility."""
         dialog = tk.Toplevel(self.dialog)
@@ -1510,15 +1520,8 @@ class DatabaseViewer:
             for col, var in checkbox_vars.items():
                 self.column_visibility[col] = var.get()
             
-            # Update tree columns
-            for col in checkbox_vars.keys():
-                if self.column_visibility[col]:
-                    # Show column with original width
-                    width = self.column_configs[col][1]
-                    self.tree.column(col, width=width, minwidth=50)
-                else:
-                    # Hide column by setting width to 0
-                    self.tree.column(col, width=0, minwidth=0)
+            # Update displayed columns in treeview
+            self._update_displayed_columns()
             
             dialog.destroy()
         
