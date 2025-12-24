@@ -48,6 +48,25 @@ class DatabaseViewer:
         self.measurements = []
         self.selected_items = set()
         
+        # Column visibility state - True means visible
+        self.column_visibility = {
+            "set_id": False,           # Hidden by default
+            "image_name": True,        # Always visible
+            "measurement_date": False, # Hidden by default
+            "point": False,            # Hidden by default
+            "l_value": True,           # Visible by default
+            "a_value": True,           # Visible by default
+            "b_value": True,           # Visible by default
+            "rgb_r": True,             # Visible by default
+            "rgb_g": True,             # Visible by default
+            "rgb_b": True,             # Visible by default
+            "x_pos": False,            # Hidden by default
+            "y_pos": False,            # Hidden by default
+            "shape": False,            # Hidden by default
+            "size": False,             # Hidden by default
+            "notes": False             # Hidden by default
+        }
+        
         self._create_widgets()
         self._load_sample_sets()
     
@@ -108,6 +127,7 @@ class DatabaseViewer:
         self.sample_set_combo.bind("<<ComboboxSelected>>", self._on_sample_set_changed)
         
         # Buttons
+        ttk.Button(controls_frame, text="Columns...", command=self._toggle_columns).pack(side=tk.LEFT, padx=5)
         ttk.Button(controls_frame, text="Refresh", command=self._refresh_data).pack(side=tk.LEFT, padx=5)
         ttk.Button(controls_frame, text="Export CSV", command=self._export_to_csv).pack(side=tk.LEFT, padx=5)
         ttk.Button(controls_frame, text="Import CSV", command=self._import_from_csv).pack(side=tk.LEFT, padx=5)
@@ -149,7 +169,7 @@ class DatabaseViewer:
         self.tree["show"] = "headings"  # Hide the first empty column
         
         # Configure column headings and widths
-        column_configs = {
+        self.column_configs = {
             "set_id": ("Set ID", 20),
             "image_name": ("Image", 80),
             "measurement_date": ("Date/Time", 130),
@@ -167,9 +187,13 @@ class DatabaseViewer:
             "notes": ("Notes", 640)
         }
         
-        for col, (heading, width) in column_configs.items():
+        for col, (heading, width) in self.column_configs.items():
             self.tree.heading(col, text=heading)
-            self.tree.column(col, width=width, minwidth=50)
+            # Set column width based on visibility
+            if self.column_visibility[col]:
+                self.tree.column(col, width=width, minwidth=50)
+            else:
+                self.tree.column(col, width=0, minwidth=0)  # Hide column by setting width to 0
         
         # Bind selection event
         self.tree.bind("<<TreeviewSelect>>", self._on_selection_changed)
@@ -1408,3 +1432,104 @@ class DatabaseViewer:
         except Exception as e:
             print(f"Error getting current database path: {e}")
             return None
+    
+    def _toggle_columns(self):
+        """Open dialog to toggle column visibility."""
+        dialog = tk.Toplevel(self.dialog)
+        dialog.title("Column Visibility")
+        dialog.geometry("350x450")
+        dialog.transient(self.dialog)
+        dialog.grab_set()
+        
+        # Center the dialog
+        dialog.geometry("+{}+{}".format(
+            self.dialog.winfo_rootx() + 50,
+            self.dialog.winfo_rooty() + 50
+        ))
+        
+        # Main frame
+        main_frame = ttk.Frame(dialog, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Title
+        ttk.Label(main_frame, text="Column Visibility", font=("Arial", 12, "bold")).pack(pady=(0, 10))
+        
+        # Info text
+        ttk.Label(main_frame, text="Select which columns to display:", font=("Arial", 9), foreground="gray").pack(pady=(0, 10))
+        
+        # Scrollable frame for checkboxes
+        canvas = tk.Canvas(main_frame, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Create checkboxes for each column (except image_name which is always visible)
+        checkbox_vars = {}
+        column_labels = {
+            "set_id": "Set ID",
+            "measurement_date": "Date/Time",
+            "point": "Point",
+            "l_value": "L* (Lightness)",
+            "a_value": "a* (Red-Green)",
+            "b_value": "b* (Yellow-Blue)",
+            "rgb_r": "R (Red)",
+            "rgb_g": "G (Green)",
+            "rgb_b": "B (Blue)",
+            "x_pos": "X Position",
+            "y_pos": "Y Position",
+            "shape": "Shape Type",
+            "size": "Sample Size",
+            "notes": "Notes"
+        }
+        
+        for col, label in column_labels.items():
+            checkbox_vars[col] = tk.BooleanVar(value=self.column_visibility[col])
+            ttk.Checkbutton(
+                scrollable_frame,
+                text=label,
+                variable=checkbox_vars[col]
+            ).pack(anchor=tk.W, padx=10, pady=3)
+        
+        # Pack scrollable area
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Button frame
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        def apply_visibility():
+            # Update visibility settings
+            for col, var in checkbox_vars.items():
+                self.column_visibility[col] = var.get()
+            
+            # Update tree columns
+            for col in checkbox_vars.keys():
+                if self.column_visibility[col]:
+                    # Show column with original width
+                    width = self.column_configs[col][1]
+                    self.tree.column(col, width=width, minwidth=50)
+                else:
+                    # Hide column by setting width to 0
+                    self.tree.column(col, width=0, minwidth=0)
+            
+            dialog.destroy()
+        
+        def reset_defaults():
+            # Reset to default visibility
+            for col in checkbox_vars.keys():
+                if col in ["l_value", "a_value", "b_value", "rgb_r", "rgb_g", "rgb_b", "image_name"]:
+                    checkbox_vars[col].set(True)
+                else:
+                    checkbox_vars[col].set(False)
+        
+        ttk.Button(button_frame, text="Apply", command=apply_visibility).pack(side=tk.RIGHT, padx=(5, 0))
+        ttk.Button(button_frame, text="Reset to Defaults", command=reset_defaults).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT, padx=5)
