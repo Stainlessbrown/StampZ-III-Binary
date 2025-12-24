@@ -785,24 +785,18 @@ class StampZApp:
                 optimize=True
             )
             
-            success = save_manager.save(
+            save_manager.save_image(
                 self.canvas.original_image,
                 filepath,
                 save_options
             )
             
-            if success:
-                messagebox.showinfo(
-                    "Save Successful",
-                    f"Leveled image saved successfully\n\n"
-                    f"File: {os.path.basename(filepath)}"
-                )
-                print(f"DEBUG: Saved leveled image to {filepath}")
-            else:
-                messagebox.showerror(
-                    "Save Failed",
-                    "Failed to save leveled image."
-                )
+            messagebox.showinfo(
+                "Save Successful",
+                f"Leveled image saved successfully\n\n"
+                f"File: {os.path.basename(filepath)}"
+            )
+            print(f"DEBUG: Saved leveled image to {filepath}")
         
         except Exception as e:
             from tkinter import messagebox
@@ -852,6 +846,10 @@ class StampZApp:
             self.control_panel.update_straightening_status(0)
             if self.canvas:
                 self.canvas.delete('straightening_point')
+            
+            # Clear preview cache so next adjustment starts fresh
+            if hasattr(self.control_panel, '_preview_original_image'):
+                delattr(self.control_panel, '_preview_original_image')
             
             # Reset angle spinbox after applying
             self.control_panel.straightening_angle_value.set(0.0)

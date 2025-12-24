@@ -316,8 +316,9 @@ class ReorganizedControlPanel(ttk.Frame):
         
         ttk.Label(angle_row, text="Rotation Angle:", font=('Arial', 12, 'bold')).pack(side=tk.LEFT, padx=(0, 5))
         
-        # Create spinbox variable
+        # Create spinbox variable with trace for real-time updates
         self.straightening_angle_value = tk.DoubleVar(value=0.0)
+        self.straightening_angle_value.trace('w', self._on_angle_changed)
         
         # Minus button
         ttk.Button(angle_row, text="−", width=3,
@@ -341,6 +342,11 @@ class ReorganizedControlPanel(ttk.Frame):
                   command=lambda: self._adjust_straightening_angle(0.1)).pack(side=tk.LEFT, padx=2)
         
         ttk.Label(angle_row, text="degrees", font=('Arial', 11)).pack(side=tk.LEFT, padx=(5, 0))
+        
+        # Grid toggle
+        self.show_grid_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(angle_row, text="Show Grid", variable=self.show_grid_var,
+                       command=self._toggle_grid).pack(side=tk.LEFT, padx=(15, 0))
         
         # Buttons
         buttons_row = ttk.Frame(straightening_container)
@@ -974,6 +980,41 @@ class ReorganizedControlPanel(ttk.Frame):
         # Clamp to -45 to 45 degrees
         new_value = max(-45.0, min(45.0, new_value))
         self.straightening_angle_value.set(round(new_value, 1))
+    
+    def _on_angle_changed(self, *args):
+        """Handle real-time angle changes with live rotation preview."""
+        # Store original image for preview if not already stored
+        if not hasattr(self, '_preview_original_image'):
+            if hasattr(self, 'main_app') and self.main_app and hasattr(self.main_app, 'canvas'):
+                if self.main_app.canvas and self.main_app.canvas.core.original_image:
+                    self._preview_original_image = self.main_app.canvas.core.original_image.copy()
+        
+        # Update preview with current angle
+        if hasattr(self, '_preview_original_image') and self._preview_original_image:
+            try:
+                from utils.image_straightener import ImageStraightener
+                angle = self.straightening_angle_value.get()
+                
+                # Create preview image with current angle
+                preview_image = ImageStraightener.rotate_image(
+                    self._preview_original_image,
+                    angle,
+                    background_color='white',
+                    expand=False,
+                    auto_crop=False
+                )
+                
+                # Update canvas with preview
+                if hasattr(self, 'main_app') and self.main_app and hasattr(self.main_app, 'canvas'):
+                    self.main_app.canvas.core.original_image = preview_image
+                    self.main_app.canvas.update_display()
+            except Exception as e:
+                print(f"DEBUG: Real-time preview error: {e}")
+    
+    def _toggle_grid(self):
+        """Toggle grid visibility on canvas."""
+        if hasattr(self, 'main_app') and self.main_app and hasattr(self.main_app, 'canvas'):
+            self.main_app.canvas.toggle_grid(self.show_grid_var.get())
     
     def update_straightening_status(self, num_points: int, angle: float = None):
         """Update straightening status display."""

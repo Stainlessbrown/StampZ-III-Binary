@@ -1065,21 +1065,10 @@ class CropCanvas(tk.Canvas):
         )
     def _handle_straightening_click(self, image_x: float, image_y: float) -> None:
         """Handle clicks in straightening/leveling mode."""
-        # Use direct reference to main app (set during initialization)
-        if hasattr(self, 'main_app') and hasattr(self.main_app, 'straightening_tool'):
-            straightening_tool = self.main_app.straightening_tool
-            
-            print(f"DEBUG: Adding point at ({image_x}, {image_y}) [screen coordinates]")
-            if straightening_tool.add_reference_point(image_x, image_y):
-                self.status_callback(f"Added leveling point {straightening_tool.get_point_count()}")
-                self.update_display()
-                
-                # Update control panel
-                if hasattr(self.main_app, 'control_panel'):
-                    angle = straightening_tool.calculate_angle()
-                    self.main_app.control_panel.update_straightening_status(
-                        straightening_tool.get_point_count(), angle
-                    )
+        # In straightening mode, clicks are ignored - user adjusts angle via spinbox
+        # This prevents accidental point placement while rotating images
+        print(f"DEBUG: Click in straightening mode ignored (use spinbox for angle adjustment)")
+        return
     
     # Coordinate marker methods (simplified)
     def clear_coordinate_markers(self) -> None:
