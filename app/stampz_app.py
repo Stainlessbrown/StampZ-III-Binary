@@ -739,6 +739,79 @@ class StampZApp:
             self.canvas.delete('straightening_point')
         print("DEBUG: Cleared all straightening points")
     
+    def _save_leveled_image(self):
+        """Save the current leveled image with -lvl suffix."""
+        if not self.canvas or not self.canvas.original_image:
+            from tkinter import messagebox
+            messagebox.showwarning("No Image", "Please open an image first.")
+            return
+        
+        try:
+            from utils.filename_manager import get_leveled_filename
+            from utils.save_as import SaveManager, SaveOptions, SaveFormat
+            import os
+            from tkinter import filedialog, messagebox
+            
+            # Generate suggested filename
+            suggested_filename = get_leveled_filename(self.current_file)
+            
+            # Get save directory
+            if self.current_file:
+                initial_dir = os.path.dirname(self.current_file)
+            else:
+                from utils.user_preferences import get_preferences_manager
+                initial_dir = get_preferences_manager().get_last_open_directory()
+            
+            # Ask user for save location
+            filepath = filedialog.asksaveasfilename(
+                initialdir=initial_dir,
+                initialfile=suggested_filename,
+                defaultextension=".tif",
+                filetypes=[
+                    ('TIFF (Recommended)', '*.tif *.tiff'),
+                    ('PNG (Lossless)', '*.png'),
+                    ('All files', '*.*')
+                ]
+            )
+            
+            if not filepath:
+                return  # User cancelled
+            
+            # Save the image
+            save_manager = SaveManager()
+            save_options = SaveOptions(
+                format=SaveFormat.TIFF if filepath.lower().endswith(('.tif', '.tiff')) else SaveFormat.PNG,
+                jpeg_quality=95,
+                optimize=True
+            )
+            
+            success = save_manager.save(
+                self.canvas.original_image,
+                filepath,
+                save_options
+            )
+            
+            if success:
+                messagebox.showinfo(
+                    "Save Successful",
+                    f"Leveled image saved successfully\n\n"
+                    f"File: {os.path.basename(filepath)}"
+                )
+                print(f"DEBUG: Saved leveled image to {filepath}")
+            else:
+                messagebox.showerror(
+                    "Save Failed",
+                    "Failed to save leveled image."
+                )
+        
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror(
+                "Save Error",
+                f"Failed to save leveled image:\n\n{str(e)}"
+            )
+            print(f"ERROR: Failed to save leveled image: {e}")
+    
     def _apply_straightening(self):
         """Apply straightening/leveling to the current image."""
         if not self.canvas or not self.canvas.original_image:
@@ -746,40 +819,53 @@ class StampZApp:
             messagebox.showwarning("No Image", "Please open an image before straightening.")
             return
 
-        if not hasattr(self, 'straightening_tool') or not self.straightening_tool.can_straighten():
+        # Get angle from spinbox
+        if not hasattr(self, 'control_panel') or not hasattr(self.control_panel, 'straightening_angle_value'):
             from tkinter import messagebox
-            messagebox.showwarning("Insufficient Points", "Please place at least 2 reference points.")
+            messagebox.showwarning("Error", "Control panel not properly initialized.")
+            return
+        
+        angle = self.control_panel.straightening_angle_value.get()
+        
+        if abs(angle) < 0.01:  # Nearly zero
+            from tkinter import messagebox
+            messagebox.showinfo(
+                "No Rotation", 
+                f"Angle is {angle:.1f}°\n\n"
+                f"The image is already level. Set an angle if needed."
+            )
             return
 
         try:
-            straightened_image, angle = self.straightening_tool.straighten_image(
+            # Directly rotate by the specified angle
+            from utils.image_straightener import ImageStraightener
+            straightened_image = ImageStraightener.rotate_image(
                 self.canvas.original_image,
-                background_color='white'
+                angle,
+                background_color='white',
+                expand=True,
+                auto_crop=True
             )
+            
             self.canvas.load_image(straightened_image)
             self.straightening_tool.clear_points()
             self.control_panel.update_straightening_status(0)
             if self.canvas:
                 self.canvas.delete('straightening_point')
             
+            # Reset angle spinbox after applying
+            self.control_panel.straightening_angle_value.set(0.0)
+            
             print(f"DEBUG: Applied straightening with angle {angle:.2f} degrees")
             
             # Provide user feedback about the leveling operation
             from tkinter import messagebox
-            if abs(angle) < 0.1:
-                messagebox.showinfo(
-                    "Leveling Complete", 
-                    f"Image leveling applied successfully.\n\n"
-                    f"Rotation angle: {angle:.2f}°\n\n"
-                    f"The image was already nearly level."
-                )
-            else:
-                messagebox.showinfo(
-                    "Leveling Complete", 
-                    f"Image leveling applied successfully.\n\n"
-                    f"Rotation angle: {angle:.2f}°\n\n"
-                    f"The image has been straightened."
-                )
+            messagebox.showinfo(
+                "Leveling Complete", 
+                f"Image leveling applied successfully.\n\n"
+                f"Rotation angle: {angle:.2f}°\n\n"
+                f"The image has been straightened."
+            )
                 
         except Exception as e:
             print(f"ERROR: Straightening failed: {e}")

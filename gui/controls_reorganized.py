@@ -310,26 +310,48 @@ class ReorganizedControlPanel(ttk.Frame):
         ttk.Label(straightening_container, text="Mode: Two-Point Leveling",
                  font=('Arial', 10, 'bold')).pack(anchor="w", pady=2)
         
-        status_row = ttk.Frame(straightening_container)
-        status_row.pack(fill=tk.X, pady=2)
+        # Angle spinbox control
+        angle_row = ttk.Frame(straightening_container)
+        angle_row.pack(fill=tk.X, pady=5)
         
-        ttk.Label(status_row, text="Points:", font=('Arial', 12, 'bold')).pack(side=tk.LEFT)
-        ttk.Label(status_row, textvariable=self.straightening_points,
-                 font=('Arial', 12, 'bold'), foreground='#0066CC').pack(
-                     side=tk.LEFT, padx=(5, 10))
+        ttk.Label(angle_row, text="Rotation Angle:", font=('Arial', 12, 'bold')).pack(side=tk.LEFT, padx=(0, 5))
         
-        ttk.Label(status_row, text="Angle:", font=('Arial', 12, 'bold')).pack(side=tk.LEFT)
-        ttk.Label(status_row, textvariable=self.straightening_angle,
-                 font=('Arial', 12, 'bold'), foreground='#CC6600').pack(
-                     side=tk.LEFT, padx=(5, 0))
+        # Create spinbox variable
+        self.straightening_angle_value = tk.DoubleVar(value=0.0)
+        
+        # Minus button
+        ttk.Button(angle_row, text="−", width=3,
+                  command=lambda: self._adjust_straightening_angle(-0.1)).pack(side=tk.LEFT, padx=2)
+        
+        # Spinbox
+        self.straightening_spinbox = ttk.Spinbox(
+            angle_row,
+            from_=-45.0,
+            to=45.0,
+            increment=0.1,
+            textvariable=self.straightening_angle_value,
+            width=8,
+            font=('Arial', 12, 'bold'),
+            foreground='#CC6600'
+        )
+        self.straightening_spinbox.pack(side=tk.LEFT, padx=2)
+        
+        # Plus button
+        ttk.Button(angle_row, text="+", width=3,
+                  command=lambda: self._adjust_straightening_angle(0.1)).pack(side=tk.LEFT, padx=2)
+        
+        ttk.Label(angle_row, text="degrees", font=('Arial', 11)).pack(side=tk.LEFT, padx=(5, 0))
         
         # Buttons
         buttons_row = ttk.Frame(straightening_container)
         buttons_row.pack(fill=tk.X, pady=5)
         
         self.straighten_apply_button = ttk.Button(buttons_row, text="Apply Leveling",
-                                                 command=self._apply_straightening, state='disabled')
+                                                 command=self._apply_straightening, state='normal')
         self.straighten_apply_button.pack(side=tk.LEFT, padx=2)
+        
+        ttk.Button(buttons_row, text="Save Leveled",
+                  command=self._save_leveled_image).pack(side=tk.LEFT, padx=2)
         
         ttk.Button(buttons_row, text="Clear Points", 
                   command=self._clear_straightening_points).pack(side=tk.LEFT, padx=2)
@@ -945,16 +967,22 @@ class ReorganizedControlPanel(ttk.Frame):
         self.crop_height.set(str(height))
         self.crop_area.set(f"{width * height:,}")
 
+    def _adjust_straightening_angle(self, delta: float):
+        """Adjust straightening angle by the specified increment."""
+        current = self.straightening_angle_value.get()
+        new_value = current + delta
+        # Clamp to -45 to 45 degrees
+        new_value = max(-45.0, min(45.0, new_value))
+        self.straightening_angle_value.set(round(new_value, 1))
+    
     def update_straightening_status(self, num_points: int, angle: float = None):
         """Update straightening status display."""
-        self.straightening_points.set(str(num_points))
+        # Update angle spinbox if angle is provided (calculated from 2 points)
         if angle is not None:
-            self.straightening_angle.set(f"{angle:.1f}°")
-        else:
-            self.straightening_angle.set("--")
+            self.straightening_angle_value.set(round(angle, 1))
         
-        # Enable/disable apply button
-        self.straighten_apply_button.config(state='normal' if num_points >= 2 else 'disabled')
+        # Enable/disable apply button (always enabled, user can enter angle manually)
+        self.straighten_apply_button.config(state='normal')
 
     def get_save_options(self) -> SaveOptions:
         """Get current save options."""
@@ -994,6 +1022,13 @@ class ReorganizedControlPanel(ttk.Frame):
             self.main_app._clear_straightening_points()
         else:
             messagebox.showinfo("Info", "Clear straightening points - connect to main app implementation")
+    
+    def _save_leveled_image(self):
+        """Save the leveled image with -lvl suffix."""
+        if hasattr(self, 'main_app') and self.main_app:
+            self.main_app._save_leveled_image()
+        else:
+            messagebox.showinfo("Info", "Save leveled - connect to main app implementation")
 
     def _on_sample_mode_change(self):
         """Handle sample mode changes between template and manual."""

@@ -51,6 +51,50 @@ class FilenameManager:
             return f"{width} x {height}"
     
     @classmethod
+    def generate_leveled_filename(
+        cls,
+        original_file: Optional[str],
+        extension: str = None,
+        fallback_name: str = "leveled"
+    ) -> str:
+        """
+        Generate a filename for a leveled image with simple suffix.
+        
+        Args:
+            original_file: Path to the original file (can be None)
+            extension: File extension to use (e.g., '.jpg'). If None, detected from original
+            fallback_name: Name to use if no original file provided
+            
+        Returns:
+            Generated filename with "-lvl" suffix
+            
+        Examples:
+            "stamp-lvl.tif" (from "stamp.tif")
+            "image-lvl.png" (from "image.png")
+        """
+        # Get base name
+        if original_file:
+            base = os.path.splitext(os.path.basename(original_file))[0]
+            # Get original extension if none provided
+            if extension is None:
+                extension = os.path.splitext(original_file)[1]
+        else:
+            base = fallback_name
+            # Default extension if none provided
+            if extension is None:
+                extension = '.tif'
+        
+        # Ensure extension starts with a dot
+        if extension and not extension.startswith('.'):
+            extension = f'.{extension}'
+        
+        # Use simple "-lvl" suffix
+        filename = f"{base}-lvl{extension}"
+        
+        logger.debug(f"Generated leveled filename: {filename}")
+        return filename
+    
+    @classmethod
     def generate_cropped_filename(
         cls,
         original_file: Optional[str],
@@ -232,4 +276,24 @@ def update_filename_with_dimensions(filename: str, cropped_image: Image.Image) -
         Updated filename with dimensions
     """
     return FilenameManager.update_filename_with_dimensions(filename, cropped_image)
+
+
+def get_leveled_filename(
+    original_file: Optional[str],
+    extension: str = None
+) -> str:
+    """
+    Convenience function to generate a leveled filename with "-lvl" suffix.
+    
+    Args:
+        original_file: Path to the original file
+        extension: File extension (optional)
+        
+    Returns:
+        Generated filename with "-lvl" suffix
+    """
+    return FilenameManager.generate_leveled_filename(
+        original_file=original_file,
+        extension=extension
+    )
 
