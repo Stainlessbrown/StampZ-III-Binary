@@ -831,10 +831,17 @@ class StampZApp:
             return
 
         try:
+            # Get the original image before any preview modifications
+            # If preview was active, restore original first
+            if hasattr(self.control_panel, '_preview_original_image'):
+                original_to_rotate = self.control_panel._preview_original_image
+            else:
+                original_to_rotate = self.canvas.original_image
+            
             # Directly rotate by the specified angle
             from utils.image_straightener import ImageStraightener
             straightened_image = ImageStraightener.rotate_image(
-                self.canvas.original_image,
+                original_to_rotate,
                 angle,
                 background_color='white',
                 expand=True,

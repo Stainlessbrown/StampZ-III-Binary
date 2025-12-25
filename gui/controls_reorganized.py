@@ -359,9 +359,6 @@ class ReorganizedControlPanel(ttk.Frame):
         ttk.Button(buttons_row, text="Save Leveled",
                   command=self._save_leveled_image).pack(side=tk.LEFT, padx=2)
         
-        ttk.Button(buttons_row, text="Clear Points", 
-                  command=self._clear_straightening_points).pack(side=tk.LEFT, padx=2)
-        
         # SAMPLE TOOL CONTROLS  
         self.sample_frame = ttk.LabelFrame(self, text="Sample Tool")
         
