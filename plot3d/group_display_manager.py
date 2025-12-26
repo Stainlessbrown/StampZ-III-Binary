@@ -51,13 +51,13 @@ class GroupDisplayManager:
         controls_frame.configure(height=150, width=350)  # Set minimum dimensions
         
         # Row range controls
-        range_frame = ttk.Frame(controls_frame)
-        range_frame.grid(row=0, column=0, sticky='ew', padx=5, pady=5)
+        self.range_frame = ttk.Frame(controls_frame)
+        self.range_frame.grid(row=0, column=0, sticky='ew', padx=5, pady=5)
         
-        ttk.Label(range_frame, text="Row Range:").grid(row=0, column=0, sticky='w', padx=5)
-        self.range_entry = ttk.Entry(range_frame, width=20)
+        ttk.Label(self.range_frame, text="Row Range:").grid(row=0, column=0, sticky='w', padx=5)
+        self.range_entry = ttk.Entry(self.range_frame, width=20)
         self.range_entry.grid(row=0, column=1, sticky='ew', padx=5)
-        ttk.Label(range_frame, text="(e.g., 8-44, 50-56)").grid(row=0, column=2, sticky='w', padx=5)
+        ttk.Label(self.range_frame, text="(e.g., 8-44, 50-56)").grid(row=0, column=2, sticky='w', padx=5)
         
         # Selection mode radio buttons (simplified)
         if 'Cluster' in self.df.columns:
@@ -105,7 +105,7 @@ class GroupDisplayManager:
         
         # Configure grid weights
         controls_frame.grid_columnconfigure(0, weight=1)
-        range_frame.grid_columnconfigure(1, weight=1)
+        self.range_frame.grid_columnconfigure(1, weight=1)
         
         # Create cluster dropdown if needed (initially hidden)
         self.cluster_frame = ttk.Frame(controls_frame)
