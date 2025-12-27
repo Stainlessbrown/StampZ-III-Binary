@@ -68,6 +68,16 @@ class PrecisionMeasurementTool:
         self.dragging = False
         self.snap_tolerance = 5  # degrees for snap-to-horizontal/vertical
         
+        # Magnified cursor state
+        self.magnify_radius = 100  # Size of magnified circle in pixels
+        self.magnify_zoom_factor = 4  # Magnification level (4x)
+        self.magnified_circle_patch = None  # Circle outline
+        self.magnified_image_patch = None  # Magnified image inside circle
+        self.magnified_crosshair_lines = []  # Crosshair lines
+        self.last_magnified_x = None
+        self.last_magnified_y = None
+        self.magnified_cursor_enabled = tk.BooleanVar(value=True)  # Toggle for magnified cursor
+        
         # UI state
         self.precision_decimals = 2  # Default to 2 decimal places - adequate for stamps
         self.show_pixel_coords = False
@@ -333,6 +343,10 @@ class PrecisionMeasurementTool:
                        variable=self.fixed_offset_var,
                        command=self.toggle_fixed_offset).pack(anchor="w")
         
+        ttk.Checkbutton(options_frame, text="Show magnified cursor", 
+                       variable=self.magnified_cursor_enabled,
+                       command=self._on_magnified_cursor_toggle).pack(anchor="w")
+        
         # Line color selection (for NEW measurements)
         color_frame = ttk.Frame(options_frame)
         color_frame.pack(fill="x", pady=(5, 0), anchor="w")
@@ -562,8 +576,9 @@ class PrecisionMeasurementTool:
         self.selected_measurement = None
         self.selected_endpoint = None
         
-        # Clear any preview lines
+        # Clear any preview lines and magnified cursor
         self.clear_preview_lines()
+        self._clear_magnified_cursor()
         
         self.mode_label.config(text=f"Mode: {mode.title()}")
         
@@ -643,13 +658,16 @@ class PrecisionMeasurementTool:
                 
                 self.measurements.append(measurement)
                 self.add_measurement_to_list(measurement)
-                self.draw_measurement(measurement)
                 
                 # Reset logged flag since we have new data
                 self.data_logged = False
                 
-                # Clear preview lines
+                # Clear preview lines and magnified cursor BEFORE redrawing
                 self.clear_preview_lines()
+                self._clear_magnified_cursor()
+                
+                # Now draw the measurement (this will redraw the plot)
+                self.draw_measurement(measurement)
                 
                 # Reset for next measurement
                 self.click_count = 0
@@ -671,6 +689,12 @@ class PrecisionMeasurementTool:
         elif self.current_measurement_start and self.click_count == 1:
             if self.measurement_mode in ["horizontal", "vertical"]:
                 self.draw_preview_line(self.current_measurement_start, (x, y))
+        
+        # Update magnified cursor when in measurement mode
+        if self.measurement_mode in ["distance", "horizontal", "vertical"]:
+            self._update_magnified_cursor(x, y)
+        else:
+            self._clear_magnified_cursor()
             
         # Show coordinates if enabled
         if self.show_pixel_coords:
@@ -870,6 +894,158 @@ class PrecisionMeasurementTool:
                 except:
                     pass
             self._preview_lines.clear()
+    
+    def _update_magnified_cursor(self, x, y):
+        """Update magnified cursor overlay showing zoomed region with crosshair.
+        
+        Args:
+            x: X coordinate in Cartesian space
+            y: Y coordinate in Cartesian space
+        """
+        try:
+            # Check if magnified cursor is enabled
+            if not self.magnified_cursor_enabled.get():
+                self._clear_magnified_cursor()
+                return
+            
+            if not self.measurement_engine.image:
+                return
+            
+            # Get image dimensions
+            image_array = np.array(self.measurement_engine.image)
+            img_height, img_width = image_array.shape[:2]
+            
+            # Check bounds
+            if x < 0 or x >= img_width or y < 0 or y >= img_height:
+                self._clear_magnified_cursor()
+                return
+            
+            # Only update if position changed significantly (avoid redundant redraws)
+            if (self.last_magnified_x is not None and self.last_magnified_y is not None):
+                dx = abs(x - self.last_magnified_x)
+                dy = abs(y - self.last_magnified_y)
+                if dx < 2 and dy < 2:  # Less than 2 pixel movement
+                    return
+            
+            self.last_magnified_x = x
+            self.last_magnified_y = y
+            
+            # Clear previous magnified cursor
+            self._clear_magnified_cursor()
+            
+            # Calculate region to magnify
+            region_size = self.magnify_radius // self.magnify_zoom_factor
+            region_left = max(0, int(x - region_size // 2))
+            region_right = min(img_width, int(x + region_size // 2))
+            region_top = max(0, int(y - region_size // 2))
+            region_bottom = min(img_height, int(y + region_size // 2))
+            
+            # Extract region from image
+            magnified_image = image_array[region_top:region_bottom, region_left:region_right]
+            if magnified_image.size == 0:
+                return
+            
+            # Position magnified circle at bottom-right of image to avoid hiding cursor
+            # Note: Y-axis is inverted for images (0 at top, height at bottom)
+            xlim_max = self.ax.get_xlim()[1]
+            ylim_min = self.ax.get_ylim()[1]  # This is the top (0)
+            ylim_max = self.ax.get_ylim()[0]  # This is the bottom (height)
+            
+            circle_x = xlim_max - self.magnify_radius - 20  # 20px padding from right edge
+            circle_y = ylim_min + self.magnify_radius + 20  # 20px padding from top edge
+            
+            # Draw circle outline
+            circle = plt.Circle((circle_x, circle_y), self.magnify_radius, 
+                               fill=False, color='white', linewidth=2, zorder=100)
+            self.ax.add_patch(circle)
+            self.magnified_circle_patch = circle
+            
+            # Add subtle shadow circle behind for contrast
+            shadow = plt.Circle((circle_x, circle_y), self.magnify_radius, 
+                               fill=True, color='black', alpha=0.3, zorder=99)
+            self.ax.add_patch(shadow)
+            self.magnified_circle_patch_shadow = shadow
+            
+            # Display magnified image inside circle
+            # Scale the magnified region to fit the circle
+            extent = [circle_x - self.magnify_radius, circle_x + self.magnify_radius,
+                     circle_y + self.magnify_radius, circle_y - self.magnify_radius]
+            
+            img_patch = self.ax.imshow(magnified_image, extent=extent, 
+                                       zorder=100, interpolation='nearest')
+            self.magnified_image_patch = img_patch
+            
+            # Apply circular clipping mask to the image
+            from matplotlib.patches import Circle as CircleClip
+            circle_clip = CircleClip((circle_x, circle_y), self.magnify_radius, 
+                                     transform=self.ax.transData)
+            img_patch.set_clip_path(circle_clip)
+            
+            # Draw crosshair at center (exact click point)
+            crosshair_size = self.magnify_radius * 0.4  # Crosshair extends 40% of radius
+            
+            # Vertical line
+            line_v = self.ax.plot([circle_x, circle_x], 
+                                [circle_y - crosshair_size, circle_y + crosshair_size],
+                                color='white', linewidth=2, zorder=101, alpha=0.9)[0]
+            self.magnified_crosshair_lines.append(line_v)
+            
+            # Horizontal line
+            line_h = self.ax.plot([circle_x - crosshair_size, circle_x + crosshair_size],
+                                [circle_y, circle_y],
+                                color='white', linewidth=2, zorder=101, alpha=0.9)[0]
+            self.magnified_crosshair_lines.append(line_h)
+            
+            # Center dot (red for contrast)
+            dot = self.ax.plot(circle_x, circle_y, 'o', color='red', markersize=6, 
+                             zorder=102, markeredgewidth=0.5, markeredgecolor='white')[0]
+            self.magnified_crosshair_lines.append(dot)
+            
+            # Add coordinate label below circle
+            coord_text = f"({int(x)}, {int(y)})"
+            text = self.ax.text(circle_x, circle_y - self.magnify_radius - 15, coord_text,
+                              ha='center', va='top', color='white', fontsize=8,
+                              bbox=dict(boxstyle='round,pad=0.3', facecolor='black', alpha=0.7),
+                              zorder=102)
+            self.magnified_crosshair_lines.append(text)
+            
+            self.canvas.draw_idle()  # Use draw_idle for better performance
+        except Exception as e:
+            print(f"ERROR in _update_magnified_cursor: {e}")
+            import traceback
+            traceback.print_exc()
+            self._clear_magnified_cursor()
+    
+    def _clear_magnified_cursor(self):
+        """Clear magnified cursor overlay."""
+        try:
+            # Remove circle patches
+            if self.magnified_circle_patch:
+                self.magnified_circle_patch.remove()
+                self.magnified_circle_patch = None
+            
+            if hasattr(self, 'magnified_circle_patch_shadow') and self.magnified_circle_patch_shadow:
+                self.magnified_circle_patch_shadow.remove()
+                self.magnified_circle_patch_shadow = None
+            
+            # Remove image patch
+            if self.magnified_image_patch:
+                self.magnified_image_patch.remove()
+                self.magnified_image_patch = None
+            
+            # Remove crosshair lines and text
+            for item in self.magnified_crosshair_lines:
+                if hasattr(item, 'remove'):
+                    try:
+                        item.remove()
+                    except:
+                        pass
+            self.magnified_crosshair_lines.clear()
+            
+            self.last_magnified_x = None
+            self.last_magnified_y = None
+        except:
+            pass
             
     def draw_measurement(self, measurement):
         """Draw a single measurement on the plot"""
@@ -1057,6 +1233,15 @@ class PrecisionMeasurementTool:
         # Redraw image to update offsets
         if self.measurement_engine.image:
             self.load_image_into_plot()
+    
+    def _on_magnified_cursor_toggle(self):
+        """Handle magnified cursor toggle"""
+        if not self.magnified_cursor_enabled.get():
+            # Clear magnified cursor when disabled
+            self._clear_magnified_cursor()
+            # Force redraw to show the cleared state
+            if self.measurement_engine.image:
+                self.load_image_into_plot()
     
     def change_default_line_color(self, event=None):
         """Change the default color for NEW measurements"""
