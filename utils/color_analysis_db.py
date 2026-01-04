@@ -949,14 +949,21 @@ class AveragedColorAnalysisDB(ColorAnalysisDB):
     """Specialized database class for averaged color measurements."""
     
     def __init__(self, sample_set_name: str):
-        """Initialize averaged database with _averages suffix.
+        """Initialize averaged database with _AVG suffix.
         
         Args:
-            sample_set_name: Base name of the sample set (will be suffixed with _averages)
+            sample_set_name: Base name of the sample set (will be suffixed with _AVG)
         """
-        # Ensure we're working with the _averages version
-        if not sample_set_name.endswith('_averages'):
-            sample_set_name = f"{sample_set_name}_averages"
+        # Ensure we're working with the _AVG version
+        # First, clean up any existing average-related suffixes
+        for suffix in ['_averages', '_average', '_AVERAGES', '_AVERAGE', '_AVG_averages', '_AVG_average', '_AVERAGE_average']:
+            if sample_set_name.endswith(suffix):
+                sample_set_name = sample_set_name[:-len(suffix)]
+                break
+        
+        # Now add the standard _AVG suffix
+        if not sample_set_name.endswith('_AVG'):
+            sample_set_name = f"{sample_set_name}_AVG"
         
         super().__init__(sample_set_name)
     

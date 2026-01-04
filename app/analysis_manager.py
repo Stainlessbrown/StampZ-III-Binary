@@ -1008,7 +1008,7 @@ class AnalysisManager:
             # Info about database naming with mode
             info_text = (
                 f"• Individual sample data: {{database_name}}_{mode_label}.db\n"
-                f"• Averaged statistics: {{database_name}}_{mode_label}_AVG_averages.db"
+                f"• Averaged statistics: {{database_name}}_{mode_label}_AVG.db"
             )
             ttk.Label(options_frame, text=info_text, font=("Arial", 9), 
                      foreground="gray", justify=tk.LEFT).pack(anchor='w')
@@ -1045,13 +1045,16 @@ class AnalysisManager:
             for db_file in db_files:
                 db_name = os.path.splitext(db_file)[0]
                 # Skip library databases, average databases, and system databases
+                # Skip any database with average-related suffix
                 if not (db_name.endswith('_library') or 
                        db_name.endswith('_averages') or
+                       db_name.endswith('_average') or
+                       db_name.endswith('_AVERAGES') or
+                       db_name.endswith('_AVERAGE') or
                        db_name.endswith('_AVG') or
+                       '_AVG_' in db_name or
                        db_name.endswith('_RGB') or
                        db_name.endswith('_CMY') or
-                       db_name.endswith('_RGB_AVG') or
-                       db_name.endswith('_CMY_AVG') or
                        db_name.startswith('system_') or
                        db_name in ['coordinates', 'coordinate_sets']):
                     non_library_dbs.append(db_name)
@@ -1298,7 +1301,7 @@ class AnalysisManager:
             )
             
             if success:
-                saved_files.append(f"{avg_db_name}_averages.db")
+                saved_files.append(f"{avg_db_name}.db")
             
             return success
             

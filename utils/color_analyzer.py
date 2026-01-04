@@ -928,10 +928,10 @@ class ColorAnalyzer:
                 notes = quality_info
             
             # Create color analysis database instance for averaged data
-            # Averaged measurements go to a separate database with _averages suffix
+            # Averaged measurements go to a separate database with _AVG suffix
             from .color_analysis_db import AveragedColorAnalysisDB
             db = AveragedColorAnalysisDB(sample_set_name)
-            print(f"DEBUG: Saving averaged measurement to database: {sample_set_name}_averages")
+            print(f"DEBUG: Saving averaged measurement to database: {db.db_path}")
             
             # Create or get measurement set
             set_id = db.create_measurement_set(image_name, "Averaged measurement analysis")

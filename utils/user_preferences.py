@@ -50,7 +50,7 @@ class SampleAreaPreferences:
     save_individual_default: bool = True  # Save individual samples by default
     save_average_default: bool = True  # Save calculated average by default
     default_database_name: str = "ColorAnalysis"  # Default database name for analysis
-    use_averages_suffix: bool = True  # Automatically add _AVERAGES suffix to average database
+    use_averages_suffix: bool = True  # Automatically add _AVG suffix to average database
     enable_quick_save: bool = False  # Skip database selection dialog and use preferences directly
 
 
@@ -561,14 +561,14 @@ class PreferencesManager:
             return False
     
     def get_use_averages_suffix(self) -> bool:
-        """Get whether to automatically add _AVERAGES suffix to average database."""
+        """Get whether to automatically add _AVG suffix to average database."""
         return self.preferences.sample_area_prefs.use_averages_suffix
     
     def set_use_averages_suffix(self, use_suffix: bool) -> bool:
-        """Set whether to automatically add _AVERAGES suffix to average database.
+        """Set whether to automatically add _AVG suffix to average database.
         
         Args:
-            use_suffix: True to add _AVERAGES suffix automatically
+            use_suffix: True to add _AVG suffix automatically
         """
         try:
             self.preferences.sample_area_prefs.use_averages_suffix = use_suffix

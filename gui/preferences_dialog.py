@@ -506,7 +506,7 @@ class PreferencesDialog:
         
         ttk.Label(
             save_prefs_frame,
-            text="Individual samples will save to: {name}.db\nAverages will save to: {name}_AVERAGES_averages.db",
+            text="Individual samples will save to: {name}.db\nAverages will save to: {name}_AVG.db",
             font=("TkDefaultFont", 8),
             foreground="blue"
         ).pack(anchor=tk.W, pady=(0, 10))
@@ -527,11 +527,11 @@ class PreferencesDialog:
             variable=self.save_average_default_var
         ).pack(anchor=tk.W, pady=(0, 10))
         
-        # Checkbox for automatic _AVERAGES suffix
+        # Checkbox for automatic _AVG suffix
         self.use_averages_suffix_var = tk.BooleanVar()
         ttk.Checkbutton(
             save_prefs_frame,
-            text="Automatically add _AVERAGES suffix to average database names",
+            text="Automatically add _AVG suffix to average database names",
             variable=self.use_averages_suffix_var
         ).pack(anchor=tk.W, pady=(0, 10))
         

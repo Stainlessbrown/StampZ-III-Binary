@@ -844,7 +844,7 @@ class SampleResultsManager(tk.Frame):
             # Save averaged result if enabled
             if save_average:
                 if use_averages_suffix:
-                    avg_db_name = f"{final_db_name}_AVERAGES"
+                    avg_db_name = f"{final_db_name}_AVG"
                 else:
                     avg_db_name = final_db_name
                 
@@ -856,7 +856,7 @@ class SampleResultsManager(tk.Frame):
                 )
                 
                 if success_average:
-                    saved_files.append(f"{avg_db_name}_averages.db")
+                    saved_files.append(f"{avg_db_name}.db")
             
             # Check success
             if (not save_individual or success_individual) and (not save_average or success_average):
@@ -1175,9 +1175,9 @@ class SampleResultsManager(tk.Frame):
                         except:
                             use_averages_suffix = True
                         
-                        # Apply _AVERAGES suffix if preference is enabled
+                        # Apply _AVG suffix if preference is enabled
                         if use_averages_suffix:
-                            avg_db_name = f"{final_db_name}_AVERAGES"
+                            avg_db_name = f"{final_db_name}_AVG"
                         else:
                             avg_db_name = final_db_name
                         
@@ -1189,7 +1189,7 @@ class SampleResultsManager(tk.Frame):
                         )
                         
                         if success_average:
-                            saved_files.append(f"{avg_db_name}_averages.db")
+                            saved_files.append(f"{avg_db_name}.db")
                     
                     # Check if all requested operations succeeded
                     all_requested_succeeded = True
