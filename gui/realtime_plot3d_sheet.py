@@ -1416,19 +1416,25 @@ class RealtimePlot3DSheet:
                             # We have valid coordinate data - attempt to insert new measurement
                             print(f"    ✅ Row {i}: Data validation passed - proceeding with insertion")
                             
-                            # IMPORTANT: Imported Plot_3D data is ALREADY normalized (0-1)
-                            # Store it as-is in database using the normalized values directly
-                            # Do NOT convert back to L*a*b* - that causes double normalization
-                            print(f"      Storing normalized coordinates directly: X={x_pos_val:.3f}, Y={y_pos_val:.3f}, Z={z_pos_val:.3f}")
+                            # CRITICAL FIX: Plot_3D data is normalized (0-1), but database expects RAW L*a*b*
+                            # Convert FROM normalized TO raw L*a*b* before storing
+                            # L*: 0-1 → 0-100
+                            # a*: 0-1 → -128 to +127
+                            # b*: 0-1 → -128 to +127
+                            l_raw = x_pos_val * 100.0 if x_pos_val is not None else 0.0
+                            a_raw = (y_pos_val * 255.0) - 128.0 if y_pos_val is not None else 0.0
+                            b_raw = (z_pos_val * 255.0) - 128.0 if z_pos_val is not None else 0.0
+                            
+                            print(f"      Converting normalized to raw: ({x_pos_val:.3f}, {y_pos_val:.3f}, {z_pos_val:.3f}) → L*={l_raw:.1f}, a*={a_raw:.1f}, b*={b_raw:.1f}")
                             
                             insert_success = db.insert_new_measurement(
                                 image_name=image_name,
                                 coordinate_point=coord_point,
-                                x_pos=x_pos_val or 0.0,  # Normalized value (0-1)
-                                y_pos=y_pos_val or 0.0,  # Normalized value (0-1)
-                                l_value=x_pos_val or 0.0,  # Store normalized X as L value (will be treated as normalized)
-                                a_value=y_pos_val or 0.0,  # Store normalized Y as a value (will be treated as normalized)
-                                b_value=z_pos_val or 0.0,  # Store normalized Z as b value (will be treated as normalized)
+                                x_pos=x_pos_val or 0.0,  # Store normalized for x_position (display purposes)
+                                y_pos=y_pos_val or 0.0,  # Store normalized for y_position (display purposes)
+                                l_value=l_raw,  # Store RAW L* value (0-100)
+                                a_value=a_raw,  # Store RAW a* value (-128 to +127)
+                                b_value=b_raw,  # Store RAW b* value (-128 to +127)
                                 rgb_r=0.0, rgb_g=0.0, rgb_b=0.0,  # Default RGB values
                                 cluster_id=cluster_id,
                                 delta_e=delta_e_val,
@@ -1440,7 +1446,8 @@ class RealtimePlot3DSheet:
                                 marker=marker,
                                 color=color,
                                 sample_type='imported_plot3d',  # Mark as imported data
-                                notes=f'Imported from Plot_3D ODS via worksheet row {i+1}'
+                                notes=f'Imported from Plot_3D ODS via worksheet row {i+1}',
+                                data_source='plot3d_import'  # Mark origin as Plot_3D to prevent double normalization on export
                             )
                             
                             if insert_success:
@@ -2123,6 +2130,8 @@ class RealtimePlot3DSheet:
         print("DEBUG: Export for Standalone Plot_3D button clicked")
         try:
             # Get current data as DataFrame
+            # NOTE: get_data_as_dataframe() filters OUT rows 2-7 (centroid area)
+            # This is correct - we want only actual data rows for the DataFrame
             df = self.get_data_as_dataframe()
             
             if df is None or len(df) == 0:
@@ -2525,7 +2534,19 @@ class RealtimePlot3DSheet:
                         
                         # Open the copied rigid template
                         doc = ezodf.opendoc(output_path)
+                        
+                        # CRITICAL FIX: Ensure only one sheet exists to avoid confusion
+                        # Remove all sheets except the first one using del (ezodf doesn't support .remove())
+                        while len(doc.sheets) > 1:
+                            del doc.sheets[1]
+                            print(f"DEBUG: Removed extra sheet, now have {len(doc.sheets)} sheet(s)")
+                        
+                        # Get the first (and now only) sheet
                         sheet = doc.sheets[0]
+                        
+                        # Rename sheet to be clear
+                        sheet.name = 'Plot3D_Data'
+                        print(f"DEBUG: Working with sheet: {sheet.name}")
                         
                         # Clear all existing data and rebuild with correct rigid format
                         # Headers in row 1, reserved area rows 2-7, data starts row 8
@@ -2578,7 +2599,9 @@ class RealtimePlot3DSheet:
                         
                         for row_idx, (_, row_data) in enumerate(df.iterrows()):
                             actual_sheet_row = current_row + row_idx  # This should start at 7 (row 8 in 1-based)
-                            print(f"DEBUG: Data row {row_idx + 1} -> 0-based sheet row {actual_sheet_row} (1-based row {actual_sheet_row + 1})")
+                            if row_idx < 3:  # Only print first 3 rows to avoid spam
+                                print(f"DEBUG: Data row {row_idx + 1} -> 0-based sheet row {actual_sheet_row} (1-based row {actual_sheet_row + 1})")
+                                print(f"  DataID: {row_data.get('DataID', 'N/A')}, Xnorm: {row_data.get('Xnorm', 'N/A')}")
                             for column_name, col_idx in coord_columns.items():
                                 value = row_data.get(column_name, '')
                                 if pd.isna(value):

@@ -182,6 +182,15 @@ class ColorAnalysisDB:
             except sqlite3.OperationalError:
                 pass  # Column already exists
             
+            # Add data_source column to track data origin
+            # 'stampz' = Raw StampZ analysis (L*: 0-100, a*/b*: -128 to +127, RGB: 0-255)
+            # 'plot3d_import' = Converted from Plot_3D normalized import (stored as raw but originated from 0-1)
+            try:
+                cursor.execute("ALTER TABLE color_measurements ADD COLUMN data_source TEXT DEFAULT 'stampz'")
+                print("Added data_source column")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+            
             # Index for faster queries
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_set_point 
@@ -348,7 +357,7 @@ class ColorAnalysisDB:
                             m.notes, m.is_averaged, m.source_samples_count, m.source_sample_ids,
                             m.marker_preference, m.color_preference,
                             m.cluster_id, m.delta_e, m.centroid_x, m.centroid_y, m.centroid_z,
-                            m.sphere_color, m.sphere_radius, m.trendline_valid
+                            m.sphere_color, m.sphere_radius, m.trendline_valid, m.data_source
                         FROM color_measurements m
                         JOIN measurement_sets s ON m.set_id = s.set_id
                         ORDER BY m.id
@@ -386,7 +395,8 @@ class ColorAnalysisDB:
                             'centroid_z': row[26] if len(row) > 26 and row[26] is not None else None,
                             'sphere_color': row[27] if len(row) > 27 and row[27] else '',
                             'sphere_radius': row[28] if len(row) > 28 and row[28] is not None else None,
-                            'trendline_valid': bool(row[29]) if len(row) > 29 and row[29] is not None else True
+                            'trendline_valid': bool(row[29]) if len(row) > 29 and row[29] is not None else True,
+                            'data_source': row[30] if len(row) > 30 and row[30] else 'stampz'
                         })
                 else:
                     # Query without averaged columns (for main databases) - include all Plot_3D columns
@@ -399,7 +409,7 @@ class ColorAnalysisDB:
                             m.sample_type, m.sample_size, m.sample_anchor,
                             m.notes, m.marker_preference, m.color_preference,
                             m.cluster_id, m.delta_e, m.centroid_x, m.centroid_y, m.centroid_z,
-                            m.sphere_color, m.sphere_radius, m.trendline_valid
+                            m.sphere_color, m.sphere_radius, m.trendline_valid, m.data_source
                         FROM color_measurements m
                         JOIN measurement_sets s ON m.set_id = s.set_id
                         ORDER BY m.id
@@ -435,6 +445,7 @@ class ColorAnalysisDB:
                             'sphere_color': row[24] if len(row) > 24 and row[24] else '',
                             'sphere_radius': row[25] if len(row) > 25 and row[25] is not None else None,
                             'trendline_valid': bool(row[26]) if len(row) > 26 and row[26] is not None else True,
+                            'data_source': row[27] if len(row) > 27 and row[27] else 'stampz',
                             'is_averaged': False,  # Main DB only contains individual measurements
                             'source_samples_count': None,
                             'source_sample_ids': None
@@ -614,7 +625,7 @@ class ColorAnalysisDB:
                               sphere_color: str = None, sphere_radius: float = None,
                               marker: str = '.', color: str = 'blue',
                               sample_type: str = None, sample_size: str = None, sample_anchor: str = None,
-                              notes: str = None, trendline_valid: bool = True) -> bool:
+                              notes: str = None, trendline_valid: bool = True, data_source: str = 'stampz') -> bool:
         """Insert a completely new measurement with all Plot_3D extended values.
         
         Args:
@@ -662,15 +673,16 @@ class ColorAnalysisDB:
                         sample_type, sample_size, sample_anchor, notes,
                         marker_preference, color_preference,
                         cluster_id, delta_e, centroid_x, centroid_y, centroid_z,
-                        sphere_color, sphere_radius, trendline_valid
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        sphere_color, sphere_radius, trendline_valid, data_source
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     set_id, coordinate_point, x_pos, y_pos,
                     l_value, a_value, b_value, rgb_r, rgb_g, rgb_b,
                     sample_type, sample_size, sample_anchor, notes,
                     marker, color,
                     cluster_id, delta_e, centroid_x, centroid_y, centroid_z,
-                    sphere_color, sphere_radius, int(trendline_valid) if trendline_valid is not None else 1
+                    sphere_color, sphere_radius, int(trendline_valid) if trendline_valid is not None else 1,
+                    data_source
                 ))
                 
                 print(f"✅ INSERTED new measurement: {image_name} point {coordinate_point} with Plot_3D data")

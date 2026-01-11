@@ -243,7 +243,7 @@ class WorksheetManager:
         """
         try:
             from utils.color_analysis_db import ColorAnalysisDB
-            from utils.user_preferences import UserPreferences
+            from utils.user_preferences import get_preferences_manager
             
             # Get measurements from database
             db = ColorAnalysisDB(sample_set_name)
@@ -254,7 +254,7 @@ class WorksheetManager:
                 return False
             
             # Check user normalization preference
-            prefs = UserPreferences()
+            prefs = get_preferences_manager()
             export_normalized = prefs.get_export_normalized_values()
             
             # Convert measurements to worksheet format
@@ -268,12 +268,17 @@ class WorksheetManager:
             return False
     
     def _populate_from_measurements(self, measurements: List[Dict], sample_set_name: str, export_normalized: bool):
-        """Populate worksheet with measurement data."""
-        # Start data at row 8 (after protected header area)
+        """Populate worksheet with measurement data.
+        
+        Row 1: Headers
+        Rows 2-7: Reserved for K-means cluster centroids (6 rows for up to 6 clusters)
+        Row 8+: Data rows
+        """
+        # Start data at row 8 (1-based) after reserved centroid area (rows 2-7)
         start_row = 8
         
         for i, measurement in enumerate(measurements):
-            row = start_row + i
+            row = start_row + i  # Starts at row 8
             
             # Check if this is channel data (RGB/CMY) or L*a*b* color data
             sample_type = measurement.get('sample_type', '')

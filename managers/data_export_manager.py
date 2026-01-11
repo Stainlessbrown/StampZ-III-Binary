@@ -146,46 +146,43 @@ class DataExportManager:
             )
             
     def export_plot3d_flexible(self):
-        """Export data in Plot_3D flexible format."""
+        """Export data in Plot_3D flexible format - DELEGATES TO DATABASE_MANAGER."""
+        print("DEBUG: DataExportManager.export_plot3d_flexible() CALLED")
+        
+        # Delegate to the database_manager which has the full implementation
         try:
-            # Get current sample set name
-            sample_set_name = "StampZ_Analysis"
-            if (hasattr(self.app, 'control_panel') and 
-                hasattr(self.app.control_panel, 'sample_set_name') and 
-                self.app.control_panel.sample_set_name.get().strip()):
-                sample_set_name = self.app.control_panel.sample_set_name.get().strip()
+            from app.managers.database_manager import DatabaseManager
             
-            # Get save location
-            default_filename = f"{sample_set_name}_Plot3D_Flexible_{datetime.now().strftime('%Y%m%d')}.ods"
+            # Get or create database_manager instance
+            db_manager = None
             
-            filepath = filedialog.asksaveasfilename(
-                title="Export to Plot_3D Format",
-                defaultextension=".ods",
-                filetypes=[
-                    ('OpenDocument Spreadsheet', '*.ods'),
-                    ('All files', '*.*')
-                ],
-                initialfile=default_filename
-            )
+            # Try to get existing database_manager from analysis_manager
+            if hasattr(self.app, 'analysis_manager'):
+                print(f"DEBUG: app.analysis_manager exists")
+                if hasattr(self.app.analysis_manager, 'database_manager'):
+                    db_manager = self.app.analysis_manager.database_manager
+                    print(f"DEBUG: Found existing database_manager: {db_manager is not None}")
             
-            if filepath:
-                success = self._create_flexible_plot3d_export(filepath, sample_set_name)
-                
-                if success:
-                    # Log to unified data file
-                    self._log_export_to_unified_data(filepath, "Plot_3D Flexible Export")
-                    
-                    messagebox.showinfo(
-                        "Export Complete",
-                        f"Data exported in Plot_3D flexible format!\\n\\n"
-                        f"File: {os.path.basename(filepath)}\\n\\n"
-                        f"Ready for Plot_3D analysis and visualization."
-                    )
-                else:
-                    messagebox.showerror("Export Failed", "Could not create Plot_3D export.")
-                    
+            # If not found, create a new instance
+            if db_manager is None:
+                print("DEBUG: Creating new DatabaseManager instance")
+                db_manager = DatabaseManager(self.app, self.root)
+                print(f"DEBUG: Created database_manager: {db_manager is not None}")
+            
+            if db_manager is None:
+                raise RuntimeError("Failed to create DatabaseManager instance")
+            
+            print("DEBUG: Delegating to DatabaseManager.export_plot3d_flexible()")
+            return db_manager.export_plot3d_flexible()
+            
         except Exception as e:
-            messagebox.showerror("Export Error", f"Failed to export Plot_3D data:\\n\\n{str(e)}")
+            print(f"ERROR: Failed to delegate to database_manager: {e}")
+            import traceback
+            traceback.print_exc()
+            messagebox.showerror(
+                "Export Error",
+                f"Failed to export Plot_3D data:\\n\\n{str(e)}"
+            )
             
     def import_external_plot3d_data(self):
         """Import external Plot_3D data from CSV files."""

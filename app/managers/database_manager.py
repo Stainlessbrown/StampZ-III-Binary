@@ -775,9 +775,13 @@ class DatabaseManager:
     
     def export_plot3d_flexible(self):
         """Export current data to Plot_3D format with flexible format options."""
+        print("="*80)
+        print("DEBUG: export_plot3d_flexible() CALLED")
+        print("="*80)
         try:
             # Get current sample set name
             sample_set_name = "StampZ_Analysis"  # Default
+            print(f"DEBUG: Initial sample_set_name = {sample_set_name}")
             if (hasattr(self.app, 'control_panel') and 
                 hasattr(self.app.control_panel, 'sample_set_name') and 
                 self.app.control_panel.sample_set_name.get().strip()):
@@ -831,26 +835,67 @@ class DatabaseManager:
                 
                 if export_format == 'xlsx':
                     # For Excel, create formatted worksheet
+                    print(f"DEBUG: Creating Excel worksheet at {filepath}")
                     success = manager.create_plot3d_worksheet(filepath, sample_set_name)
+                    print(f"DEBUG: create_plot3d_worksheet returned: {success}")
                     if success:
-                        manager.load_stampz_data(sample_set_name)
-                        manager.save_worksheet(filepath)
+                        # Load data from database
+                        print(f"DEBUG: Loading data from database: {sample_set_name}")
+                        data_loaded = manager.load_stampz_data(sample_set_name)
+                        print(f"DEBUG: load_stampz_data returned: {data_loaded}")
+                        if data_loaded:
+                            # Save the populated worksheet
+                            print(f"DEBUG: Saving worksheet to {filepath}")
+                            success = manager.save_worksheet(filepath)
+                            print(f"DEBUG: save_worksheet returned: {success}")
+                            if not success:
+                                logger.error("Failed to save Excel worksheet after loading data")
+                                print("ERROR: Failed to save Excel worksheet after loading data")
+                        else:
+                            logger.error("Failed to load data from StampZ database")
+                            print("ERROR: Failed to load data from StampZ database")
+                            success = False
                 else:
                     # For ODS/CSV, create temporary Excel then export
                     import tempfile
                     with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp_file:
                         temp_path = tmp_file.name
                     
-                    success = manager.create_plot3d_worksheet(temp_path, sample_set_name)
-                    if success:
-                        manager.load_stampz_data(sample_set_name)
-                        success = manager.export_to_format(filepath, export_format)
+                    print(f"DEBUG: Using temp file: {temp_path}")
+                    print(f"DEBUG: Target file: {filepath}, format: {export_format}")
                     
-                    # Clean up temp file
                     try:
-                        os.unlink(temp_path)
-                    except:
-                        pass
+                        # Create worksheet in temp file
+                        print(f"DEBUG: Creating worksheet in temp file")
+                        success = manager.create_plot3d_worksheet(temp_path, sample_set_name)
+                        print(f"DEBUG: create_plot3d_worksheet returned: {success}")
+                        if success:
+                            # Load data from database
+                            print(f"DEBUG: Loading data from database: {sample_set_name}")
+                            data_loaded = manager.load_stampz_data(sample_set_name)
+                            print(f"DEBUG: load_stampz_data returned: {data_loaded}")
+                            if data_loaded:
+                                # Export to desired format
+                                print(f"DEBUG: Exporting to {export_format} format at {filepath}")
+                                success = manager.export_to_format(filepath, export_format)
+                                print(f"DEBUG: export_to_format returned: {success}")
+                                if not success:
+                                    logger.error(f"Failed to export to {export_format} format")
+                                    print(f"ERROR: Failed to export to {export_format} format")
+                            else:
+                                logger.error("Failed to load data from StampZ database")
+                                print("ERROR: Failed to load data from StampZ database")
+                                success = False
+                        else:
+                            print(f"ERROR: Failed to create worksheet in temp file")
+                    finally:
+                        # Clean up temp file
+                        try:
+                            os.unlink(temp_path)
+                            print(f"DEBUG: Cleaned up temp file: {temp_path}")
+                        except Exception as cleanup_error:
+                            logger.debug(f"Could not remove temp file: {cleanup_error}")
+                            print(f"DEBUG: Could not remove temp file: {cleanup_error}")
                 
                 if success:
                     messagebox.showinfo(

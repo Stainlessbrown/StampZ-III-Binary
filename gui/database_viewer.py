@@ -698,7 +698,7 @@ class DatabaseViewer:
             messagebox.showerror("Export Error", f"Failed to export database:\n\n{str(e)}")
     
     def _export_color_analysis_to_csv(self, filepath: str) -> bool:
-        """Export color analysis database to CSV."""
+        """Export color analysis database to CSV (respects normalization preference)."""
         try:
             from utils.color_analysis_db import ColorAnalysisDB
             db = ColorAnalysisDB(self.current_sample_set)
@@ -708,43 +708,118 @@ class DatabaseViewer:
                 messagebox.showinfo("No Data", "No measurements found to export")
                 return False
             
-            # Define CSV headers based on the data structure
-            headers = [
-                'id', 'set_id', 'image_name', 'measurement_date', 'coordinate_point',
-                'l_value', 'a_value', 'b_value', 'rgb_r', 'rgb_g', 'rgb_b',
-                'x_position', 'y_position', 'sample_type', 'sample_size', 'notes', 'is_averaged'
-            ]
+            # Check user preferences for normalization
+            try:
+                from utils.user_preferences import get_preferences_manager
+                prefs = get_preferences_manager()
+                use_normalized = prefs.get_export_normalized_values()
+            except:
+                use_normalized = False
+            
+            # Define CSV headers based on normalization preference
+            if use_normalized:
+                headers = [
+                    'id', 'set_id', 'image_name', 'measurement_date', 'coordinate_point',
+                    'l_norm', 'a_norm', 'b_norm', 'r_norm', 'g_norm', 'b_norm_rgb',
+                    'x_position', 'y_position', 'sample_type', 'sample_size', 'notes', 'is_averaged'
+                ]
+            else:
+                headers = [
+                    'id', 'set_id', 'image_name', 'measurement_date', 'coordinate_point',
+                    'l_value', 'a_value', 'b_value', 'rgb_r', 'rgb_g', 'rgb_b',
+                    'x_position', 'y_position', 'sample_type', 'sample_size', 'notes', 'is_averaged'
+                ]
             
             with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
                 writer.writerow(headers)
                 
                 for measurement in measurements:
-                    row = [
-                        measurement.get('id', ''),
-                        measurement.get('set_id', ''),
-                        measurement.get('image_name', ''),
-                        measurement.get('measurement_date', ''),
-                        measurement.get('coordinate_point', ''),
-                        measurement.get('l_value', ''),
-                        measurement.get('a_value', ''),
-                        measurement.get('b_value', ''),
-                        measurement.get('rgb_r', ''),
-                        measurement.get('rgb_g', ''),
-                        measurement.get('rgb_b', ''),
-                        measurement.get('x_position', ''),
-                        measurement.get('y_position', ''),
-                        measurement.get('sample_type', ''),
-                        measurement.get('sample_size', ''),
-                        measurement.get('notes', ''),
-                        measurement.get('is_averaged', '')
-                    ]
+                    # Get values from database
+                    l_val = measurement.get('l_value', 0) or 0
+                    a_val = measurement.get('a_value', 0) or 0
+                    b_val = measurement.get('b_value', 0) or 0
+                    r_val = measurement.get('rgb_r', 0) or 0
+                    g_val = measurement.get('rgb_g', 0) or 0
+                    b_rgb = measurement.get('rgb_b', 0) or 0
+                    
+                    # Detect if data is ALREADY normalized (0-1 range) vs raw
+                    # Plot_3D imports SHOULD be converted to raw, but legacy data might be stored normalized
+                    is_already_normalized = False
+                    if l_val <= 1.0 and abs(a_val) <= 1.0 and abs(b_val) <= 1.0:
+                        # Values are in 0-1 range, likely already normalized
+                        is_already_normalized = True
+                    
+                    if use_normalized:
+                        if is_already_normalized:
+                            # Data is already in 0-1 range, use as-is (legacy Plot_3D import)
+                            l_norm = round(l_val, 4)
+                            a_norm = round(a_val, 4)
+                            b_norm = round(b_val, 4)
+                            r_norm = round(r_val, 4)
+                            g_norm = round(g_val, 4)
+                            b_rgb_norm = round(b_rgb, 4)
+                        else:
+                            # Normalize raw values for Plot_3D compatibility (0-1 range)
+                            # L*: 0-100 → 0-1
+                            l_norm = round(l_val / 100.0, 4) if l_val else 0.0
+                            # a*, b*: -128 to +127 → 0-1
+                            a_norm = round((a_val + 128.0) / 255.0, 4)
+                            b_norm = round((b_val + 128.0) / 255.0, 4)
+                            # RGB: 0-255 → 0-1
+                            r_norm = round(r_val / 255.0, 4) if r_val else 0.0
+                            g_norm = round(g_val / 255.0, 4) if g_val else 0.0
+                            b_rgb_norm = round(b_rgb / 255.0, 4) if b_rgb else 0.0
+                        
+                        row = [
+                            measurement.get('id', ''),
+                            measurement.get('set_id', ''),
+                            measurement.get('image_name', ''),
+                            measurement.get('measurement_date', ''),
+                            measurement.get('coordinate_point', ''),
+                            l_norm,
+                            a_norm,
+                            b_norm,
+                            r_norm,
+                            g_norm,
+                            b_rgb_norm,
+                            measurement.get('x_position', ''),
+                            measurement.get('y_position', ''),
+                            measurement.get('sample_type', ''),
+                            measurement.get('sample_size', ''),
+                            measurement.get('notes', ''),
+                            measurement.get('is_averaged', '')
+                        ]
+                    else:
+                        # Export raw values
+                        row = [
+                            measurement.get('id', ''),
+                            measurement.get('set_id', ''),
+                            measurement.get('image_name', ''),
+                            measurement.get('measurement_date', ''),
+                            measurement.get('coordinate_point', ''),
+                            l_val,
+                            a_val,
+                            b_val,
+                            r_val,
+                            g_val,
+                            b_rgb,
+                            measurement.get('x_position', ''),
+                            measurement.get('y_position', ''),
+                            measurement.get('sample_type', ''),
+                            measurement.get('sample_size', ''),
+                            measurement.get('notes', ''),
+                            measurement.get('is_averaged', '')
+                        ]
+                    
                     writer.writerow(row)
             
             return True
             
         except Exception as e:
             print(f"Error exporting color analysis to CSV: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def _export_color_library_to_csv(self, filepath: str) -> bool:

@@ -1783,9 +1783,13 @@ class AnalysisManager:
             
     def export_plot3d_flexible(self):
         """Export data in Plot_3D flexible format."""
+        print("\nDEBUG: AnalysisManager.export_plot3d_flexible() CALLED")
+        print(f"DEBUG: data_export_manager exists = {self.data_export_manager is not None}")
         if self.data_export_manager:
+            print("DEBUG: Using data_export_manager")
             return self.data_export_manager.export_plot3d_flexible()
         else:
+            print("DEBUG: Using legacy method")
             return self._legacy_export_plot3d_flexible()
             
     def export_with_library_matches(self):
@@ -3257,10 +3261,14 @@ class AnalysisManager:
     
     def _legacy_export_plot3d_flexible(self):
         """Legacy implementation of flexible Plot3D export."""
+        print("DEBUG: _legacy_export_plot3d_flexible() CALLED")
+        print(f"DEBUG: database_manager exists = {self.database_manager is not None}")
         if self.database_manager:
+            print("DEBUG: Delegating to database_manager.export_plot3d_flexible()")
             return self.database_manager.export_plot3d_flexible()
         else:
             # Fallback implementation
+            print("ERROR: database_manager is None")
             messagebox.showerror(
                 "Feature Unavailable",
                 "Plot3D export functionality is not available.\n\n"
