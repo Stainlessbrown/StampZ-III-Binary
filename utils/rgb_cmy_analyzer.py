@@ -463,6 +463,14 @@ class RGBCMYAnalyzer:
         """Export to Excel format using openpyxl."""
         try:
             import openpyxl
+            from utils.user_preferences import get_preferences_manager
+            
+            # Check user normalization preference
+            try:
+                prefs = get_preferences_manager()
+                use_normalized = prefs.get_export_normalized_values()
+            except:
+                use_normalized = False  # Default to raw values if preferences unavailable
             
             # Load template
             workbook = openpyxl.load_workbook(template_path)
@@ -480,24 +488,46 @@ class RGBCMYAnalyzer:
                 for i in range(min(6, len(self.results))):
                     result = self.results[i]
                     row = 16 + i
-                    sheet[f'B{row}'] = result.get('R_mean', '')
-                    sheet[f'C{row}'] = result.get('R_std', '')
-                    sheet[f'E{row}'] = result.get('G_mean', '')
-                    sheet[f'F{row}'] = result.get('G_std', '')
-                    sheet[f'H{row}'] = result.get('B_mean', '')
-                    sheet[f'I{row}'] = result.get('B_std', '')
+                    
+                    if use_normalized:
+                        # Normalize RGB values: 0-255 → 0-1 for Plot_3D compatibility
+                        sheet[f'B{row}'] = result.get('R_mean', 0) / 255.0 if result.get('R_mean', '') != '' else ''
+                        sheet[f'C{row}'] = result.get('R_std', 0) / 255.0 if result.get('R_std', '') != '' else ''
+                        sheet[f'E{row}'] = result.get('G_mean', 0) / 255.0 if result.get('G_mean', '') != '' else ''
+                        sheet[f'F{row}'] = result.get('G_std', 0) / 255.0 if result.get('G_std', '') != '' else ''
+                        sheet[f'H{row}'] = result.get('B_mean', 0) / 255.0 if result.get('B_mean', '') != '' else ''
+                        sheet[f'I{row}'] = result.get('B_std', 0) / 255.0 if result.get('B_std', '') != '' else ''
+                    else:
+                        # Export raw 0-255 values
+                        sheet[f'B{row}'] = result.get('R_mean', '')
+                        sheet[f'C{row}'] = result.get('R_std', '')
+                        sheet[f'E{row}'] = result.get('G_mean', '')
+                        sheet[f'F{row}'] = result.get('G_std', '')
+                        sheet[f'H{row}'] = result.get('B_mean', '')
+                        sheet[f'I{row}'] = result.get('B_std', '')
             
             else:  # cmy
                 # CMY-only template: CMY data in rows 16-21
                 for i in range(min(6, len(self.results))):
                     result = self.results[i]
                     row = 16 + i
-                    sheet[f'B{row}'] = result.get('C_mean', '')
-                    sheet[f'C{row}'] = result.get('C_std', '')
-                    sheet[f'E{row}'] = result.get('M_mean', '')
-                    sheet[f'F{row}'] = result.get('M_std', '')
-                    sheet[f'H{row}'] = result.get('Y_mean', '')
-                    sheet[f'I{row}'] = result.get('Y_std', '')
+                    
+                    if use_normalized:
+                        # Normalize CMY values: 0-255 → 0-1 for Plot_3D compatibility
+                        sheet[f'B{row}'] = result.get('C_mean', 0) / 255.0 if result.get('C_mean', '') != '' else ''
+                        sheet[f'C{row}'] = result.get('C_std', 0) / 255.0 if result.get('C_std', '') != '' else ''
+                        sheet[f'E{row}'] = result.get('M_mean', 0) / 255.0 if result.get('M_mean', '') != '' else ''
+                        sheet[f'F{row}'] = result.get('M_std', 0) / 255.0 if result.get('M_std', '') != '' else ''
+                        sheet[f'H{row}'] = result.get('Y_mean', 0) / 255.0 if result.get('Y_mean', '') != '' else ''
+                        sheet[f'I{row}'] = result.get('Y_std', 0) / 255.0 if result.get('Y_std', '') != '' else ''
+                    else:
+                        # Export raw 0-255 values
+                        sheet[f'B{row}'] = result.get('C_mean', '')
+                        sheet[f'C{row}'] = result.get('C_std', '')
+                        sheet[f'E{row}'] = result.get('M_mean', '')
+                        sheet[f'F{row}'] = result.get('M_std', '')
+                        sheet[f'H{row}'] = result.get('Y_mean', '')
+                        sheet[f'I{row}'] = result.get('Y_std', '')
             
             # Save populated workbook
             workbook.save(output_path)
@@ -517,6 +547,15 @@ class RGBCMYAnalyzer:
     def _export_to_csv(self, csv_path: str, mode: str = 'rgb'):
         """Export results to CSV format matching the template structure."""
         try:
+            from utils.user_preferences import get_preferences_manager
+            
+            # Check user normalization preference
+            try:
+                prefs = get_preferences_manager()
+                use_normalized = prefs.get_export_normalized_values()
+            except:
+                use_normalized = False  # Default to raw values if preferences unavailable
+            
             # Create data structure matching the template format
             data = []
             
