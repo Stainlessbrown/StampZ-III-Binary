@@ -34,11 +34,35 @@ def launch_full_stampz():
     from app import StampZApp
     print(f"App import took {time.time() - import_start:.2f}s")
     
-    # Setup logging
+    # Setup logging - both console and file
+    import logging.handlers
+    from pathlib import Path
+    
+    # Create log file on Desktop for easy access
+    desktop_path = Path.home() / "Desktop"
+    log_file = desktop_path / "StampZ_Debug_Log.txt"
+    
+    # Configure logging with both file and console handlers
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(sys.stdout),  # Console output
+            logging.FileHandler(log_file, mode='w', encoding='utf-8')  # File output
+        ]
     )
+    
+    logger.info(f"StampZ-III Debug Log - Session started")
+    logger.info(f"Log file: {log_file}")
+    logger.info(f"Python version: {sys.version}")
+    logger.info(f"Platform: {sys.platform}")
+    
+    # Log if running as bundled app
+    if getattr(sys, 'frozen', False):
+        logger.info(f"Running as PyInstaller bundle")
+        logger.info(f"Bundle dir: {sys._MEIPASS}")
+    else:
+        logger.info(f"Running from source")
     
     logger.info("Starting full StampZ-III application...")
     
