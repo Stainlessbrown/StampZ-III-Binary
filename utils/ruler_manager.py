@@ -23,6 +23,8 @@ class RulerManager:
         self.show_grid = False  # Grid hidden by default
         self.image_scale = 1.0
         self.image_offset = (0, 0)
+        self.grid_offset_x = 0  # Independent grid X offset in pixels
+        self.grid_offset_y = 0  # Independent grid Y offset in pixels
 
     def set_scale(self, scale: float) -> None:
         """Update the current scale factor."""
@@ -61,6 +63,39 @@ class RulerManager:
         # If grid is being turned off, clear it immediately
         if not self.show_grid:
             self.canvas.delete('grid')
+    
+    def set_grid_offset(self, offset_x: int, offset_y: int) -> None:
+        """Set independent grid offset in pixels.
+        
+        Args:
+            offset_x: Horizontal offset in pixels
+            offset_y: Vertical offset in pixels
+        """
+        self.grid_offset_x = offset_x
+        self.grid_offset_y = offset_y
+    
+    def adjust_grid_offset(self, delta_x: int, delta_y: int) -> None:
+        """Adjust grid offset by delta values.
+        
+        Args:
+            delta_x: Change in horizontal offset
+            delta_y: Change in vertical offset
+        """
+        self.grid_offset_x += delta_x
+        self.grid_offset_y += delta_y
+    
+    def reset_grid_offset(self) -> None:
+        """Reset grid offset to zero."""
+        self.grid_offset_x = 0
+        self.grid_offset_y = 0
+    
+    def get_grid_offset(self) -> Tuple[int, int]:
+        """Get current grid offset.
+        
+        Returns:
+            Tuple of (offset_x, offset_y)
+        """
+        return (self.grid_offset_x, self.grid_offset_y)
 
     def _calculate_tick_interval(self) -> Tuple[int, int]:
         """Calculate appropriate intervals for ruler ticks based on zoom level."""
@@ -89,9 +124,7 @@ class RulerManager:
         self.canvas.delete('ruler')
         self.canvas.delete('grid')
         
-        if not self.visible:
-            return
-
+        # Get canvas dimensions and image properties for grid
         canvas_width = self.canvas.winfo_width()
         canvas_height = self.canvas.winfo_height()
         
@@ -102,6 +135,15 @@ class RulerManager:
         else:
             image_scale = 1.0
             image_offset = (0, 0)
+        
+        # Draw grid first if enabled (independent of rulers)
+        if self.show_grid:
+            minor_interval, major_interval = self._calculate_tick_interval()
+            self._draw_grid(canvas_width, canvas_height, minor_interval, major_interval)
+        
+        # Return early if rulers are not visible
+        if not self.visible:
+            return
 
         # Draw ruler backgrounds
         self.canvas.create_rectangle(
@@ -216,11 +258,6 @@ class RulerManager:
                 )
 
             y += base_step
-
-        # Draw grid if enabled
-        if self.show_grid:
-            self._draw_grid(canvas_width, canvas_height, minor_interval, major_interval)
-
     def _draw_grid(self, canvas_width: int, canvas_height: int, 
                    minor_interval: int, major_interval: int) -> None:
         """Draw the measurement grid."""
@@ -236,14 +273,20 @@ class RulerManager:
 
         # Calculate grid line positions based on image coordinates
         base_step = 50  # Base step size (50 pixels)
+        
+        # Determine grid boundaries based on whether rulers are visible
+        left_boundary = self.RULER_SIZE if self.visible else 0
+        right_boundary = canvas_width
+        top_boundary = 0
+        bottom_boundary = canvas_height - self.RULER_SIZE if self.visible else canvas_height
 
         # Calculate visible range in image coordinates
-        left_image = (self.RULER_SIZE - image_offset[0]) / image_scale
-        right_image = (canvas_width - image_offset[0]) / image_scale
+        left_image = (left_boundary - image_offset[0]) / image_scale
+        right_image = (right_boundary - image_offset[0]) / image_scale
         
         # Convert screen coordinates to image coordinates properly for Y axis
-        screen_top = 0  
-        screen_bottom = canvas_height - self.RULER_SIZE
+        screen_top = top_boundary
+        screen_bottom = bottom_boundary
         image_top = image_height - ((screen_top - image_offset[1]) / image_scale)
         image_bottom = image_height - ((screen_bottom - image_offset[1]) / image_scale)
 
@@ -255,17 +298,17 @@ class RulerManager:
 
         # Draw vertical grid lines
         for x in range(start_x, end_x + base_step, base_step):
-            # Convert image coordinate to screen coordinate
-            x_screen = x * image_scale + image_offset[0]
+            # Convert image coordinate to screen coordinate and apply grid offset
+            x_screen = x * image_scale + image_offset[0] + self.grid_offset_x
             
             # Skip if outside visible area
-            if x_screen < self.RULER_SIZE or x_screen > canvas_width:
+            if x_screen < left_boundary or x_screen > right_boundary:
                 continue
                 
             # Draw grid line
             self.canvas.create_line(
-                x_screen, self.RULER_SIZE,
-                x_screen, canvas_height - self.RULER_SIZE,
+                x_screen, top_boundary,
+                x_screen, bottom_boundary,
                 fill=self.RULER_GRID_COLOR,
                 width=2 if x % 100 == 0 else 1,
                 tags='grid'
@@ -274,19 +317,21 @@ class RulerManager:
         # Draw horizontal grid lines
         for y in range(start_y, end_y + base_step, base_step):
             # Convert mathematical image coordinates to screen coordinates using same method as ruler
+            # and apply grid offset
             image_relative_y = image_height - y
             screen_relative_y = image_relative_y * image_scale
-            y_screen = int(screen_relative_y + image_offset[1])
+            y_screen = int(screen_relative_y + image_offset[1] + self.grid_offset_y)
             
             # Skip if outside visible area
-            if y_screen < self.RULER_SIZE or y_screen > canvas_height - self.RULER_SIZE:
+            if y_screen < top_boundary or y_screen > bottom_boundary:
                 continue
                 
             # Draw grid line
             self.canvas.create_line(
-                self.RULER_SIZE, y_screen,
-                canvas_width, y_screen,
+                left_boundary, y_screen,
+                right_boundary, y_screen,
                 fill=self.RULER_GRID_COLOR,
                 width=2 if y % 100 == 0 else 1,
                 tags='grid'
             )
+

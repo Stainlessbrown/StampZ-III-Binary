@@ -348,6 +348,38 @@ class ReorganizedControlPanel(ttk.Frame):
         ttk.Checkbutton(angle_row, text="Show Grid", variable=self.show_grid_var,
                        command=self._toggle_grid).pack(side=tk.LEFT, padx=(15, 0))
         
+        # Grid offset controls
+        grid_offset_row = ttk.Frame(straightening_container)
+        grid_offset_row.pack(fill=tk.X, pady=2)
+        
+        ttk.Label(grid_offset_row, text="Grid Offset:", font=('Arial', 10)).pack(side=tk.LEFT, padx=(0, 5))
+        
+        # X offset controls
+        ttk.Label(grid_offset_row, text="X:").pack(side=tk.LEFT, padx=(5, 2))
+        self.grid_offset_x = tk.IntVar(value=0)
+        ttk.Button(grid_offset_row, text="◀", width=2,
+                  command=lambda: self._adjust_grid_offset(-1, 0)).pack(side=tk.LEFT, padx=1)
+        ttk.Spinbox(grid_offset_row, from_=-100, to=100, width=4, 
+                   textvariable=self.grid_offset_x,
+                   command=self._apply_grid_offset).pack(side=tk.LEFT, padx=1)
+        ttk.Button(grid_offset_row, text="▶", width=2,
+                  command=lambda: self._adjust_grid_offset(1, 0)).pack(side=tk.LEFT, padx=1)
+        
+        # Y offset controls
+        ttk.Label(grid_offset_row, text="Y:").pack(side=tk.LEFT, padx=(10, 2))
+        self.grid_offset_y = tk.IntVar(value=0)
+        ttk.Button(grid_offset_row, text="▲", width=2,
+                  command=lambda: self._adjust_grid_offset(0, -1)).pack(side=tk.LEFT, padx=1)
+        ttk.Spinbox(grid_offset_row, from_=-100, to=100, width=4, 
+                   textvariable=self.grid_offset_y,
+                   command=self._apply_grid_offset).pack(side=tk.LEFT, padx=1)
+        ttk.Button(grid_offset_row, text="▼", width=2,
+                  command=lambda: self._adjust_grid_offset(0, 1)).pack(side=tk.LEFT, padx=1)
+        
+        # Reset grid button
+        ttk.Button(grid_offset_row, text="Reset Grid", width=10,
+                  command=self._reset_grid_offset).pack(side=tk.LEFT, padx=(10, 0))
+        
         # Buttons
         buttons_row = ttk.Frame(straightening_container)
         buttons_row.pack(fill=tk.X, pady=5)
@@ -1012,6 +1044,30 @@ class ReorganizedControlPanel(ttk.Frame):
         """Toggle grid visibility on canvas."""
         if hasattr(self, 'main_app') and self.main_app and hasattr(self.main_app, 'canvas'):
             self.main_app.canvas.toggle_grid(self.show_grid_var.get())
+    
+    def _adjust_grid_offset(self, delta_x: int, delta_y: int):
+        """Adjust grid offset by delta values."""
+        current_x = self.grid_offset_x.get()
+        current_y = self.grid_offset_y.get()
+        self.grid_offset_x.set(current_x + delta_x)
+        self.grid_offset_y.set(current_y + delta_y)
+        self._apply_grid_offset()
+    
+    def _apply_grid_offset(self):
+        """Apply current grid offset values to the canvas."""
+        if hasattr(self, 'main_app') and self.main_app and hasattr(self.main_app, 'canvas'):
+            offset_x = self.grid_offset_x.get()
+            offset_y = self.grid_offset_y.get()
+            self.main_app.canvas.ruler_manager.set_grid_offset(offset_x, offset_y)
+            self.main_app.canvas.update_display()
+    
+    def _reset_grid_offset(self):
+        """Reset grid offset to zero."""
+        self.grid_offset_x.set(0)
+        self.grid_offset_y.set(0)
+        if hasattr(self, 'main_app') and self.main_app and hasattr(self.main_app, 'canvas'):
+            self.main_app.canvas.ruler_manager.reset_grid_offset()
+            self.main_app.canvas.update_display()
     
     def update_straightening_status(self, num_points: int, angle: float = None):
         """Update straightening status display."""
