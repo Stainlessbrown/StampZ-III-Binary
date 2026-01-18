@@ -622,7 +622,7 @@ class PreferencesManager:
         """Set the default DPI setting for measurements.
         
         Args:
-            dpi: DPI value (typically 300, 600, 1200, etc.)
+            dpi: DPI value (typically 400, 600, 800, 1200, etc.)
         """
         try:
             if dpi < 72 or dpi > 2400:

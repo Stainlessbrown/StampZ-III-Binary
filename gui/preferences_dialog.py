@@ -773,7 +773,7 @@ class PreferencesDialog:
         dpi_combo = ttk.Combobox(
             dpi_control_frame,
             textvariable=self.default_dpi_var,
-            values=['150', '300', '600', '1200', '2400'],
+            values=['300', '400', '600', '800', '1200'],
             state='normal',
             width=10
         )
