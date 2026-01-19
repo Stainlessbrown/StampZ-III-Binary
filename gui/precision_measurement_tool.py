@@ -632,8 +632,15 @@ class PrecisionMeasurementTool:
                     self.instruction_label.config(text=f"Click farther away for {self.measurement_mode}\nmeasurement (min 5 pixels)")
                     return
                 
-                # Create measurement with optional label
-                default_label = f"{self.measurement_mode.title()} {len(self.measurements) + 1}"
+                # Calculate distance for label
+                if self.measurement_engine.pixels_per_mm:
+                    distance_pixels = (dx*dx + dy*dy)**0.5
+                    distance_mm = distance_pixels / self.measurement_engine.pixels_per_mm
+                    precision = self.precision_var.get()
+                    default_label = f"{distance_mm:.{precision}f}mm"
+                else:
+                    # Fallback if not calibrated
+                    default_label = f"{self.measurement_mode.title()} {len(self.measurements) + 1}"
                 
                 if self.auto_label:
                     user_label = default_label

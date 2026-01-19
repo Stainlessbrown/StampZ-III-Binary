@@ -25,6 +25,7 @@ class RulerManager:
         self.image_offset = (0, 0)
         self.grid_offset_x = 0  # Independent grid X offset in pixels
         self.grid_offset_y = 0  # Independent grid Y offset in pixels
+        self.grid_color = self.RULER_GRID_COLOR  # Current grid color
 
     def set_scale(self, scale: float) -> None:
         """Update the current scale factor."""
@@ -96,6 +97,14 @@ class RulerManager:
             Tuple of (offset_x, offset_y)
         """
         return (self.grid_offset_x, self.grid_offset_y)
+    
+    def set_grid_color(self, color: str) -> None:
+        """Set grid line color.
+        
+        Args:
+            color: Color name (e.g. 'red', 'blue', 'white', '#RRGGBB')
+        """
+        self.grid_color = color
 
     def _calculate_tick_interval(self) -> Tuple[int, int]:
         """Calculate appropriate intervals for ruler ticks based on zoom level."""
@@ -309,7 +318,7 @@ class RulerManager:
             self.canvas.create_line(
                 x_screen, top_boundary,
                 x_screen, bottom_boundary,
-                fill=self.RULER_GRID_COLOR,
+                fill=self.grid_color,
                 width=2 if x % 100 == 0 else 1,
                 tags='grid'
             )
@@ -330,7 +339,7 @@ class RulerManager:
             self.canvas.create_line(
                 left_boundary, y_screen,
                 right_boundary, y_screen,
-                fill=self.RULER_GRID_COLOR,
+                fill=self.grid_color,
                 width=2 if y % 100 == 0 else 1,
                 tags='grid'
             )
