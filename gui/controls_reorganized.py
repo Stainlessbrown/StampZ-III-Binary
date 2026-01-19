@@ -343,19 +343,10 @@ class ReorganizedControlPanel(ttk.Frame):
         
         ttk.Label(angle_row, text="degrees", font=('Arial', 11)).pack(side=tk.LEFT, padx=(5, 0))
         
-        # Grid toggle and color
+        # Grid toggle
         self.show_grid_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(angle_row, text="Show Grid", variable=self.show_grid_var,
                        command=self._toggle_grid).pack(side=tk.LEFT, padx=(15, 0))
-        
-        # Grid color selector
-        ttk.Label(angle_row, text="Color:").pack(side=tk.LEFT, padx=(10, 2))
-        self.grid_color_var = tk.StringVar(value="#e0e0e0")
-        grid_colors = ["white", "red", "green", "blue", "yellow", "cyan", "magenta", "black", "#e0e0e0"]
-        grid_color_combo = ttk.Combobox(angle_row, textvariable=self.grid_color_var,
-                                        values=grid_colors, state='readonly', width=8)
-        grid_color_combo.pack(side=tk.LEFT, padx=2)
-        grid_color_combo.bind('<<ComboboxSelected>>', lambda e: self._change_grid_color())
         
         # Grid offset controls
         grid_offset_row = ttk.Frame(straightening_container)
@@ -808,8 +799,16 @@ class ReorganizedControlPanel(ttk.Frame):
 
     def _on_line_color_change(self):
         """Handle line color changes."""
+        color = self.line_color.get()
         if self.on_line_color_change:
-            self.on_line_color_change(self.line_color.get())
+            self.on_line_color_change(color)
+        
+        # Also update grid color if canvas exists
+        if hasattr(self, 'main_app') and self.main_app and hasattr(self.main_app, 'canvas'):
+            self.main_app.canvas.ruler_manager.set_grid_color(color)
+            # Redraw if grid is visible
+            if self.show_grid_var.get():
+                self.main_app.canvas.update_display()
 
     def open_recent(self):
         """Show dialog to open a file from the Recent directory."""
@@ -1076,13 +1075,6 @@ class ReorganizedControlPanel(ttk.Frame):
         self.grid_offset_y.set(0)
         if hasattr(self, 'main_app') and self.main_app and hasattr(self.main_app, 'canvas'):
             self.main_app.canvas.ruler_manager.reset_grid_offset()
-            self.main_app.canvas.update_display()
-    
-    def _change_grid_color(self):
-        """Change grid color based on selection."""
-        if hasattr(self, 'main_app') and self.main_app and hasattr(self.main_app, 'canvas'):
-            color = self.grid_color_var.get()
-            self.main_app.canvas.ruler_manager.set_grid_color(color)
             self.main_app.canvas.update_display()
     
     def update_straightening_status(self, num_points: int, angle: float = None):
