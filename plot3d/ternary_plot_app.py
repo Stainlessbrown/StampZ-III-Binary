@@ -74,7 +74,8 @@ class TernaryPlotWindow:
         # View current database
         ttk.Button(self.side, text="View Database Contents", command=self._view_database).pack(fill=tk.X, pady=4)
         
-        # Note: Refresh functionality moved to database viewer where changes are made
+        # Refresh data from current source
+        ttk.Button(self.side, text="Refresh Data", command=self._refresh_data).pack(fill=tk.X, pady=4)
 
         # Current database indicator
         db_frame = ttk.LabelFrame(self.side, text="Current Database")

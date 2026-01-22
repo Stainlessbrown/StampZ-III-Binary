@@ -1516,12 +1516,6 @@ class Plot3DApp:
         # Ensure the control frame can expand properly
         self.control_frame.grid_columnconfigure(0, weight=1)
         
-        button_frame = create_button_frame(
-            self.control_frame, 
-            on_refresh=self.refresh_plot
-        )
-        button_frame.grid(row=6, column=0, sticky='ew', padx=5, pady=5)
-
         # Create highlight frame and manager in a collapsible section
         point_id_section = CollapsibleSection(self.control_frame, "📍 Point Identification", expanded=False)
         point_id_section.grid(row=3, column=0, sticky='ew', padx=5, pady=5)
@@ -1619,9 +1613,16 @@ class Plot3DApp:
             command=self.refresh_plot
         ).grid(row=3, column=0, columnspan=2, sticky='w', padx=5, pady=5)
 
+        # Create Refresh Data button (always visible, not collapsible)
+        button_frame = create_button_frame(
+            self.control_frame, 
+            on_refresh=self.refresh_plot
+        )
+        button_frame.grid(row=6, column=0, sticky='ew', padx=5, pady=5)
+        
         # Create ΔE Analysis section in a collapsible section
         delta_e_section = CollapsibleSection(self.control_frame, "🔬 ΔE Analysis", expanded=False)
-        delta_e_section.grid(row=6, column=0, sticky='ew', padx=5, pady=5)
+        delta_e_section.grid(row=7, column=0, sticky='ew', padx=5, pady=5)
         
         # Create ΔE Manager GUI inside collapsible section
         if hasattr(self, 'delta_e_manager') and self.delta_e_manager:
@@ -1650,7 +1651,7 @@ class Plot3DApp:
         
         # Create sphere visibility section in a collapsible section
         sphere_section = CollapsibleSection(self.control_frame, "🚪 Sphere Visibility", expanded=False)
-        sphere_section.grid(row=7, column=0, sticky='ew', padx=5, pady=5)
+        sphere_section.grid(row=8, column=0, sticky='ew', padx=5, pady=5)
         
         # Create sphere visibility frame inside the section with grid layout for canvas + scrollbar
         sphere_frame = ttk.Frame(sphere_section.content_frame)
