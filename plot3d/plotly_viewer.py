@@ -359,10 +359,10 @@ def _add_spheres_to_plot(fig, df):
         print("DEBUG: No valid centroid data found")
         return
     
-    # Get unique spheres based on centroid coordinates
-    # Group by centroid coordinates to avoid duplicate spheres
-    unique_spheres = sphere_data.drop_duplicates(subset=['Centroid_X', 'Centroid_Y', 'Centroid_Z'])
-    print(f"DEBUG: Unique spheres to plot: {len(unique_spheres)}")
+    # Get unique spheres based on centroid coordinates AND radius
+    # This allows concentric spheres (same center, different radii) to display
+    unique_spheres = sphere_data.drop_duplicates(subset=['Centroid_X', 'Centroid_Y', 'Centroid_Z', 'Radius'])
+    print(f"DEBUG: Unique spheres to plot: {len(unique_spheres)} (including concentric spheres)")
     
     for _, row in unique_spheres.iterrows():
         center_x = row['Centroid_X']
