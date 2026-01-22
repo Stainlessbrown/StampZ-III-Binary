@@ -1423,6 +1423,13 @@ class Plot3DApp:
         )
         self.axis_controls.grid(row=0, column=0, sticky='ew', padx=5, pady=5)
         
+        # Create Refresh Data button at top (always visible, not collapsible)
+        button_frame = create_button_frame(
+            self.control_frame, 
+            on_refresh=self.refresh_plot
+        )
+        button_frame.grid(row=1, column=0, sticky='ew', padx=5, pady=5)
+        
         # Label toggle button removed - data type now controlled from spreadsheet toggle
         # Labels automatically match the data being plotted
         
@@ -1433,11 +1440,11 @@ class Plot3DApp:
             trendline_manager=self.trendline_manager,
             plotly_callback=self._open_plotly_view
         )
-        self.rotation_controls.grid(row=1, column=0, sticky='ew', padx=5, pady=5)
+        self.rotation_controls.grid(row=2, column=0, sticky='ew', padx=5, pady=5)
         
         # Initialize zoom controls in a collapsible section (expanded by default)
         zoom_section = CollapsibleSection(self.control_frame, "🔍 Zoom Controls", expanded=True)
-        zoom_section.grid(row=2, column=0, sticky='ew', padx=5, pady=5)
+        zoom_section.grid(row=3, column=0, sticky='ew', padx=5, pady=5)
         
         try:
             # Ensure figure exists
@@ -1518,7 +1525,7 @@ class Plot3DApp:
         
         # Create highlight frame and manager in a collapsible section
         point_id_section = CollapsibleSection(self.control_frame, "📍 Point Identification", expanded=False)
-        point_id_section.grid(row=3, column=0, sticky='ew', padx=5, pady=5)
+        point_id_section.grid(row=4, column=0, sticky='ew', padx=5, pady=5)
         
         self.highlight_frame = ttk.Frame(point_id_section.content_frame)
         self.highlight_frame.pack(fill=tk.BOTH, expand=True)
@@ -1534,7 +1541,7 @@ class Plot3DApp:
 
         # Create group display / K-means section in a collapsible section
         kmeans_section = CollapsibleSection(self.control_frame, "📊 K-means Clustering", expanded=False)
-        kmeans_section.grid(row=4, column=0, sticky='ew', padx=5, pady=5)
+        kmeans_section.grid(row=5, column=0, sticky='ew', padx=5, pady=5)
         
         # Create group display frame inside collapsible section
         group_display_frame = ttk.Frame(kmeans_section.content_frame)
@@ -1550,7 +1557,7 @@ class Plot3DApp:
         
         # Create trendline section in a collapsible section
         trendline_section = CollapsibleSection(self.control_frame, "📏 Trend Lines", expanded=False)
-        trendline_section.grid(row=5, column=0, sticky='ew', padx=5, pady=5)
+        trendline_section.grid(row=6, column=0, sticky='ew', padx=5, pady=5)
         
         # Create inner frame for trendline controls
         self.trendline_frame = ttk.Frame(trendline_section.content_frame)
@@ -1613,13 +1620,6 @@ class Plot3DApp:
             command=self.refresh_plot
         ).grid(row=3, column=0, columnspan=2, sticky='w', padx=5, pady=5)
 
-        # Create Refresh Data button (always visible, not collapsible)
-        button_frame = create_button_frame(
-            self.control_frame, 
-            on_refresh=self.refresh_plot
-        )
-        button_frame.grid(row=6, column=0, sticky='ew', padx=5, pady=5)
-        
         # Create ΔE Analysis section in a collapsible section
         delta_e_section = CollapsibleSection(self.control_frame, "🔬 ΔE Analysis", expanded=False)
         delta_e_section.grid(row=7, column=0, sticky='ew', padx=5, pady=5)

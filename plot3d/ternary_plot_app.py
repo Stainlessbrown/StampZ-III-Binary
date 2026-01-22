@@ -65,6 +65,11 @@ class TernaryPlotWindow:
         title = ttk.Label(self.side, text="Ternary Plot Controls", font=('Arial', 12, 'bold'))
         title.pack(anchor='w', pady=(0, 8))
 
+        # Refresh data from current source (at top for easy access)
+        ttk.Button(self.side, text="Refresh Data", command=self._refresh_data).pack(fill=tk.X, pady=4)
+        
+        ttk.Separator(self.side, orient='horizontal').pack(fill=tk.X, pady=4)
+        
         # Open external file
         ttk.Button(self.side, text="Open Data (ODS/XLSX/CSV)", command=self._open_file).pack(fill=tk.X, pady=4)
         
@@ -73,9 +78,6 @@ class TernaryPlotWindow:
         
         # View current database
         ttk.Button(self.side, text="View Database Contents", command=self._view_database).pack(fill=tk.X, pady=4)
-        
-        # Refresh data from current source
-        ttk.Button(self.side, text="Refresh Data", command=self._refresh_data).pack(fill=tk.X, pady=4)
 
         # Current database indicator
         db_frame = ttk.LabelFrame(self.side, text="Current Database")
