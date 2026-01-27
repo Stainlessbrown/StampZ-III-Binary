@@ -202,7 +202,7 @@ class SampleResultsManager(tk.Frame):
                     )
                     
                     # Sample the color
-                    rgb_values, rgb_stddev = analyzer._sample_area_color(self.current_image, temp_coord)
+                    rgb_values, rgb_stddev, lab_stddev = analyzer._sample_area_color(self.current_image, temp_coord)
                     if rgb_values:
                         avg_rgb = analyzer._calculate_average_color(rgb_values)
                         
@@ -210,6 +210,7 @@ class SampleResultsManager(tk.Frame):
                         sample_point = {
                             'rgb': avg_rgb,
                             'rgb_stddev': rgb_stddev,
+                            'lab_stddev': lab_stddev,
                             'position': (x, y),
                             'enabled': tk.BooleanVar(value=True),
                             'index': i,
@@ -218,7 +219,7 @@ class SampleResultsManager(tk.Frame):
                             'anchor': sample['anchor']
                         }
                         self.sample_points.append(sample_point)
-                        print(f"DEBUG: Added sample {i} with RGB: {avg_rgb}, StdDev: {rgb_stddev}, enabled: {sample_point['enabled'].get()}")
+                        print(f"DEBUG: Added sample {i} with RGB: {avg_rgb}, RGB StdDev: {rgb_stddev}, L*a*b* StdDev: {lab_stddev}, enabled: {sample_point['enabled'].get()}")
                 except Exception as e:
                     print(f"DEBUG: Error processing sample {i}: {str(e)}")
                     continue
@@ -277,10 +278,11 @@ class SampleResultsManager(tk.Frame):
             # Color values with ΔE from average
             rgb = sample['rgb']
             rgb_stddev = sample.get('rgb_stddev', None)
+            lab_stddev = sample.get('lab_stddev', None)
             lab = self.library.rgb_to_lab(rgb) if self.library else None
             
             # Use conditional color display based on user preferences
-            from utils.color_display_utils import get_conditional_color_values_text
+            from utils.color_display_utils import get_conditional_color_values_text, get_conditional_stddev_text
             value_text = get_conditional_color_values_text(rgb, lab, compact=True)
             
             # Add blank line for separation
@@ -293,9 +295,10 @@ class SampleResultsManager(tk.Frame):
                 delta_e = analyzer.calculate_delta_e(lab, average_lab)
                 value_text += f"\nΔE from avg: {delta_e:.2f}"
             
-            # Add StdDev if available
-            if rgb_stddev:
-                value_text += f"\nStdDev: R={rgb_stddev[0]:.2f} G={rgb_stddev[1]:.2f} B={rgb_stddev[2]:.2f}"
+            # Add StdDev if available (conditionally based on user preferences)
+            stddev_text = get_conditional_stddev_text(rgb_stddev, lab_stddev)
+            if stddev_text:
+                value_text += f"\n{stddev_text}"
             
             ttk.Label(frame, text=value_text, font=("Arial", 12)).pack(side=tk.LEFT, padx=20)
             
@@ -793,7 +796,8 @@ class SampleResultsManager(tk.Frame):
                 sample_lab = self.library.rgb_to_lab(sample_rgb) if hasattr(self, 'library') and self.library else analyzer.rgb_to_lab(sample_rgb)
                 
                 # Get stddev values if available
-                sample_stddev = sample.get('rgb_stddev', None)
+                rgb_stddev = sample.get('rgb_stddev', None)
+                lab_stddev = sample.get('lab_stddev', None)
                 
                 measurement = {
                     'id': f"sample_{i}",
@@ -809,9 +813,12 @@ class SampleResultsManager(tk.Frame):
                     'sample_width': sample['size'][0],
                     'sample_height': sample['size'][1],
                     'anchor': sample['anchor'],
-                    'rgb_r_stddev': sample_stddev[0] if sample_stddev else None,
-                    'rgb_g_stddev': sample_stddev[1] if sample_stddev else None,
-                    'rgb_b_stddev': sample_stddev[2] if sample_stddev else None
+                    'rgb_r_stddev': rgb_stddev[0] if rgb_stddev else None,
+                    'rgb_g_stddev': rgb_stddev[1] if rgb_stddev else None,
+                    'rgb_b_stddev': rgb_stddev[2] if rgb_stddev else None,
+                    'lab_l_stddev': lab_stddev[0] if lab_stddev else None,
+                    'lab_a_stddev': lab_stddev[1] if lab_stddev else None,
+                    'lab_b_stddev': lab_stddev[2] if lab_stddev else None
                 }
                 sample_measurements.append(measurement)
             
@@ -850,7 +857,10 @@ class SampleResultsManager(tk.Frame):
                             notes=f"Sample from Results Manager",
                             rgb_r_stddev=measurement.get('rgb_r_stddev'),
                             rgb_g_stddev=measurement.get('rgb_g_stddev'),
-                            rgb_b_stddev=measurement.get('rgb_b_stddev')
+                            rgb_b_stddev=measurement.get('rgb_b_stddev'),
+                            lab_l_stddev=measurement.get('lab_l_stddev'),
+                            lab_a_stddev=measurement.get('lab_a_stddev'),
+                            lab_b_stddev=measurement.get('lab_b_stddev')
                         )
                         if not saved:
                             success_individual = False
@@ -1117,7 +1127,8 @@ class SampleResultsManager(tk.Frame):
                         sample_lab = self.library.rgb_to_lab(sample_rgb) if hasattr(self, 'library') and self.library else analyzer.rgb_to_lab(sample_rgb)
                         
                         # Get stddev values if available
-                        sample_stddev = sample.get('rgb_stddev', None)
+                        rgb_stddev = sample.get('rgb_stddev', None)
+                        lab_stddev = sample.get('lab_stddev', None)
                         
                         measurement = {
                             'id': f"sample_{i}",
@@ -1133,9 +1144,12 @@ class SampleResultsManager(tk.Frame):
                             'sample_width': sample['size'][0],
                             'sample_height': sample['size'][1],
                             'anchor': sample['anchor'],
-                            'rgb_r_stddev': sample_stddev[0] if sample_stddev else None,
-                            'rgb_g_stddev': sample_stddev[1] if sample_stddev else None,
-                            'rgb_b_stddev': sample_stddev[2] if sample_stddev else None
+                            'rgb_r_stddev': rgb_stddev[0] if rgb_stddev else None,
+                            'rgb_g_stddev': rgb_stddev[1] if rgb_stddev else None,
+                            'rgb_b_stddev': rgb_stddev[2] if rgb_stddev else None,
+                            'lab_l_stddev': lab_stddev[0] if lab_stddev else None,
+                            'lab_a_stddev': lab_stddev[1] if lab_stddev else None,
+                            'lab_b_stddev': lab_stddev[2] if lab_stddev else None
                         }
                         sample_measurements.append(measurement)
                     
@@ -1183,7 +1197,10 @@ class SampleResultsManager(tk.Frame):
                                     notes=f"Sample from Results Manager",
                                     rgb_r_stddev=measurement.get('rgb_r_stddev'),
                                     rgb_g_stddev=measurement.get('rgb_g_stddev'),
-                                    rgb_b_stddev=measurement.get('rgb_b_stddev')
+                                    rgb_b_stddev=measurement.get('rgb_b_stddev'),
+                                    lab_l_stddev=measurement.get('lab_l_stddev'),
+                                    lab_a_stddev=measurement.get('lab_a_stddev'),
+                                    lab_b_stddev=measurement.get('lab_b_stddev')
                                 )
                                 if not saved:
                                     success_individual = False
@@ -1310,7 +1327,8 @@ class SampleResultsManager(tk.Frame):
                 sample_lab = self.library.rgb_to_lab(sample_rgb) if hasattr(self, 'library') and self.library else analyzer.rgb_to_lab(sample_rgb)
                 
                 # Get stddev values if available
-                sample_stddev = sample.get('rgb_stddev', None)
+                rgb_stddev = sample.get('rgb_stddev', None)
+                lab_stddev = sample.get('lab_stddev', None)
                 
                 measurement = {
                     'coordinate_point': i,
@@ -1326,9 +1344,12 @@ class SampleResultsManager(tk.Frame):
                     'sample_width': sample['size'][0],
                     'sample_height': sample['size'][1],
                     'anchor': sample['anchor'],
-                    'rgb_r_stddev': sample_stddev[0] if sample_stddev else None,
-                    'rgb_g_stddev': sample_stddev[1] if sample_stddev else None,
-                    'rgb_b_stddev': sample_stddev[2] if sample_stddev else None
+                    'rgb_r_stddev': rgb_stddev[0] if rgb_stddev else None,
+                    'rgb_g_stddev': rgb_stddev[1] if rgb_stddev else None,
+                    'rgb_b_stddev': rgb_stddev[2] if rgb_stddev else None,
+                    'lab_l_stddev': lab_stddev[0] if lab_stddev else None,
+                    'lab_a_stddev': lab_stddev[1] if lab_stddev else None,
+                    'lab_b_stddev': lab_stddev[2] if lab_stddev else None
                 }
                 sample_measurements.append(measurement)
             

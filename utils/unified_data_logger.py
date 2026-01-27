@@ -142,19 +142,35 @@ class UnifiedDataLogger:
                 x_pos = measurement.get('x_position', 0)
                 y_pos = measurement.get('y_position', 0)
                 
-                # Get StdDev values if available
+                # Get RGB StdDev values if available
                 r_std = measurement.get('rgb_r_stddev')
                 g_std = measurement.get('rgb_g_stddev')
                 b_std = measurement.get('rgb_b_stddev')
+                
+                # Get L*a*b* StdDev values if available
+                l_std = measurement.get('lab_l_stddev')
+                a_std = measurement.get('lab_a_stddev')
+                b_lab_std = measurement.get('lab_b_stddev')
                 
                 line = (
                     f"  Sample {i}: L*a*b*=({l_val:.2f}, {a_val:.2f}, {b_val:.2f}) | "
                     f"RGB=({r_val:.1f}, {g_val:.1f}, {b_rgb_val:.1f})"
                 )
                 
-                # Add StdDev if available
-                if r_std is not None and g_std is not None and b_std is not None:
-                    line += f" | StdDev=({r_std:.2f}, {g_std:.2f}, {b_std:.2f})"
+                # Use conditional StdDev formatting based on preferences
+                try:
+                    from utils.color_display_utils import get_conditional_stddev_text
+                    rgb_stddev = (r_std, g_std, b_std) if all(v is not None for v in [r_std, g_std, b_std]) else None
+                    lab_stddev = (l_std, a_std, b_lab_std) if all(v is not None for v in [l_std, a_std, b_lab_std]) else None
+                    stddev_text = get_conditional_stddev_text(rgb_stddev, lab_stddev)
+                    if stddev_text:
+                        # Convert multiline stddev text to single line for log format
+                        stddev_text = stddev_text.replace('\n', ' | ')
+                        line += f" | {stddev_text}"
+                except Exception as e:
+                    # Fallback: show RGB StdDev if available
+                    if r_std is not None and g_std is not None and b_std is not None:
+                        line += f" | RGB StdDev=({r_std:.2f}, {g_std:.2f}, {b_std:.2f})"
                 
                 line += f" | Position=({x_pos:.1f}, {y_pos:.1f})"
                 

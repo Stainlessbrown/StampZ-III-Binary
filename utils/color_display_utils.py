@@ -128,3 +128,52 @@ def get_conditional_color_values_text(
             return "\n".join(fallback_parts)
         else:
             return get_conditional_color_info(rgb, lab)
+
+
+def get_conditional_stddev_text(
+    rgb_stddev: Optional[Tuple[float, float, float]] = None,
+    lab_stddev: Optional[Tuple[float, float, float]] = None
+) -> str:
+    """Generate standard deviation text based on user preferences.
+    
+    Args:
+        rgb_stddev: RGB standard deviation values (optional)
+        lab_stddev: L*a*b* standard deviation values (optional)
+        
+    Returns:
+        Formatted StdDev text based on user preferences, or empty string if no data
+    """
+    try:
+        from utils.user_preferences import get_preferences_manager
+        prefs = get_preferences_manager()
+        
+        # Get user preferences for what to display
+        show_rgb = prefs.get_export_include_rgb()
+        show_lab = prefs.get_export_include_lab()
+        
+        # Always show at least one if data is available
+        if not show_rgb and not show_lab:
+            show_rgb = True
+            show_lab = True
+        
+        parts = []
+        
+        # Add L*a*b* StdDev if enabled and available
+        if show_lab and lab_stddev is not None:
+            parts.append(f"L*a*b* StdDev: L*={lab_stddev[0]:.2f} a*={lab_stddev[1]:.2f} b*={lab_stddev[2]:.2f}")
+        
+        # Add RGB StdDev if enabled and available
+        if show_rgb and rgb_stddev is not None:
+            parts.append(f"RGB StdDev: R={rgb_stddev[0]:.2f} G={rgb_stddev[1]:.2f} B={rgb_stddev[2]:.2f}")
+        
+        return "\n".join(parts) if parts else ""
+        
+    except Exception as e:
+        print(f"Error getting StdDev display preferences: {e}")
+        # Fallback to showing all available values
+        parts = []
+        if lab_stddev is not None:
+            parts.append(f"L*a*b* StdDev: L*={lab_stddev[0]:.2f} a*={lab_stddev[1]:.2f} b*={lab_stddev[2]:.2f}")
+        if rgb_stddev is not None:
+            parts.append(f"RGB StdDev: R={rgb_stddev[0]:.2f} G={rgb_stddev[1]:.2f} B={rgb_stddev[2]:.2f}")
+        return "\n".join(parts) if parts else ""
