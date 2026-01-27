@@ -740,42 +740,66 @@ class StampZApp:
         print("DEBUG: Cleared all straightening points")
     
     def _save_leveled_image(self):
-        """Save the current leveled image with -lvl suffix."""
+        """Save the current leveled image, defaulting to overwriting the original."""
         if not self.canvas or not self.canvas.original_image:
             from tkinter import messagebox
             messagebox.showwarning("No Image", "Please open an image first.")
             return
         
         try:
-            from utils.filename_manager import get_leveled_filename
             from utils.save_as import SaveManager, SaveOptions, SaveFormat
             import os
             from tkinter import filedialog, messagebox
             
-            # Generate suggested filename
-            suggested_filename = get_leveled_filename(self.current_file)
-            
-            # Get save directory
+            # Determine target filepath
             if self.current_file:
-                initial_dir = os.path.dirname(self.current_file)
+                # Ask user if they want to overwrite the original or save as new file
+                response = messagebox.askyesnocancel(
+                    "Save Leveled Image",
+                    f"Save leveled image:\n\n"
+                    f"Yes - Overwrite original file (recommended)\n"
+                    f"{os.path.basename(self.current_file)}\n\n"
+                    f"No - Save as a new file with custom name\n\n"
+                    f"Cancel - Don't save"
+                )
+                
+                if response is None:  # Cancel
+                    return
+                elif response is True:  # Yes - overwrite original
+                    filepath = self.current_file
+                else:  # No - save as new file
+                    # Let user choose new filename and location
+                    initial_dir = os.path.dirname(self.current_file)
+                    filepath = filedialog.asksaveasfilename(
+                        initialdir=initial_dir,
+                        initialfile=os.path.basename(self.current_file),
+                        defaultextension=".tif",
+                        filetypes=[
+                            ('TIFF (Recommended)', '*.tif *.tiff'),
+                            ('PNG (Lossless)', '*.png'),
+                            ('All files', '*.*')
+                        ]
+                    )
+                    if not filepath:
+                        return  # User cancelled file dialog
             else:
+                # No current file - ask for save location
                 from utils.user_preferences import get_preferences_manager
                 initial_dir = get_preferences_manager().get_last_open_directory()
-            
-            # Ask user for save location
-            filepath = filedialog.asksaveasfilename(
-                initialdir=initial_dir,
-                initialfile=suggested_filename,
-                defaultextension=".tif",
-                filetypes=[
-                    ('TIFF (Recommended)', '*.tif *.tiff'),
-                    ('PNG (Lossless)', '*.png'),
-                    ('All files', '*.*')
-                ]
-            )
-            
-            if not filepath:
-                return  # User cancelled
+                
+                filepath = filedialog.asksaveasfilename(
+                    initialdir=initial_dir,
+                    initialfile="leveled.tif",
+                    defaultextension=".tif",
+                    filetypes=[
+                        ('TIFF (Recommended)', '*.tif *.tiff'),
+                        ('PNG (Lossless)', '*.png'),
+                        ('All files', '*.*')
+                    ]
+                )
+                
+                if not filepath:
+                    return  # User cancelled
             
             # Save the image
             save_manager = SaveManager()
