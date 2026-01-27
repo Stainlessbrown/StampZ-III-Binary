@@ -41,6 +41,7 @@ class ColorMeasurement:
     sample_area: Dict[str, Any]       # Sample area info
     measurement_date: str
     notes: Optional[str] = None
+    rgb_stddev: Optional[Tuple[float, float, float]] = None  # RGB standard deviations
 
 class ColorAnalyzer:
     """Analyze colors from coordinate sample areas."""
@@ -252,7 +253,7 @@ class ColorAnalyzer:
         for i, coord in enumerate(coordinates):
             try:
                 # Extract color from this sample area
-                rgb_values = self._sample_area_color(image, coord)
+                rgb_values, rgb_stddev = self._sample_area_color(image, coord)
                 if rgb_values:
                     avg_rgb = self._calculate_average_color(rgb_values)
                     lab_values = self.rgb_to_lab(avg_rgb)
@@ -268,7 +269,8 @@ class ColorAnalyzer:
                             'size': coord.sample_size,
                             'anchor': coord.anchor_position
                         },
-                        measurement_date=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        measurement_date=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        rgb_stddev=rgb_stddev
                     )
                     measurements.append(measurement)
                     
@@ -320,7 +322,7 @@ class ColorAnalyzer:
                 temp_coord = TempCoord(x, y, sample_type, sample_width, sample_height, anchor)
                 
                 # Extract color from this sample area using existing method
-                rgb_values = self._sample_area_color(image, temp_coord)
+                rgb_values, rgb_stddev = self._sample_area_color(image, temp_coord)
                 if rgb_values:
                     avg_rgb = self._calculate_average_color(rgb_values)
                     lab_values = self.rgb_to_lab(avg_rgb)
@@ -336,7 +338,8 @@ class ColorAnalyzer:
                             'size': (sample_width, sample_height),
                             'anchor': anchor
                         },
-                        measurement_date=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        measurement_date=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        rgb_stddev=rgb_stddev
                     )
                     measurements.append(measurement)
                     
@@ -346,7 +349,7 @@ class ColorAnalyzer:
         
         return measurements
     
-    def _sample_area_color(self, image: Image.Image, coord) -> Optional[List[Tuple[int, int, int]]]:
+    def _sample_area_color(self, image: Image.Image, coord) -> Tuple[Optional[List[Tuple[int, int, int]]], Optional[Tuple[float, float, float]]]:
         """Sample colors from a specific coordinate area.
         
         Args:
@@ -354,7 +357,7 @@ class ColorAnalyzer:
             coord: Coordinate point defining the sample area
             
         Returns:
-            List of RGB tuples from the sampled area, or None if sampling failed
+            Tuple of (List of RGB tuples from the sampled area, RGB standard deviations), or (None, None) if sampling failed
         """
         try:
             # Get sample area boundaries
@@ -364,15 +367,15 @@ class ColorAnalyzer:
                 bounds = self._get_circle_bounds(image, coord)
             
             if not bounds:
-                return None
+                return None, None
             
-            # Extract pixels from the area
-            pixels = self._extract_pixels_from_bounds(image, bounds, coord.sample_type)
-            return pixels
+            # Extract pixels from the area with standard deviation
+            pixels, rgb_stddev = self._extract_pixels_from_bounds(image, bounds, coord.sample_type)
+            return pixels, rgb_stddev
             
         except Exception as e:
             print(f"Error sampling area: {e}")
-            return None
+            return None, None
     
     def _get_rectangle_bounds(self, image: Image.Image, coord: CoordinatePoint) -> Optional[Tuple[int, int, int, int]]:
         """Calculate rectangle bounds for sampling.
@@ -475,7 +478,7 @@ class ColorAnalyzer:
         return (left, top, right, bottom)
     
     def _extract_pixels_from_bounds(self, image: Image.Image, bounds: Tuple[int, int, int, int], 
-                                   sample_type: SampleAreaType) -> List[Tuple[int, int, int]]:
+                                   sample_type: SampleAreaType) -> Tuple[List[Tuple[int, int, int]], Tuple[float, float, float]]:
         """Extract pixel colors from the specified bounds.
         
         Args:
@@ -484,7 +487,7 @@ class ColorAnalyzer:
             sample_type: Type of sampling area
             
         Returns:
-            List of RGB tuples
+            Tuple of (List of RGB tuples, RGB standard deviations)
         """
         left, top, right, bottom = bounds
         pixels = []
@@ -570,18 +573,35 @@ class ColorAnalyzer:
         if not pixels:
             print(f"Warning: No valid pixels found in sample area ({left}, {top}, {right}, {bottom})")
             # Use neutral gray as fallback if no pixels found
-            return [(128, 128, 128)]  # Neutral gray fallback
+            return [(128, 128, 128)], (0.0, 0.0, 0.0)  # Neutral gray fallback with zero stddev
         
         # Calculate true averages from all sampled pixels
         avg_r = total_r / total_pixels if total_pixels > 0 else 128.0
         avg_g = total_g / total_pixels if total_pixels > 0 else 128.0
         avg_b = total_b / total_pixels if total_pixels > 0 else 128.0
         
+        # Calculate standard deviation for each RGB channel
+        if total_pixels > 1:
+            # Calculate variance
+            var_r = sum((float(p[0]) - avg_r) ** 2 for p in pixels) / total_pixels
+            var_g = sum((float(p[1]) - avg_g) ** 2 for p in pixels) / total_pixels
+            var_b = sum((float(p[2]) - avg_b) ** 2 for p in pixels) / total_pixels
+            
+            # Standard deviation is square root of variance
+            std_r = var_r ** 0.5
+            std_g = var_g ** 0.5
+            std_b = var_b ** 0.5
+        else:
+            std_r = std_g = std_b = 0.0
+        
+        rgb_stddev = (std_r, std_g, std_b)
+        
         print(f"Sample area ({left}, {top}, {right}, {bottom}): {total_pixels} pixels sampled")
         print(f"Area average RGB: ({avg_r:.2f}, {avg_g:.2f}, {avg_b:.2f})")
+        print(f"RGB StdDev: ({std_r:.2f}, {std_g:.2f}, {std_b:.2f})")
         
-        # Return the average color with full decimal precision
-        return [(avg_r, avg_g, avg_b)]
+        # Return the average color with full decimal precision and standard deviation
+        return [(avg_r, avg_g, avg_b)], rgb_stddev
     
     def _calculate_average_color(self, pixels: List[Tuple[int, int, int]]) -> Tuple[float, float, float]:
         """Calculate average color from a list of pixels.

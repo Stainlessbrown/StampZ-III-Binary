@@ -191,6 +191,25 @@ class ColorAnalysisDB:
             except sqlite3.OperationalError:
                 pass  # Column already exists
             
+            # Add RGB standard deviation columns
+            try:
+                cursor.execute("ALTER TABLE color_measurements ADD COLUMN rgb_r_stddev REAL")
+                print("Added rgb_r_stddev column")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+            
+            try:
+                cursor.execute("ALTER TABLE color_measurements ADD COLUMN rgb_g_stddev REAL")
+                print("Added rgb_g_stddev column")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+            
+            try:
+                cursor.execute("ALTER TABLE color_measurements ADD COLUMN rgb_b_stddev REAL")
+                print("Added rgb_b_stddev column")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+            
             # Index for faster queries
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_set_point 
@@ -238,7 +257,10 @@ class ColorAnalysisDB:
         sample_size: Optional[str] = None,
         sample_anchor: Optional[str] = None,
         notes: Optional[str] = None,
-        replace_existing: bool = True
+        replace_existing: bool = True,
+        rgb_r_stddev: Optional[float] = None,
+        rgb_g_stddev: Optional[float] = None,
+        rgb_b_stddev: Optional[float] = None
     ) -> bool:
         """Save a color measurement with deduplication.
         
@@ -274,12 +296,14 @@ class ColorAnalysisDB:
                                 rgb_r = ?, rgb_g = ?, rgb_b = ?,
                                 sample_type = ?, sample_size = ?, sample_anchor = ?,
                                 measurement_date = datetime('now', 'localtime'),
-                                notes = ?
+                                notes = ?,
+                                rgb_r_stddev = ?, rgb_g_stddev = ?, rgb_b_stddev = ?
                             WHERE set_id = ? AND coordinate_point = ?
                         """, (
                             x_pos, y_pos, l_value, a_value, b_value,
                             rgb_r, rgb_g, rgb_b, sample_type, sample_size, sample_anchor,
-                            notes, set_id, coordinate_point
+                            notes, rgb_r_stddev, rgb_g_stddev, rgb_b_stddev,
+                            set_id, coordinate_point
                         ))
                         print(f"Updated existing measurement for point {coordinate_point}")
                     else:
@@ -288,12 +312,14 @@ class ColorAnalysisDB:
                             INSERT INTO color_measurements (
                                 set_id, coordinate_point, x_position, y_position,
                                 l_value, a_value, b_value, rgb_r, rgb_g, rgb_b,
-                                sample_type, sample_size, sample_anchor, notes
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                sample_type, sample_size, sample_anchor, notes,
+                                rgb_r_stddev, rgb_g_stddev, rgb_b_stddev
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """, (
                             set_id, coordinate_point, x_pos, y_pos,
                             l_value, a_value, b_value, rgb_r, rgb_g, rgb_b,
-                            sample_type, sample_size, sample_anchor, notes
+                            sample_type, sample_size, sample_anchor, notes,
+                            rgb_r_stddev, rgb_g_stddev, rgb_b_stddev
                         ))
                         print(f"Inserted new measurement for set {set_id} point {coordinate_point}")
                 else:
@@ -302,12 +328,14 @@ class ColorAnalysisDB:
                         INSERT INTO color_measurements (
                             set_id, coordinate_point, x_position, y_position,
                             l_value, a_value, b_value, rgb_r, rgb_g, rgb_b,
-                            sample_type, sample_size, sample_anchor, notes
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            sample_type, sample_size, sample_anchor, notes,
+                            rgb_r_stddev, rgb_g_stddev, rgb_b_stddev
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         set_id, coordinate_point, x_pos, y_pos,
                         l_value, a_value, b_value, rgb_r, rgb_g, rgb_b,
-                        sample_type, sample_size, sample_anchor, notes
+                        sample_type, sample_size, sample_anchor, notes,
+                        rgb_r_stddev, rgb_g_stddev, rgb_b_stddev
                     ))
                     
                 return True

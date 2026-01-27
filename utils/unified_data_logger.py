@@ -142,11 +142,23 @@ class UnifiedDataLogger:
                 x_pos = measurement.get('x_position', 0)
                 y_pos = measurement.get('y_position', 0)
                 
-                measurement_lines.append(
+                # Get StdDev values if available
+                r_std = measurement.get('rgb_r_stddev')
+                g_std = measurement.get('rgb_g_stddev')
+                b_std = measurement.get('rgb_b_stddev')
+                
+                line = (
                     f"  Sample {i}: L*a*b*=({l_val:.2f}, {a_val:.2f}, {b_val:.2f}) | "
-                    f"RGB=({r_val:.1f}, {g_val:.1f}, {b_rgb_val:.1f}) | "
-                    f"Position=({x_pos:.1f}, {y_pos:.1f})"
+                    f"RGB=({r_val:.1f}, {g_val:.1f}, {b_rgb_val:.1f})"
                 )
+                
+                # Add StdDev if available
+                if r_std is not None and g_std is not None and b_std is not None:
+                    line += f" | StdDev=({r_std:.2f}, {g_std:.2f}, {b_std:.2f})"
+                
+                line += f" | Position=({x_pos:.1f}, {y_pos:.1f})"
+                
+                measurement_lines.append(line)
             
             data["Individual Measurements"] = "\n" + "\n".join(measurement_lines) if measurement_lines else "None"
             
