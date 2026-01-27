@@ -283,24 +283,27 @@ class SampleResultsManager(tk.Frame):
             from utils.color_display_utils import get_conditional_color_values_text
             value_text = get_conditional_color_values_text(rgb, lab, compact=True)
             
+            # Add blank line for separation
+            value_text += "\n"
+            
             # Add ΔE from average if we have both values
             if lab and average_lab and sample['enabled'].get():
                 from utils.color_analyzer import ColorAnalyzer
                 analyzer = ColorAnalyzer()
                 delta_e = analyzer.calculate_delta_e(lab, average_lab)
-                value_text += f"\\nΔE from avg: {delta_e:.2f}"
+                value_text += f"\nΔE from avg: {delta_e:.2f}"
             
             # Add StdDev if available
             if rgb_stddev:
-                value_text += f"\\nStdDev: R={rgb_stddev[0]:.2f} G={rgb_stddev[1]:.2f} B={rgb_stddev[2]:.2f}"
+                value_text += f"\nStdDev: R={rgb_stddev[0]:.2f} G={rgb_stddev[1]:.2f} B={rgb_stddev[2]:.2f}"
             
             ttk.Label(frame, text=value_text, font=("Arial", 12)).pack(side=tk.LEFT, padx=20)
             
-            # Color swatch using canvas
+            # Color swatch using canvas - increased height to accommodate multi-line text
             canvas = tk.Canvas(
                 frame,
                 width=450,
-                height=60,
+                height=100,
                 highlightthickness=1,
                 highlightbackground='gray'
             )
@@ -308,7 +311,7 @@ class SampleResultsManager(tk.Frame):
             
             # Create rectangle for color display
             canvas.create_rectangle(
-                0, 0, 450, 60,
+                0, 0, 450, 100,
                 fill=f"#{int(rgb[0]):02x}{int(rgb[1]):02x}{int(rgb[2]):02x}",
                 outline=''
             )

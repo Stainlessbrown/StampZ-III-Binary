@@ -32,7 +32,7 @@ class BulkAlignmentDialog:
         # Create dialog window
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("Bulk Image Alignment")
-        self.dialog.geometry("700x600")
+        self.dialog.geometry("700x680")
         self.dialog.resizable(True, True)
         
         # Make dialog modal
@@ -60,7 +60,7 @@ class BulkAlignmentDialog:
         
         # Get dialog size
         dialog_width = 700
-        dialog_height = 600
+        dialog_height = 680
         
         # Calculate center position
         x = parent_x + (parent_width - dialog_width) // 2
