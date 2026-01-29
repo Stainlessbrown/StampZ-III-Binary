@@ -278,15 +278,25 @@ class KMeansFileHandler:
                     cluster_centroids = self._calculate_centroids()
                     
                     # Prepare updates
+                    # CRITICAL FIX: DataFrame index != sheet row number
+                    # When user specifies rows 8-66, those are the actual sheet rows
+                    # DataFrame indices are 0-based after loading
+                    # We need to map DataFrame index back to original sheet row
                     data_point_updates = []
                     for i, idx in enumerate(row_indices):
-                        sheet_row_idx = idx + 1
+                        # For external worksheets, DataFrame row 0 = sheet row 2 (after header)
+                        # So DataFrame index X = sheet row (X + 2)
+                        # But wait - the user specified rows 8-66 as their range
+                        # Those correspond to DataFrame indices that start at the beginning
+                        # Need to calculate actual sheet row from start parameter
+                        sheet_row_idx = idx + 2  # DataFrame index to sheet row (header is row 1)
                         cluster_value = clusters.iloc[i]
                         if pd.notna(cluster_value):
                             data_point_updates.append({
                                 'row': sheet_row_idx,
                                 'cluster': int(cluster_value)
                             })
+                            self.logger.info(f"Prepared update: DataFrame idx {idx} → sheet row {sheet_row_idx} = cluster {int(cluster_value)}")
                     
                     # Prepare centroid updates
                     centroid_row_mapping = {}
@@ -318,15 +328,28 @@ class KMeansFileHandler:
                                 pass
                     
                     # Update data points
+                    successful_writes = 0
+                    failed_writes = 0
                     for update in data_point_updates:
                         try:
                             row_idx = update['row']
                             cluster_value = update['cluster']
                             cluster_cell = sheet[row_idx, cluster_col_idx]
+                            if cluster_cell is None:
+                                self.logger.error(f"Cell at row {row_idx}, col {cluster_col_idx} is None!")
+                                failed_writes += 1
+                                continue
                             cluster_cell.set_value(cluster_value)
-                            self.logger.debug(f"Updated row {row_idx} with cluster {cluster_value}")
+                            successful_writes += 1
+                            self.logger.info(f"✓ Updated row {row_idx} with cluster {cluster_value}")
                         except Exception as e:
-                            self.logger.warning(f"Failed to update cluster at row {row_idx}: {str(e)}")
+                            failed_writes += 1
+                            self.logger.error(f"✗ Failed to update cluster at row {row_idx}: {str(e)}")
+                    
+                    self.logger.info(f"Cluster assignment write summary: {successful_writes} successful, {failed_writes} failed")
+                    
+                    if failed_writes > 0 and successful_writes == 0:
+                        raise ValueError(f"Failed to write any cluster assignments! All {failed_writes} writes failed.")
                     
                     # Update centroid rows
                     for update in centroid_updates:
