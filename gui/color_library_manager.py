@@ -105,6 +105,9 @@ class ColorLibraryManager:
         # Load initial library
         self._load_library(self.current_library_name)
         
+        # Bind tab change event to sync data between Results and Compare
+        self.notebook.bind('<<NotebookTabChanged>>', self._on_tab_changed)
+        
         # Center window
         self.root.update_idletasks()
         x = (screen_width - window_width) // 2
@@ -1517,6 +1520,53 @@ class ColorLibraryManager:
                 "Initialization Error",
                 f"Failed to complete comparison initialization:\n\n{str(e)}"
             )
+    
+    def _on_tab_changed(self, event=None):
+        """Handle notebook tab changes - sync data when switching to Compare tab."""
+        try:
+            # Get the currently selected tab index
+            current_tab = self.notebook.index(self.notebook.select())
+            
+            # Tab indices: 0=Library, 1=Results, 2=Compare, 3=Settings
+            # When switching to Compare tab (index 2), transfer data from Results
+            if current_tab == 2:  # Compare tab
+                print("DEBUG: Switched to Compare tab, syncing data from Results")
+                
+                # Check if Results has sample data
+                if (hasattr(self, 'results_manager') and 
+                    hasattr(self.results_manager, 'sample_points') and 
+                    self.results_manager.sample_points and
+                    hasattr(self.results_manager, 'current_file_path')):
+                    
+                    print(f"DEBUG: Found {len(self.results_manager.sample_points)} samples in Results")
+                    
+                    # Reconstruct sample_data from results_manager's sample_points
+                    sample_data = []
+                    for sp in self.results_manager.sample_points:
+                        sample_data.append({
+                            'position': sp['position'],
+                            'type': sp['type'],
+                            'size': sp['size'],
+                            'anchor': sp['anchor']
+                        })
+                    
+                    # Transfer to Compare tab
+                    if hasattr(self, 'comparison_manager'):
+                        print("DEBUG: Transferring data to comparison_manager")
+                        self.comparison_manager.set_analyzed_data(
+                            image_path=self.results_manager.current_file_path,
+                            sample_data=sample_data
+                        )
+                        print("DEBUG: Data transfer complete")
+                    else:
+                        print("DEBUG: comparison_manager not found")
+                else:
+                    print("DEBUG: No sample data available in Results to transfer")
+                    
+        except Exception as e:
+            print(f"DEBUG: Error in _on_tab_changed: {e}")
+            import traceback
+            traceback.print_exc()
     
     def quit_app(self):
         """Close the color library manager window."""

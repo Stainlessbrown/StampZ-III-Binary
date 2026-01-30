@@ -427,8 +427,14 @@ class StampZApp:
         
         # Load the coordinates as visual markers
         from utils.coordinate_db import SampleAreaType
+        print(f"DEBUG: Loading {len(coordinates)} coordinates")
+        print(f"DEBUG: Current image scale: {self.canvas.core.image_scale}")
+        print(f"DEBUG: Current image offset: {self.canvas.core.image_offset}")
+        print(f"DEBUG: Image dimensions: {self.canvas.original_image.width}x{self.canvas.original_image.height}")
+        
         for i, coord in enumerate(coordinates):
             canvas_x, canvas_y = self.canvas._image_to_screen_coords(coord.x, coord.y)
+            print(f"DEBUG: Coord {i+1}: image({coord.x:.1f}, {coord.y:.1f}) -> screen({canvas_x}, {canvas_y})")
             
             sample_type = 'circle' if coord.sample_type == SampleAreaType.CIRCLE else 'rectangle'
             
@@ -487,6 +493,102 @@ class StampZApp:
         self.control_panel.sample_set_name.set(selected_set)
         self.control_panel.update_sample_controls_from_coordinates(coordinates)
         
+    def _update_sample_set(self):
+        """Update existing template with current changes (positions and settings)."""
+        print("DEBUG: _update_sample_set() called in stampz_app.py")
+        try:
+            # Get the current template name
+            sample_set_name = self.control_panel.sample_set_name.get().strip()
+            if not sample_set_name:
+                from tkinter import messagebox
+                messagebox.showwarning(
+                    "No Template",
+                    "No template is currently loaded. Use Save to create a new template."
+                )
+                return
+            
+            # Check if we have sample markers to update
+            if not hasattr(self.canvas, '_coord_markers') or not self.canvas._coord_markers:
+                from tkinter import messagebox
+                messagebox.showwarning(
+                    "No Samples",
+                    "No sample points found. Please place some sample markers first."
+                )
+                return
+
+            if not self.canvas.original_image:
+                from tkinter import messagebox
+                messagebox.showwarning(
+                    "No Image",
+                    "Please open an image before updating samples."
+                )
+                return
+
+            # Create coordinate points from current markers
+            from utils.coordinate_db import CoordinateDB, CoordinatePoint, SampleAreaType
+            coordinates = []
+            for marker in self.canvas._coord_markers:
+                if marker.get('is_preview', False):
+                    continue
+
+                # Get marker data
+                image_x, image_y = marker['image_pos']
+                sample_type = SampleAreaType.CIRCLE if marker['sample_type'] == 'circle' else SampleAreaType.RECTANGLE
+                width = float(marker['sample_width'])
+                height = float(marker['sample_height'])
+                anchor = marker['anchor']
+
+                # Create coordinate point
+                coord = CoordinatePoint(
+                    x=image_x,
+                    y=image_y,
+                    sample_type=sample_type,
+                    sample_size=(width, height),
+                    anchor_position=anchor
+                )
+                coordinates.append(coord)
+
+            # Update in database (save_coordinate_set will overwrite existing)
+            db = CoordinateDB()
+            success, standardized_name = db.save_coordinate_set(
+                name=sample_set_name,
+                image_path=self.current_file,
+                coordinates=coordinates
+            )
+
+            if success:
+                # Update the template name in control panel to the standardized name
+                self.control_panel.sample_set_name.set(standardized_name)
+                
+                # Update template protection with new coordinates
+                if hasattr(self.control_panel, 'template_protection'):
+                    self.control_panel.template_protection.protect_template(standardized_name, coordinates)
+                
+                # Refresh the template dropdown
+                if hasattr(self.control_panel, '_refresh_sample_sets'):
+                    self.control_panel._refresh_sample_sets(show_feedback=False)
+                
+                from tkinter import messagebox
+                messagebox.showinfo(
+                    "Success",
+                    f"Successfully updated template '{standardized_name}' with {len(coordinates)} sample points."
+                )
+            else:
+                from tkinter import messagebox
+                messagebox.showerror(
+                    "Update Error",
+                    f"Failed to update template '{sample_set_name}'. {standardized_name}"
+                )
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            from tkinter import messagebox
+            messagebox.showerror(
+                "Update Error",
+                f"Failed to update sample set:\\n\\n{str(e)}"
+            )
+
     def _save_sample_set(self):
         """Save the current coordinate sample set."""
         print("DEBUG: _save_sample_set() called in main.py")
@@ -529,6 +631,9 @@ class StampZApp:
             # Create coordinate points from markers
             from utils.coordinate_db import CoordinateDB, CoordinatePoint, SampleAreaType
             print("DEBUG: About to create coordinates from markers")
+            print(f"DEBUG: Current image scale: {self.canvas.core.image_scale}")
+            print(f"DEBUG: Current image offset: {self.canvas.core.image_offset}")
+            print(f"DEBUG: Image dimensions: {self.canvas.original_image.width}x{self.canvas.original_image.height}")
             coordinates = []
             for marker in self.canvas._coord_markers:
                 if marker.get('is_preview', False):

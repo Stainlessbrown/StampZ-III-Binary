@@ -278,25 +278,22 @@ class KMeansFileHandler:
                     cluster_centroids = self._calculate_centroids()
                     
                     # Prepare updates
-                    # CRITICAL FIX: DataFrame index != sheet row number
-                    # When user specifies rows 8-66, those are the actual sheet rows
-                    # DataFrame indices are 0-based after loading
-                    # We need to map DataFrame index back to original sheet row
+                    # CRITICAL: ezodf uses 0-based row indexing, unlike openpyxl
+                    # ezodf row 0 = first row (header), row 1 = first data row
+                    # openpyxl row 1 = first row (header), row 2 = first data row
+                    # DataFrame index 0 = first data row
                     data_point_updates = []
                     for i, idx in enumerate(row_indices):
-                        # For external worksheets, DataFrame row 0 = sheet row 2 (after header)
-                        # So DataFrame index X = sheet row (X + 2)
-                        # But wait - the user specified rows 8-66 as their range
-                        # Those correspond to DataFrame indices that start at the beginning
-                        # Need to calculate actual sheet row from start parameter
-                        sheet_row_idx = idx + 2  # DataFrame index to sheet row (header is row 1)
+                        # For ODS with ezodf: DataFrame index X = ezodf row (X + 1)
+                        # +1 accounts for header row at ezodf row 0
+                        sheet_row_idx = idx + 1  # DataFrame index to ezodf row (0-based)
                         cluster_value = clusters.iloc[i]
                         if pd.notna(cluster_value):
                             data_point_updates.append({
                                 'row': sheet_row_idx,
                                 'cluster': int(cluster_value)
                             })
-                            self.logger.info(f"Prepared update: DataFrame idx {idx} → sheet row {sheet_row_idx} = cluster {int(cluster_value)}")
+                            self.logger.info(f"Prepared update: DataFrame idx {idx} → ezodf row {sheet_row_idx} = cluster {int(cluster_value)}")
                     
                     # Prepare centroid updates
                     centroid_row_mapping = {}
