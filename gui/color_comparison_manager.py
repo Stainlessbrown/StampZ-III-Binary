@@ -282,9 +282,11 @@ class ColorComparisonManager(tk.Frame):
                         anchor=sample['anchor']
                     )
                     
-                    # Sample the color
-                    rgb_values = analyzer._sample_area_color(self.current_image, temp_coord)
-                    if rgb_values:
+                    # Sample the color - _sample_area_color now returns 3 values
+                    result = analyzer._sample_area_color(self.current_image, temp_coord)
+                    if result:
+                        # Unpack the returned tuple (rgb_values, rgb_stddev, lab_stddev)
+                        rgb_values, rgb_stddev, lab_stddev = result
                         avg_rgb = analyzer._calculate_average_color(rgb_values)
                         
                         # Store the sample point data for comparison
