@@ -43,19 +43,30 @@ def launch_full_stampz():
     log_file = desktop_path / "StampZ_Debug_Log.txt"
     
     # Configure logging with both file and console handlers
+    file_handler = logging.FileHandler(log_file, mode='w', encoding='utf-8')
+    file_handler.setLevel(logging.INFO)
+    
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setLevel(logging.INFO)
+    
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(sys.stdout),  # Console output
-            logging.FileHandler(log_file, mode='w', encoding='utf-8')  # File output
-        ]
+        handlers=[stream_handler, file_handler],
+        force=True  # Force reconfiguration
     )
+    
+    # Force immediate flush for file handler
+    for handler in logging.root.handlers:
+        if isinstance(handler, logging.FileHandler):
+            handler.flush()
     
     # Setup custom stdout/stderr to capture DEBUG statements to log file
     try:
         from utils.debug_capture import setup_debug_capture
         setup_debug_capture(log_file)
+        # Test that debug capture is working
+        print(f"DEBUG: Debug capture initialized successfully")
     except Exception as e:
         logger.warning(f"Could not setup debug capture: {e}")
         print(f"Warning: Debug capture not available: {e}")
@@ -69,6 +80,14 @@ def launch_full_stampz():
     if getattr(sys, 'frozen', False):
         logger.info(f"Running as PyInstaller bundle")
         logger.info(f"Bundle dir: {sys._MEIPASS}")
+        # In bundled apps, explicitly write to log file since stdout might not be captured
+        try:
+            with open(log_file, 'a', encoding='utf-8') as f:
+                f.write(f"\n=== StampZ-III Bundled App Session ===\n")
+                f.write(f"Bundle directory: {sys._MEIPASS}\n")
+                f.flush()
+        except Exception:
+            pass
     else:
         logger.info(f"Running from source")
     

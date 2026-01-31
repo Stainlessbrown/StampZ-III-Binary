@@ -484,7 +484,7 @@ class HueWheelViewer:
             theta,
             r,
             c=l_normalized,
-            cmap='gray',  # Grayscale to show L* variation
+            cmap='viridis',  # Viridis: dark purple (low L*) to bright yellow (high L*)
             s=size_value,  # Adjustable point size
             alpha=0.8,
             edgecolors='black',
