@@ -163,6 +163,9 @@ class PreferencesDialog:
         # Measurement preferences tab
         self._create_measurement_tab(notebook)
         
+        # Debug preferences tab
+        self._create_debug_tab(notebook)
+        
         # Future tabs can be added here
         # self._create_general_tab(notebook)
         # self._create_appearance_tab(notebook)
@@ -1243,6 +1246,9 @@ class PreferencesDialog:
         self.perforation_enabled_var.set(self.prefs_manager.get_perforation_measurement_enabled())
         self.default_bg_color_var.set(self.prefs_manager.get_default_background_color())
         
+        # Debug preferences
+        self.debug_logging_var.set(self.prefs_manager.get('debug_logging_enabled', False))
+        
         # Update preview
         self._update_filename_preview()
     
@@ -1393,6 +1399,17 @@ class PreferencesDialog:
             self.prefs_manager.set_perforation_measurement_enabled(self.perforation_enabled_var.get())
             self.prefs_manager.set_default_background_color(self.default_bg_color_var.get())
             
+            # Debug preferences
+            debug_enabled = self.debug_logging_var.get()
+            self.prefs_manager.set('debug_logging_enabled', debug_enabled)
+            
+            # Apply debug logging setting immediately
+            try:
+                from utils.debug_logger import set_debug_enabled
+                set_debug_enabled(debug_enabled)
+            except Exception as e:
+                print(f"Warning: Could not apply debug logging setting: {e}")
+            
             # Save preferences
             success = self.prefs_manager.save_preferences()
             
@@ -1448,6 +1465,75 @@ class PreferencesDialog:
                 "Color Space Required",
                 "At least one color space (RGB, L*a*b*, or CMY) must be selected for exports.\n\nRGB has been re-enabled."
             )
+    
+    def _create_debug_tab(self, notebook):
+        """Create the debug preferences tab."""
+        debug_frame = ttk.Frame(notebook, padding="10")
+        notebook.add(debug_frame, text="Debug")
+        
+        # Debug logging section
+        logging_frame = ttk.LabelFrame(debug_frame, text="Debug Logging", padding="10")
+        logging_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Description
+        ttk.Label(
+            logging_frame,
+            text="Enable debug logging to troubleshoot issues and report problems.",
+            wraplength=600,
+            justify=tk.LEFT
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Debug logging toggle
+        self.debug_logging_var = tk.BooleanVar()
+        debug_checkbox = ttk.Checkbutton(
+            logging_frame,
+            text="Enable debug logging (writes detailed information to terminal/console)",
+            variable=self.debug_logging_var
+        )
+        debug_checkbox.pack(anchor=tk.W, pady=(0, 10))
+        
+        # Info about what gets logged
+        info_frame = ttk.Frame(logging_frame)
+        info_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        info_text = (
+            "When enabled, StampZ will output detailed debug information including:\n"
+            "• Coordinate loading and transformation details\n"
+            "• Sample area calculations and positioning\n"
+            "• Image processing steps\n"
+            "• Color analysis progress\n"
+            "• File operations and database queries\n\n"
+            "This information is helpful for troubleshooting issues or reporting bugs.\n"
+            "Debug output appears in the Terminal (macOS/Linux) or Command Prompt (Windows)."
+        )
+        
+        ttk.Label(
+            info_frame,
+            text=info_text,
+            wraplength=600,
+            justify=tk.LEFT,
+            font=("TkDefaultFont", 9),
+            foreground="gray"
+        ).pack(anchor=tk.W)
+        
+        # Note about performance
+        note_frame = ttk.LabelFrame(debug_frame, text="Note", padding="10")
+        note_frame.pack(fill=tk.X)
+        
+        note_text = (
+            "Debug logging may slightly reduce performance and produces verbose output. "
+            "It's recommended to enable this only when needed for troubleshooting.\n\n"
+            "Changes take effect immediately after clicking OK or Apply."
+        )
+        
+        ttk.Label(
+            note_frame,
+            text=note_text,
+            wraplength=600,
+            justify=tk.LEFT,
+            font=("TkDefaultFont", 9),
+            foreground="orange"
+        ).pack(anchor=tk.W)
     
     def _on_cancel(self):
         """Handle Cancel button."""

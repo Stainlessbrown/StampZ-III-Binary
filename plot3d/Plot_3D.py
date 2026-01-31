@@ -1438,7 +1438,8 @@ class Plot3DApp:
             self.control_frame,
             on_rotation_change=self._rotation_changed_callback,
             trendline_manager=self.trendline_manager,
-            plotly_callback=self._open_plotly_view
+            plotly_callback=self._open_plotly_view,
+            hue_wheel_callback=self._open_hue_wheel_view
         )
         self.rotation_controls.grid(row=2, column=0, sticky='ew', padx=5, pady=5)
         
@@ -1859,6 +1860,31 @@ class Plot3DApp:
             print(f"Error opening Plotly view: {e}")
             import traceback
             traceback.print_exc()
+    
+    def _open_hue_wheel_view(self):
+        """Open the Hue Wheel polar plot viewer."""
+        try:
+            # Import the hue wheel viewer function
+            from .hue_wheel_view import open_hue_wheel_view
+            
+            # Check if we have valid data
+            if self.df is None or len(self.df) == 0:
+                print("No data available for Hue Wheel view")
+                from tkinter import messagebox
+                messagebox.showwarning("No Data", "No color data available to visualize.")
+                return
+            
+            print(f"Opening Hue Wheel view with {len(self.df)} data points...")
+            
+            # Open the hue wheel viewer
+            open_hue_wheel_view(parent=self.root, dataframe=self.df)
+            
+        except Exception as e:
+            print(f"Error opening Hue Wheel view: {e}")
+            import traceback
+            traceback.print_exc()
+            from tkinter import messagebox
+            messagebox.showerror("Error", f"Failed to open Hue Wheel view:\n\n{str(e)}")
     
     def cleanup_and_exit(self):
         # App cleanup and shutdown handler

@@ -5,13 +5,15 @@ from .rotary_knob import RotaryKnob
 class RotationControls(tk.LabelFrame):
     """Widget providing controls for 3D plot rotation using rotary knobs"""
     
-    def __init__(self, master, on_rotation_change=None, trendline_manager=None, plotly_callback=None):
+    def __init__(self, master, on_rotation_change=None, trendline_manager=None, plotly_callback=None, hue_wheel_callback=None):
         """Initialize rotation controls
         
         Args:
             master: Parent widget
             on_rotation_change: Callback function to be called when rotation changes
             trendline_manager: TrendlineManager instance for trendline-based views
+            plotly_callback: Callback to open Plotly viewer
+            hue_wheel_callback: Callback to open Hue Wheel viewer
         """
         super().__init__(master, text="◎ Rotation Controls - CLICK & DRAG KNOBS ◎", 
                        font=('Arial', 10, 'bold'), foreground='blue', borderwidth=2)
@@ -29,6 +31,9 @@ class RotationControls(tk.LabelFrame):
         
         # Store Plotly viewer callback
         self.plotly_callback = plotly_callback
+        
+        # Store Hue Wheel viewer callback
+        self.hue_wheel_callback = hue_wheel_callback
         
         # Flag to prevent recursive callbacks
         self._updating_programmatically = False
@@ -681,6 +686,27 @@ class RotationControls(tk.LabelFrame):
                 justify='center'
             )
             note_label.grid(row=2, column=0, columnspan=3, padx=2, pady=(0,5), sticky='ew')
+        
+        # Add Hue Wheel viewer button if callback is available
+        if self.hue_wheel_callback is not None:
+            hue_wheel_btn = ttk.Button(
+                button_frame,
+                text="🎨 Hue Wheel (Polar Plot)",
+                command=self.hue_wheel_callback
+            )
+            # Position below Plotly button if it exists, otherwise at row 1
+            row_pos = 3 if self.plotly_callback is not None else 1
+            hue_wheel_btn.grid(row=row_pos, column=0, columnspan=3, padx=2, pady=(2,2), sticky='ew')
+            
+            # Add note about hue wheel
+            hue_note_label = ttk.Label(
+                button_frame,
+                text="Visualizes L*C*h data: Angle=Hue, Radius=Chroma\n(Requires L*C*h columns in template)",
+                font=('Arial', 9),
+                foreground='gray',
+                justify='center'
+            )
+            hue_note_label.grid(row=row_pos+1, column=0, columnspan=3, padx=2, pady=(0,5), sticky='ew')
         
         return plane_frame
         
