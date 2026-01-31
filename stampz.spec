@@ -116,6 +116,7 @@ hiddenimports += [
     'plot3d.k_means_file_handler',  # K-means file I/O handler for ODS and Excel exports
     'utils.path_utils',  # CRITICAL: Application Support path resolution
     'utils.color_analysis_db',  # CRITICAL: Database discovery logic
+    'utils.debug_capture',  # CRITICAL: Debug logging capture system
     'PIL.Image',
     'PIL.ImageTk',
     'PIL._tkinter_finder',

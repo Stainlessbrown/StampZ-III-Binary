@@ -53,8 +53,12 @@ def launch_full_stampz():
     )
     
     # Setup custom stdout/stderr to capture DEBUG statements to log file
-    from utils.debug_capture import setup_debug_capture
-    setup_debug_capture(log_file)
+    try:
+        from utils.debug_capture import setup_debug_capture
+        setup_debug_capture(log_file)
+    except Exception as e:
+        logger.warning(f"Could not setup debug capture: {e}")
+        print(f"Warning: Debug capture not available: {e}")
     
     logger.info(f"StampZ-III Debug Log - Session started")
     logger.info(f"Log file: {log_file}")
