@@ -275,11 +275,12 @@ class HueWheelViewer:
             # Calculate movement in pixels
             pixel_distance = np.sqrt((event.x - x_start)**2 + (event.y - y_start)**2)
             
-            # If moved less than threshold, it's a click not a drag - let pick event handle it
+            # If moved less than threshold, it's a click not a drag
             if pixel_distance < 5:  # Less than 5 pixels = click
-                print(f"DEBUG: Click detected (moved {pixel_distance:.1f} pixels), not zooming")
+                print(f"DEBUG: Click detected (moved {pixel_distance:.1f} pixels), not a drag")
                 self.zoom_start = None
-                self.canvas.draw_idle()
+                # Manually trigger point identification since pick events don't work on polar axes
+                self._identify_nearest_point(event.xdata, event.ydata, ax)
                 return
             
             # Get zoom box corners
@@ -310,6 +311,90 @@ class HueWheelViewer:
         self.canvas.mpl_connect('button_press_event', on_press)
         self.canvas.mpl_connect('motion_notify_event', on_motion)
         self.canvas.mpl_connect('button_release_event', on_release)
+    
+    def _identify_nearest_point(self, theta_click, r_click, ax):
+        """Manually identify the nearest point to the click location."""
+        if not hasattr(self, 'point_data') or theta_click is None or r_click is None:
+            return
+        
+        # Find nearest point
+        theta_data = self.point_data['theta']
+        r_data = self.point_data['r']
+        
+        # Calculate distance to all points (in polar space)
+        # Use angular distance and radial distance
+        theta_diff = np.abs(theta_data - theta_click)
+        r_diff = np.abs(r_data - r_click)
+        
+        # Normalize distances (angular distance wraps around)
+        theta_diff = np.minimum(theta_diff, 2*np.pi - theta_diff)
+        
+        # Combined distance metric (weighted)
+        # Weight radial distance more since it's in actual units
+        distances = np.sqrt((theta_diff * np.mean(r_data))**2 + r_diff**2)
+        
+        # Find closest point
+        ind = np.argmin(distances)
+        min_distance = distances[ind]
+        
+        # Only identify if click was close enough (within 10 units)
+        if min_distance > 10:
+            print(f"DEBUG: Click too far from any point (distance={min_distance:.1f})")
+            return
+        
+        print(f"DEBUG: Found nearest point at index {ind}, distance={min_distance:.1f}")
+        
+        # Clear previous highlight
+        if hasattr(self, 'highlighted_point') and self.highlighted_point is not None:
+            self.highlighted_point.remove()
+            self.highlighted_point = None
+        
+        # Clear previous annotation
+        if hasattr(self, 'annotation') and self.annotation is not None:
+            self.annotation.remove()
+            self.annotation = None
+        
+        # Get point data
+        theta_val = theta_data[ind]
+        r_val = r_data[ind]
+        h_val = self.point_data['h_values'][ind]
+        c_val = self.point_data['c_values'][ind]
+        l_val = self.point_data['l_values'][ind]
+        
+        # Get sample name/ID if available
+        df_idx = self.point_data['indices'][ind]
+        sample_name = "Unknown"
+        if hasattr(self, 'df') and df_idx < len(self.df):
+            row = self.df.iloc[df_idx]
+            # Try common column names for sample ID
+            for col in ['Sample', 'DataID', 'ID', 'Name']:
+                if col in row.index and pd.notna(row[col]):
+                    sample_name = str(row[col])
+                    break
+        
+        print(f"DEBUG: Identified point - Sample: {sample_name}, Hue: {h_val:.1f}°, Chroma: {c_val:.1f}, L*: {l_val:.1f}")
+        
+        # Highlight the selected point
+        self.highlighted_point = ax.scatter(
+            [theta_val], [r_val],
+            s=200, facecolors='none', edgecolors='red',
+            linewidths=3, zorder=10
+        )
+        
+        # Add annotation with point information
+        annotation_text = f"{sample_name}\nH: {h_val:.1f}°\nC: {c_val:.1f}\nL*: {l_val:.1f}"
+        self.annotation = ax.annotate(
+            annotation_text,
+            xy=(theta_val, r_val),
+            xytext=(20, 20),
+            textcoords='offset points',
+            bbox=dict(boxstyle='round,pad=0.5', facecolor='yellow', alpha=0.8, edgecolor='red'),
+            fontsize=10,
+            fontweight='bold',
+            zorder=11
+        )
+        
+        self.canvas.draw_idle()
     
     def _setup_point_identification(self, ax):
         """Setup point identification on right-click."""
@@ -386,7 +471,9 @@ class HueWheelViewer:
             self.canvas.draw_idle()
         
         # Connect pick event
-        self.canvas.mpl_connect('pick_event', on_pick)
+        pick_cid = self.canvas.mpl_connect('pick_event', on_pick)
+        print(f"DEBUG: Pick event handler connected with ID {pick_cid}")
+        print(f"DEBUG: Point identification ready - click on points to identify them")
     
     def _create_plot(self):
         """Create the polar hue wheel plot."""
@@ -491,8 +578,9 @@ class HueWheelViewer:
             linewidth=0.5,
             zorder=2,  # In front of colored ring
             picker=True,  # Enable picking
-            pickradius=5  # Click tolerance in pixels
+            pickradius=10  # Click tolerance in pixels (increased for easier selection)
         )
+        print(f"DEBUG: Created scatter plot with {len(theta)} pickable points, pickradius=10")
         
         # Add colorbar for lightness
         cbar = plt.colorbar(scatter, ax=ax, pad=0.1)
