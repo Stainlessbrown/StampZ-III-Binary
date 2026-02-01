@@ -120,6 +120,9 @@ class HueWheelViewer:
         self.root.title(self.title)
         self.root.geometry("900x800")
         
+        # Add cleanup handler when window is closed
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        
         # Create main container
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
@@ -177,9 +180,30 @@ class HueWheelViewer:
         ttk.Button(
             button_frame,
             text="Close",
-            command=self.root.destroy,
+            command=self._on_close,
             width=10
         ).pack(side=tk.RIGHT, padx=5, pady=5)
+    
+    def _on_close(self):
+        """Clean up when window is closed."""
+        print("DEBUG: Closing Hue Wheel viewer, cleaning up...")
+        try:
+            # Close all matplotlib figures
+            if hasattr(self, 'fig') and self.fig is not None:
+                plt.close(self.fig)
+                print("DEBUG: Closed Hue Wheel matplotlib figure")
+            
+            # Clear data references
+            if hasattr(self, 'df'):
+                self.df = None
+            if hasattr(self, 'point_data'):
+                self.point_data = None
+            
+            # Destroy the window
+            if hasattr(self, 'root'):
+                self.root.destroy()
+        except Exception as e:
+            print(f"DEBUG: Error during Hue Wheel cleanup: {e}")
     
     def _reset_zoom(self, ax):
         """Reset zoom to original view."""

@@ -1864,6 +1864,16 @@ class Plot3DApp:
     def _open_hue_wheel_view(self):
         """Open the Hue Wheel polar plot viewer."""
         try:
+            # Close any existing hue wheel viewer first
+            if hasattr(self, '_hue_wheel_viewer') and self._hue_wheel_viewer is not None:
+                try:
+                    if hasattr(self._hue_wheel_viewer, 'root'):
+                        self._hue_wheel_viewer.root.destroy()
+                    print("DEBUG: Closed previous Hue Wheel instance")
+                except:
+                    pass
+                self._hue_wheel_viewer = None
+            
             # Import the hue wheel viewer function
             from .hue_wheel_view import open_hue_wheel_view
             
@@ -1876,8 +1886,8 @@ class Plot3DApp:
             
             print(f"Opening Hue Wheel view with {len(self.df)} data points...")
             
-            # Open the hue wheel viewer
-            open_hue_wheel_view(parent=self.root, dataframe=self.df)
+            # Open the hue wheel viewer and store the instance
+            self._hue_wheel_viewer = open_hue_wheel_view(parent=self.root, dataframe=self.df)
             
         except Exception as e:
             print(f"Error opening Hue Wheel view: {e}")
@@ -1921,6 +1931,15 @@ class Plot3DApp:
                 self.file_opener_state.get('completed', False),
                 self.file_opener_state.get('error', None)
             ))
+        
+        # Close hue wheel viewer if open
+        if hasattr(self, '_hue_wheel_viewer') and self._hue_wheel_viewer is not None:
+            try:
+                if hasattr(self._hue_wheel_viewer, 'root'):
+                    self._hue_wheel_viewer.root.destroy()
+                print("Closed Hue Wheel viewer")
+            except Exception as e:
+                print(f"Warning: Error closing Hue Wheel: {e}")
         
         try:
             plt.close('all')
