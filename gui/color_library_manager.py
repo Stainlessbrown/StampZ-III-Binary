@@ -666,6 +666,14 @@ class ColorLibraryManager:
                 command=lambda c=color: self._delete_color(c)
             ).pack(pady=1)
             
+            # Add to library button
+            ttk.Button(
+                button_frame,
+                text="Add to...",
+                width=8,
+                command=lambda c=color: self._add_single_color_to_library(c)
+            ).pack(pady=1)
+            
             # Add context menu
             self._add_color_context_menu(color_display, color)
             
@@ -684,6 +692,8 @@ class ColorLibraryManager:
             context_menu = tk.Menu(self.root, tearoff=0)
             context_menu.add_command(label="Edit Color", command=lambda: self._edit_color(color))
             context_menu.add_command(label="Delete Color", command=lambda: self._delete_color(color))
+            context_menu.add_separator()
+            context_menu.add_command(label="Add to Library...", command=lambda: self._add_single_color_to_library(color))
             context_menu.tk_popup(event.x_root, event.y_root)
         
         color_display.bind("<Button-2>", show_context_menu)  # Right-click on Mac
@@ -1271,6 +1281,113 @@ class ColorLibraryManager:
         # Bind Enter key to save
         dialog.bind('<Return>', lambda e: save_changes())
             
+    
+    def _add_single_color_to_library(self, color: LibraryColor):
+        """Add a single color to another library."""
+        # Create dialog to select destination library
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Add '{color.name}' to Library")
+        dialog.geometry("400x250")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Center dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (200)
+        y = (dialog.winfo_screenheight() // 2) - (125)
+        dialog.geometry(f"+{x}+{y}")
+        
+        # Info label
+        info_frame = ttk.Frame(dialog)
+        info_frame.pack(fill=tk.X, padx=20, pady=15)
+        
+        ttk.Label(
+            info_frame,
+            text=f"Copy '{color.name}' to:",
+            font=("Arial", 11, "bold")
+        ).pack(anchor="w")
+        
+        # Get list of available libraries
+        from utils.path_utils import get_color_libraries_dir
+        library_dir = get_color_libraries_dir()
+        library_files = [f for f in os.listdir(library_dir) if f.endswith("_library.db")]
+        library_names = [f.replace("_library.db", "").replace("_", " ").title() 
+                        for f in library_files]
+        
+        # Remove current library from options
+        current_display_name = self.current_library_name.replace("_", " ").title()
+        if current_display_name in library_names:
+            library_names.remove(current_display_name)
+        
+        if not library_names:
+            messagebox.showinfo("No Other Libraries", 
+                              "No other libraries available. Create a new library first.")
+            dialog.destroy()
+            return
+        
+        # Library selection
+        select_frame = ttk.Frame(dialog)
+        select_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+        
+        ttk.Label(select_frame, text="Select destination library:").pack(anchor="w", pady=(0, 5))
+        
+        library_var = tk.StringVar(value=library_names[0])
+        library_listbox = tk.Listbox(select_frame, height=min(8, len(library_names)), exportselection=False)
+        library_listbox.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        for lib_name in sorted(library_names):
+            library_listbox.insert(tk.END, lib_name)
+        library_listbox.selection_set(0)
+        
+        def copy_color():
+            selection = library_listbox.curselection()
+            if not selection:
+                messagebox.showwarning("No Selection", "Please select a library.")
+                return
+            
+            selected_name = library_listbox.get(selection[0])
+            # Convert back to file format
+            dest_library_name = selected_name.lower().replace(" ", "_")
+            
+            try:
+                # Load destination library
+                dest_library = ColorLibrary(dest_library_name)
+                
+                # Check if color already exists
+                if dest_library.get_color_by_name(color.name):
+                    if not messagebox.askyesno("Color Exists", 
+                        f"A color named '{color.name}' already exists in {selected_name}.\n\nOverwrite it?"):
+                        return
+                    # Remove existing color
+                    existing = dest_library.get_color_by_name(color.name)
+                    dest_library.remove_color(existing.id)
+                
+                # Add color to destination library
+                success = dest_library.add_color(
+                    name=color.name,
+                    rgb=color.rgb,
+                    lab=color.lab,
+                    source=color.source or "Copied",
+                    notes=color.notes,
+                    category=color.category
+                )
+                
+                if success:
+                    messagebox.showinfo("Success", 
+                        f"Added '{color.name}' to {selected_name}")
+                    dialog.destroy()
+                else:
+                    messagebox.showerror("Error", "Failed to add color to library.")
+                    
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to copy color:\n{str(e)}")
+        
+        # Buttons
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(fill=tk.X, padx=20, pady=15)
+        
+        ttk.Button(button_frame, text="Copy", command=copy_color).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
     
     def _delete_color(self, color: LibraryColor):
         """Delete a color from the library."""
