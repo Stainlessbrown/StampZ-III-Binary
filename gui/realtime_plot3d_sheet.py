@@ -2498,7 +2498,7 @@ class RealtimePlot3DSheet:
             # Get ODS template path (Plot_3D only supports .ods format)
             current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             template_dir = os.path.join(current_dir, 'data', 'templates', 'plot3d')
-            template_path = os.path.join(template_dir, 'Plot3D_Rigid_Template.ods')
+            template_path = os.path.join(template_dir, 'Plot3D_Template.ods')
             
             # Check if template exists
             print(f"DEBUG: Looking for template at: {template_path}")
@@ -2552,20 +2552,20 @@ class RealtimePlot3DSheet:
                         # Headers in row 1, reserved area rows 2-7, data starts row 8
                         data_start_row = 7  # Row 8 in 1-based, 7 in 0-based
                         
-                        # Clear entire sheet and rebuild with correct rigid format
-                        print(f"DEBUG: Clearing entire sheet and rebuilding rigid format")
+                        # Clear data area but preserve template formulas in columns N-P
+                        print(f"DEBUG: Clearing data area (columns A-M) while preserving formula columns N-P")
                         
-                        # Clear all existing content
+                        # Clear only data columns (A-M, indices 0-12)
                         for row_idx in range(sheet.nrows()):
-                            for col_idx in range(sheet.ncols()):
+                            for col_idx in range(13):  # Only columns A-M (0-12)
                                 sheet[row_idx, col_idx].set_value('')
                         
-                        # Set headers in row 1 (0-based index 0) - ensure M1 has "Radius"
-                        print(f"DEBUG: Setting headers in row 1")
+                        # Set headers in row 1 (0-based index 0) for data columns A-M
+                        print(f"DEBUG: Setting headers in row 1 for columns A-M")
                         for col_idx, column_name in enumerate(self.PLOT3D_COLUMNS):
                             if col_idx < sheet.ncols():  # Make sure we don't exceed sheet width
                                 sheet[0, col_idx].set_value(column_name)
-                        print(f"DEBUG: Headers set, including Radius in column M")
+                        print(f"DEBUG: Headers set for columns A-M, template columns N-P preserved")
                         
                         # Create column mapping for data writing
                         coord_columns = {col: idx for idx, col in enumerate(self.PLOT3D_COLUMNS) if idx < sheet.ncols()}
@@ -2617,61 +2617,6 @@ class RealtimePlot3DSheet:
                                     print(f"DEBUG: Trying to access row {actual_sheet_row}, col {col_idx}")
                                     raise
                         
-                        # Add comprehensive validation reference for ODS format
-                        print(f"DEBUG: Adding validation reference data for columns G (Marker), H (Color), L (Sphere)")
-                        try:
-                            # Since ODS doesn't support dropdown validation, we'll create:
-                            # 1. Validation reference lists in columns O, P, Q (clearly labeled)
-                            # 2. Instructions in specific cells
-                            # 3. Sample valid values in the reserved area
-                            
-                            validation_col_start = 14  # Column O (0-based)
-                            
-                            # Add clear headers for validation columns
-                            sheet[0, validation_col_start].set_value('Valid_Markers')     # Column O
-                            sheet[0, validation_col_start + 1].set_value('Valid_Colors')  # Column P  
-                            sheet[0, validation_col_start + 2].set_value('Valid_Spheres') # Column Q
-                            
-                            # Add validation lists with clear organization
-                            max_items = max(len(self.VALID_MARKERS), len(self.VALID_COLORS), len(self.VALID_SPHERES))
-                            
-                            for i in range(max_items):
-                                # Marker validation list (column O)
-                                if i < len(self.VALID_MARKERS):
-                                    sheet[i + 1, validation_col_start].set_value(self.VALID_MARKERS[i])
-                                
-                                # Color validation list (column P)
-                                if i < len(self.VALID_COLORS):
-                                    sheet[i + 1, validation_col_start + 1].set_value(self.VALID_COLORS[i])
-                                
-                                # Sphere validation list (column Q)
-                                if i < len(self.VALID_SPHERES):
-                                    sheet[i + 1, validation_col_start + 2].set_value(self.VALID_SPHERES[i])
-                            
-                            # IMPORTANT: Don't put validation instructions in main data columns A-M
-                            # because pandas will interpret them as data rows!
-                            # Keep A2:M7 completely empty for pandas compatibility
-                            
-                            # Add validation instructions in far-right columns only
-                            # This won't interfere with pandas reading the main data
-                            sheet[1, validation_col_start + 3].set_value('VALIDATION HELP:')  # Column R
-                            sheet[2, validation_col_start + 3].set_value('G = Markers: . o * ^ < > v s D + x')
-                            sheet[3, validation_col_start + 3].set_value('H = Colors: red blue green orange...')
-                            sheet[4, validation_col_start + 3].set_value('L = Spheres: red green blue yellow...')
-                            
-                            print(f"DEBUG: Added comprehensive validation reference data")
-                            print(f"DEBUG: Validation lists in columns O, P, Q")
-                            print(f"DEBUG: Instructions in row 2: G2, H2, L2")
-                            print(f"DEBUG: Sample values in row 3: G3, H3, L3")
-                            print(f"DEBUG: Markers ({len(self.VALID_MARKERS)}): {self.VALID_MARKERS}")
-                            print(f"DEBUG: Colors ({len(self.VALID_COLORS)}): {self.VALID_COLORS}")
-                            print(f"DEBUG: Spheres ({len(self.VALID_SPHERES)}): {self.VALID_SPHERES}")
-                            
-                        except Exception as validation_error:
-                            print(f"DEBUG: Validation setup error: {validation_error}")
-                            import traceback
-                            traceback.print_exc()
-                            # Don't fail the export if validation setup fails
                         
                         # Save the document
                         doc.save()
@@ -2679,19 +2624,32 @@ class RealtimePlot3DSheet:
                         logger.info(f"Successfully exported {len(df)} rows to ODS rigid template")
                         
                     except Exception as ods_error:
-                        logger.warning(f"ODS rigid template processing failed: {ods_error}")
+                        logger.error(f"ODS rigid template processing failed: {ods_error}")
                         import traceback
-                        logger.warning(f"Full error: {traceback.format_exc()}")
+                        error_trace = traceback.format_exc()
+                        logger.error(f"Full error traceback:\n{error_trace}")
+                        print(f"DEBUG: ODS processing error: {ods_error}")
+                        print(f"DEBUG: Full traceback:\n{error_trace}")
                         return False
                     
                     return True
                     
             except Exception as template_error:
                 logger.error(f"Error processing template: {template_error}")
+                import traceback
+                error_trace = traceback.format_exc()
+                logger.error(f"Template processing full error:\n{error_trace}")
+                print(f"DEBUG: Template error: {template_error}")
+                print(f"DEBUG: Full traceback:\n{error_trace}")
                 return False
                 
         except Exception as e:
             logger.error(f"Error in template export: {e}")
+            import traceback
+            error_trace = traceback.format_exc()
+            logger.error(f"Template export full error:\n{error_trace}")
+            print(f"DEBUG: Main template export error: {e}")
+            print(f"DEBUG: Full traceback:\n{error_trace}")
             return False
     
     
