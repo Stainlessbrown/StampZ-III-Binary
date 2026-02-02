@@ -1020,11 +1020,10 @@ class ReorganizedControlPanel(ttk.Frame):
     
     def _on_angle_changed(self, *args):
         """Handle real-time angle changes with live rotation preview."""
-        # Store original image for preview if not already stored
-        if not hasattr(self, '_preview_original_image'):
-            if hasattr(self, 'main_app') and self.main_app and hasattr(self.main_app, 'canvas'):
-                if self.main_app.canvas and self.main_app.canvas.core.original_image:
-                    self._preview_original_image = self.main_app.canvas.core.original_image.copy()
+        # Always get the current original image to ensure we're using the right one
+        if hasattr(self, 'main_app') and self.main_app and hasattr(self.main_app, 'canvas'):
+            if self.main_app.canvas and self.main_app.canvas.core.original_image:
+                self._preview_original_image = self.main_app.canvas.core.original_image.copy()
         
         # Update preview with current angle
         if hasattr(self, '_preview_original_image') and self._preview_original_image:
