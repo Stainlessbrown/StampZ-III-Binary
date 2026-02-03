@@ -372,6 +372,11 @@ class StampZApp:
         for set_name in all_sets:
             listbox.insert("end", set_name)
         
+        # Check for default template preference and auto-select it
+        from utils.user_preferences import get_preferences_manager
+        prefs_manager = get_preferences_manager()
+        default_template = prefs_manager.get_default_template()
+        
         selected_set = None
         
         def on_load(event=None):
@@ -404,7 +409,18 @@ class StampZApp:
         
         listbox.focus_set()
         if listbox.size() > 0:
-            listbox.selection_set(0)
+            # Try to select the default template if it exists
+            if default_template and default_template in all_sets:
+                try:
+                    default_index = all_sets.index(default_template)
+                    listbox.selection_set(default_index)
+                    listbox.see(default_index)  # Scroll to show the selected item
+                except (ValueError, IndexError):
+                    # If default not found, fall back to first item
+                    listbox.selection_set(0)
+            else:
+                # No default or not found, select first item
+                listbox.selection_set(0)
         
         dialog.mainloop()
         

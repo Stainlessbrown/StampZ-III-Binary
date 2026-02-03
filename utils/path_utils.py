@@ -55,6 +55,15 @@ def get_color_libraries_dir() -> str:
     """
     return os.path.join(get_base_data_dir(), "color_libraries")
 
+def get_templates_dir() -> str:
+    """
+    Get the Plot3D templates directory.
+    
+    Returns:
+        str: Path to the templates directory
+    """
+    return os.path.join(get_base_data_dir(), "templates", "plot3d")
+
 def ensure_data_directories() -> None:
     """
     Ensure all required data directories exist.
@@ -62,7 +71,8 @@ def ensure_data_directories() -> None:
     directories = [
         get_base_data_dir(),
         get_color_analysis_dir(),
-        get_color_libraries_dir()
+        get_color_libraries_dir(),
+        get_templates_dir()
     ]
     
     for directory in directories:

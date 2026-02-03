@@ -4,6 +4,7 @@ Preferences dialog for StampZ
 Allows users to configure export settings and other preferences.
 """
 
+import os
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
@@ -455,8 +456,35 @@ class PreferencesDialog:
     
     def _create_sampling_tab(self, notebook):
         """Create the sampling preferences tab."""
-        sampling_frame = ttk.Frame(notebook, padding="10")
-        notebook.add(sampling_frame, text="Sampling")
+        # Create outer frame and add to notebook
+        outer_frame = ttk.Frame(notebook)
+        notebook.add(outer_frame, text="Sampling")
+        
+        # Create canvas and scrollbar
+        canvas = tk.Canvas(outer_frame, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(outer_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Pack canvas and scrollbar
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Enable mousewheel scrolling
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        
+        # Now use scrollable_frame as the parent for content
+        sampling_frame = ttk.Frame(scrollable_frame, padding="10")
+        sampling_frame.pack(fill=tk.BOTH, expand=True)
         
         # Color Library section - moved from Image Dialogs
         library_frame = ttk.LabelFrame(sampling_frame, text="Color Library Defaults", padding="10")
@@ -1208,19 +1236,45 @@ class PreferencesDialog:
             self._library_mapping = {'Basic Colors': 'basic_colors'}
     
     def _load_template_preferences(self):
-        """Load template preferences."""
+        """Load template preferences from coordinates.db."""
         try:
-            # Get available templates
-            from utils.path_utils import get_templates_dir
-            import json
+            import sqlite3
+            import sys
             
-            templates_dir = get_templates_dir()
+            # Get path to coordinates.db
+            if hasattr(sys, '_MEIPASS'):
+                # Running as packaged app
+                if sys.platform.startswith('linux'):
+                    user_data_dir = os.path.expanduser('~/.local/share/StampZ-III')
+                elif sys.platform == 'darwin':
+                    user_data_dir = os.path.expanduser('~/Library/Application Support/StampZ-III')
+                else:
+                    user_data_dir = os.path.expanduser('~/AppData/Roaming/StampZ-III')
+                db_path = os.path.join(user_data_dir, "data", "coordinates.db")
+            else:
+                # Running in development
+                current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                db_path = os.path.join(current_dir, "data", "coordinates.db")
+            
             available_templates = ['(None)']  # Start with no default option
             
-            if os.path.exists(templates_dir):
-                for file in os.listdir(templates_dir):
-                    if file.endswith('.json'):
-                        available_templates.append(file)
+            # Load templates from coordinates.db (exclude temporary/manual mode templates)
+            if os.path.exists(db_path):
+                with sqlite3.connect(db_path) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        SELECT DISTINCT cs.name
+                        FROM coordinate_sets cs
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM coordinates c 
+                            WHERE c.set_id = cs.id AND c.temporary = 1
+                        )
+                        ORDER BY cs.name
+                    """)
+                    templates = cursor.fetchall()
+                    for template in templates:
+                        if template[0]:  # Only add non-empty names
+                            available_templates.append(template[0])
             
             # Update combobox
             self.template_combo['values'] = available_templates
@@ -1234,6 +1288,8 @@ class PreferencesDialog:
                 
         except Exception as e:
             print(f"Error loading template preferences: {e}")
+            import traceback
+            traceback.print_exc()
             # Fallback
             self.template_combo['values'] = ['(None)']
             self.default_template_var.set('(None)')
