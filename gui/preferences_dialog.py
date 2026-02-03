@@ -480,6 +480,28 @@ class PreferencesDialog:
             foreground="gray"
         ).pack(anchor=tk.W)
         
+        # Template defaults section
+        template_frame = ttk.LabelFrame(sampling_frame, text="Template Defaults", padding="10")
+        template_frame.pack(fill=tk.X, pady=(10, 10))
+        
+        ttk.Label(template_frame, text="Default template:").pack(anchor=tk.W, pady=(0, 5))
+        
+        self.default_template_var = tk.StringVar()
+        self.template_combo = ttk.Combobox(
+            template_frame,
+            textvariable=self.default_template_var,
+            state="readonly",
+            width=30
+        )
+        self.template_combo.pack(anchor=tk.W, pady=(0, 10))
+        
+        ttk.Label(
+            template_frame,
+            text="This template will be automatically selected when starting a new analysis.\nLeave as '(None)' to choose template each time.",
+            font=("TkDefaultFont", 9),
+            foreground="gray"
+        ).pack(anchor=tk.W)
+        
         # Save location preferences section
         save_prefs_frame = ttk.LabelFrame(sampling_frame, text="Analysis Save Preferences", padding="10")
         save_prefs_frame.pack(fill=tk.X, pady=(10, 10))
@@ -1185,6 +1207,37 @@ class PreferencesDialog:
             self.default_library_var.set('Basic Colors')
             self._library_mapping = {'Basic Colors': 'basic_colors'}
     
+    def _load_template_preferences(self):
+        """Load template preferences."""
+        try:
+            # Get available templates
+            from utils.path_utils import get_templates_dir
+            import json
+            
+            templates_dir = get_templates_dir()
+            available_templates = ['(None)']  # Start with no default option
+            
+            if os.path.exists(templates_dir):
+                for file in os.listdir(templates_dir):
+                    if file.endswith('.json'):
+                        available_templates.append(file)
+            
+            # Update combobox
+            self.template_combo['values'] = available_templates
+            
+            # Set current selection
+            current_template = self.prefs_manager.get_default_template()
+            if current_template and current_template in available_templates:
+                self.default_template_var.set(current_template)
+            else:
+                self.default_template_var.set('(None)')
+                
+        except Exception as e:
+            print(f"Error loading template preferences: {e}")
+            # Fallback
+            self.template_combo['values'] = ['(None)']
+            self.default_template_var.set('(None)')
+    
     def _load_current_settings(self):
         """Load current settings into the dialog."""
         prefs = self.prefs_manager.preferences.export_prefs
@@ -1216,6 +1269,9 @@ class PreferencesDialog:
         
         # Color library preferences
         self._load_color_library_preferences()
+        
+        # Template preferences
+        self._load_template_preferences()
         
         # Interface mode preference removed
         
@@ -1350,6 +1406,13 @@ class PreferencesDialog:
                 if display_name in self._library_mapping:
                     library_name = self._library_mapping[display_name]
                     self.prefs_manager.set_default_color_library(library_name)
+            
+            # Template preference
+            if hasattr(self, 'default_template_var'):
+                template_name = self.default_template_var.get()
+                if template_name == '(None)':
+                    template_name = ''
+                self.prefs_manager.set_default_template(template_name)
             
             # Interface mode preference removed
             

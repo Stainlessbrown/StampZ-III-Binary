@@ -498,6 +498,11 @@ class SampleResultsManager(tk.Frame):
         notes_text = tk.Text(notes_frame, height=4, width=50, wrap=tk.WORD)
         notes_text.pack(fill=tk.BOTH, expand=True, pady=5)
         
+        # Auto-populate notes with current image filename if available
+        if hasattr(self, 'current_file_path') and self.current_file_path:
+            filename = os.path.basename(self.current_file_path)
+            notes_text.insert("1.0", filename)
+        
         # Add scrollbar for notes
         notes_scrollbar = ttk.Scrollbar(notes_frame, orient=tk.VERTICAL, command=notes_text.yview)
         notes_text.configure(yscrollcommand=notes_scrollbar.set)

@@ -52,6 +52,7 @@ class SampleAreaPreferences:
     default_database_name: str = "ColorAnalysis"  # Default database name for analysis
     use_averages_suffix: bool = True  # Automatically add _AVG suffix to average database
     enable_quick_save: bool = False  # Skip database selection dialog and use preferences directly
+    default_template: str = ""  # Default template file name (empty means no default)
 
 
 @dataclass
@@ -596,6 +597,28 @@ class PreferencesManager:
             print(f"Error setting quick save preference: {e}")
             return False
     
+    def get_default_template(self) -> str:
+        """Get the default template filename.
+        
+        Returns:
+            Default template filename (empty string means no default)
+        """
+        return self.preferences.sample_area_prefs.default_template
+    
+    def set_default_template(self, template_name: str) -> bool:
+        """Set the default template filename.
+        
+        Args:
+            template_name: Template filename (e.g., '6markers.json') or empty string for no default
+        """
+        try:
+            self.preferences.sample_area_prefs.default_template = template_name
+            self.save_preferences()
+            return True
+        except Exception as e:
+            print(f"Error setting default template: {e}")
+            return False
+    
     def get_auto_save_averages(self) -> bool:
         """Get whether to automatically save averages to database in Compare mode."""
         return self.preferences.compare_mode_prefs.auto_save_averages
@@ -757,7 +780,8 @@ class PreferencesManager:
                         save_average_default=sample_data.get('save_average_default', True),
                         default_database_name=sample_data.get('default_database_name', 'ColorAnalysis'),
                         use_averages_suffix=sample_data.get('use_averages_suffix', True),
-                        enable_quick_save=sample_data.get('enable_quick_save', False)
+                        enable_quick_save=sample_data.get('enable_quick_save', False),
+                        default_template=sample_data.get('default_template', '')
                     )
                 
                 # Load compare mode preferences
