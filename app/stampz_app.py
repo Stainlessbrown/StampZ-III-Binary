@@ -873,6 +873,33 @@ class StampZApp:
             messagebox.showwarning("No Image", "Please open an image first.")
             return
         
+        # Get the angle - if it's set, we need to apply leveling first
+        angle = self.control_panel.straightening_angle_value.get() if hasattr(self.control_panel, 'straightening_angle_value') else 0.0
+        
+        # Determine which image to save
+        if abs(angle) > 0.01:
+            # There's a rotation angle set - apply it before saving
+            from utils.image_straightener import ImageStraightener
+            
+            # Get the true original (before any preview)
+            if hasattr(self.control_panel, '_true_original_image') and self.control_panel._true_original_image:
+                original_to_rotate = self.control_panel._true_original_image
+            else:
+                original_to_rotate = self.canvas.original_image
+            
+            # Apply the rotation
+            image_to_save = ImageStraightener.rotate_image(
+                original_to_rotate,
+                angle,
+                background_color='white',
+                expand=True,
+                auto_crop=True
+            )
+            print(f"DEBUG: Applied {angle:.2f}° rotation before saving")
+        else:
+            # No rotation needed, save current image
+            image_to_save = self.canvas.original_image
+        
         try:
             from utils.save_as import SaveManager, SaveOptions, SaveFormat
             import os
@@ -937,7 +964,7 @@ class StampZApp:
             )
             
             save_manager.save_image(
-                self.canvas.original_image,
+                image_to_save,
                 filepath,
                 save_options
             )

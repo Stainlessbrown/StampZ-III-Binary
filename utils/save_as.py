@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 from tkinter import filedialog
 from PIL import Image
+import numpy as np
 
 from .image_processor import ImageSaveError
 
@@ -138,7 +139,15 @@ class SaveManager:
         Returns:
             Prepared PIL Image
         """
+        # Check if there's attached 16-bit data before copying
+        has_16bit_data = hasattr(image, '_stampz_16bit_data')
+        sixteen_bit_data = image._stampz_16bit_data if has_16bit_data else None
+        
         img = image.copy()
+        
+        # Re-attach 16-bit data after copy if it existed
+        if has_16bit_data:
+            img._stampz_16bit_data = sixteen_bit_data
         
         if options.format == SaveFormat.JPEG:
             # Convert to RGB for JPEG if needed
@@ -150,8 +159,14 @@ class SaveManager:
                 else:
                     background.paste(img, mask=img.split()[1])
                 img = background
+                # Re-attach 16-bit data if it was there
+                if has_16bit_data:
+                    img._stampz_16bit_data = sixteen_bit_data
             elif img.mode != 'RGB':
                 img = img.convert('RGB')
+                # Re-attach 16-bit data if it was there
+                if has_16bit_data:
+                    img._stampz_16bit_data = sixteen_bit_data
                 
         return img
     
@@ -279,10 +294,33 @@ class SaveManager:
             logger.debug(f"Image mode: {img_to_save.mode}")
             logger.debug(f"Save options: {options.save_kwargs}")
             
-            # Perform save operation
-            img_to_save.save(str(filepath), **options.save_kwargs)
+            # Check if this is a 16-bit image that needs special handling
+            # First check if there's attached 16-bit data (from rotation operations)
+            if hasattr(img_to_save, '_stampz_16bit_data'):
+                img_array = img_to_save._stampz_16bit_data
+                is_16bit = True
+                logger.info("Found attached 16-bit data from rotation operation")
+            else:
+                img_array = np.array(img_to_save)
+                is_16bit = img_array.dtype == np.uint16
             
-            logger.debug(f"Save completed successfully")
+            if is_16bit and options.format == SaveFormat.TIFF:
+                # Use tifffile to save 16-bit TIFF properly
+                try:
+                    import tifffile
+                    logger.info("Saving as 16-bit TIFF using tifffile to preserve precision")
+                    tifffile.imwrite(str(filepath), img_array, photometric='rgb')
+                    logger.debug(f"16-bit TIFF save completed successfully")
+                except ImportError:
+                    logger.warning("tifffile not available - saving with PIL (may lose 16-bit precision)")
+                    img_to_save.save(str(filepath), **options.save_kwargs)
+                except Exception as e:
+                    logger.error(f"Error saving with tifffile: {e}, falling back to PIL")
+                    img_to_save.save(str(filepath), **options.save_kwargs)
+            else:
+                # Standard save operation for 8-bit images or non-TIFF formats
+                img_to_save.save(str(filepath), **options.save_kwargs)
+                logger.debug(f"Save completed successfully")
             
         except (OSError, ValueError) as e:
             raise ImageSaveError(f"Failed to save image {filepath}: {str(e)}")

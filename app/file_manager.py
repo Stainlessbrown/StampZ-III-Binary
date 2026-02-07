@@ -70,7 +70,11 @@ class FileManager:
                 
                 self.app.control_panel.enable_controls(True)
                 base_filename = os.path.basename(filename)
-                self.root.title(f"StampZ - {base_filename}")
+                
+                # Determine bit depth for title display
+                bit_depth_str = self._get_bit_depth_string(image, metadata)
+                self.root.title(f"StampZ - {base_filename} [{bit_depth_str}]")
+                
                 self.app.control_panel.update_current_filename(filename)
                 
                 # Update image dimensions display
@@ -128,20 +132,28 @@ class FileManager:
         except Exception as e:
             logger.warning(f"Error showing format info: {e}")
 
-    def _compose_status_text(self, image, metadata, width, height):
-        """Create the status bar text: MODE • <bits>-bit • WxH • ICC: <name>"""
+    def _get_bit_depth_string(self, image, metadata):
+        """Get bit depth string for display."""
         try:
             mode = getattr(image, 'mode', None) or metadata.get('photometric') or 'RGB'
             bpc = metadata.get('original_bit_depth')
             if isinstance(bpc, (list, tuple)):
                 # If all equal, show single; else join
                 uniq = sorted(set(bpc))
-                bpc_str = f"{uniq[0]}-bit" if len(uniq) == 1 else " / ".join(str(x) for x in bpc)
+                return f"{uniq[0]}-bit" if len(uniq) == 1 else " / ".join(str(x) for x in bpc)
             elif isinstance(bpc, int):
-                bpc_str = f"{bpc}-bit"
+                return f"{bpc}-bit"
             else:
                 # Fallback based on mode
-                bpc_str = "16-bit" if mode in ('I;16','I;16B','I;16L') else ("32-bit" if mode in ('I','F') else "8-bit")
+                return "16-bit" if mode in ('I;16','I;16B','I;16L') else ("32-bit" if mode in ('I','F') else "8-bit")
+        except Exception:
+            return "8-bit"  # Safe fallback
+    
+    def _compose_status_text(self, image, metadata, width, height):
+        """Create the status bar text: MODE • <bits>-bit • WxH • ICC: <name>"""
+        try:
+            mode = getattr(image, 'mode', None) or metadata.get('photometric') or 'RGB'
+            bpc_str = self._get_bit_depth_string(image, metadata)
             icc = metadata.get('icc_profile_name') or ('sRGB' if 'Converted from embedded profile' in metadata.get('color_profile','') else 'None')
             return f"{mode} • {bpc_str} • {width}×{height} • ICC: {icc}"
         except Exception:
