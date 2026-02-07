@@ -758,6 +758,12 @@ class StampZApp:
 
     def _handle_tool_mode_change(self, mode: str):
         """Handle tool mode changes."""
+        # Clear cached leveling image when leaving straighten mode
+        if hasattr(self, 'control_panel') and hasattr(self.control_panel, '_true_original_image'):
+            if mode != "straighten":
+                self.control_panel._true_original_image = None
+                print("DEBUG: Cleared cached leveling image on mode change")
+        
         if self.canvas:
             if mode == "view":
                 self.canvas.set_tool_mode(ToolMode.VIEW)

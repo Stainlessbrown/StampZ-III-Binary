@@ -62,6 +62,12 @@ class FileManager:
                 self.app.canvas.load_image(image)
                 self.app.current_file = filename
                 self.app.current_image_metadata = metadata  # Store metadata for later use
+                
+                # Clear any cached leveling images when new image is loaded
+                if hasattr(self.app, 'control_panel') and hasattr(self.app.control_panel, '_true_original_image'):
+                    self.app.control_panel._true_original_image = None
+                    print("DEBUG: Cleared cached leveling image on new image load")
+                
                 self.app.control_panel.enable_controls(True)
                 base_filename = os.path.basename(filename)
                 self.root.title(f"StampZ - {base_filename}")

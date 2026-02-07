@@ -38,6 +38,12 @@ class RotationControls(tk.LabelFrame):
         # Flag to prevent recursive callbacks
         self._updating_programmatically = False
         
+        # 2D view mode flag
+        self.use_2d_view = tk.BooleanVar(value=False)
+        
+        # Store current plane view ('xy', 'xz', 'yz', or None for 3D perspective)
+        self.current_plane = None
+        
         # Create Tkinter variables for spinboxes - show actual plot angles
         self.elevation_var = tk.DoubleVar(value=self._elevation)
         self.azimuth_var = tk.DoubleVar(value=self._azimuth)
@@ -635,9 +641,20 @@ class RotationControls(tk.LabelFrame):
         plane_frame = ttk.LabelFrame(parent, text="Plane Views")
         plane_frame.grid(row=3, column=0, sticky='ew', padx=5, pady=5)
         
+        # Add 2D/3D mode toggle at the top
+        mode_frame = ttk.Frame(plane_frame)
+        mode_frame.grid(row=0, column=0, padx=5, pady=(5,2), sticky='ew')
+        
+        ttk.Checkbutton(
+            mode_frame,
+            text="📊 Use 2D Plot (fills window better)",
+            variable=self.use_2d_view,
+            command=self._on_view_mode_change
+        ).pack(side=tk.LEFT)
+        
         # Create a frame for the buttons
         button_frame = ttk.Frame(plane_frame)
-        button_frame.grid(row=0, column=0, padx=5, pady=5, sticky='ew')
+        button_frame.grid(row=1, column=0, padx=5, pady=5, sticky='ew')
         
         # Configure grid weights to distribute buttons evenly
         button_frame.columnconfigure(0, weight=1)
@@ -675,7 +692,7 @@ class RotationControls(tk.LabelFrame):
                 text="🌐 Interactive View (Browser)",
                 command=self.plotly_callback
             )
-            plotly_btn.grid(row=1, column=0, columnspan=3, padx=2, pady=(5,2), sticky='ew')
+            plotly_btn.grid(row=2, column=0, columnspan=3, padx=2, pady=(5,2), sticky='ew')
             
             # Add note about features
             note_label = ttk.Label(
@@ -685,7 +702,7 @@ class RotationControls(tk.LabelFrame):
                 foreground='gray',
                 justify='center'
             )
-            note_label.grid(row=2, column=0, columnspan=3, padx=2, pady=(0,5), sticky='ew')
+            note_label.grid(row=3, column=0, columnspan=3, padx=2, pady=(0,5), sticky='ew')
         
         # Add Hue Wheel viewer button if callback is available
         if self.hue_wheel_callback is not None:
@@ -694,8 +711,8 @@ class RotationControls(tk.LabelFrame):
                 text="🎨 Hue Wheel (Polar Plot)",
                 command=self.hue_wheel_callback
             )
-            # Position below Plotly button if it exists, otherwise at row 1
-            row_pos = 3 if self.plotly_callback is not None else 1
+            # Position below Plotly button if it exists, otherwise at row 2
+            row_pos = 4 if self.plotly_callback is not None else 2
             hue_wheel_btn.grid(row=row_pos, column=0, columnspan=3, padx=2, pady=(2,2), sticky='ew')
             
             # Add note about hue wheel
@@ -709,6 +726,12 @@ class RotationControls(tk.LabelFrame):
             hue_note_label.grid(row=row_pos+1, column=0, columnspan=3, padx=2, pady=(0,5), sticky='ew')
         
         return plane_frame
+    
+    def _on_view_mode_change(self):
+        """Handle 2D/3D view mode toggle change."""
+        # Just trigger a callback - the plot will check the mode and render accordingly
+        print(f"View mode changed to: {'2D' if self.use_2d_view.get() else '3D'}")
+        self._trigger_callback()
         
     def _set_plane_view(self, plane):
         """Set the view angles for a specific plane view
@@ -729,6 +752,9 @@ class RotationControls(tk.LabelFrame):
             
             if plane in views:
                 view = views[plane]
+                
+                # Store the current plane for 2D rendering
+                self.current_plane = plane
                 
                 # Update internal state
                 self._elevation = view['elev']

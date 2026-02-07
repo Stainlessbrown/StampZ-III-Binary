@@ -300,7 +300,8 @@ class Plot3DApp:
         
         # Create figure AFTER data is loaded and BEFORE UI creation
         print("Creating initial figure...")
-        self.fig = plt.figure(figsize=(8, 6))
+        # Larger figure size for better display on modern monitors (14x10 inches)
+        self.fig = plt.figure(figsize=(14, 10))
         if not self.fig:
             messagebox.showerror("Error", "Failed to create figure")
             sys.exit(1)
@@ -420,12 +421,40 @@ class Plot3DApp:
                 self.fig.clear()
             except Exception as e:
                 print(f"Warning: Error clearing figure: {e}")
-                # If clearing fails, create a new figure
-                self.fig = plt.figure(figsize=(8, 6))
+                # If clearing fails, create a new figure with larger size
+                self.fig = plt.figure(figsize=(14, 10))
                 self.canvas.figure = self.fig
             
-            # Create 3D subplot with equal aspect ratio
+            # Create 3D subplot and maximize plot area
             ax = self.fig.add_subplot(111, projection='3d')
+            
+            # Aggressively minimize all margins to maximize plot area usage
+            self.fig.subplots_adjust(left=0.0, right=1.0, bottom=0.0, top=1.0)
+            
+            # Force axes position to fill entire figure
+            ax.set_position([0, 0, 1, 1])
+            
+            # Disable automatic margins on 3D axes
+            try:
+                ax.margins(0, 0, 0)  # Set x, y, z margins to zero
+            except:
+                pass
+            
+            # Adjust 3D projection to make the plot larger in the window
+            # Lower dist value = larger plot (default is 10, minimum ~4 before clipping)
+            # This significantly increases the wireframe box size in the window
+            try:
+                ax.dist = 4.5  # Aggressive reduction to maximize wireframe visibility
+                print(f"Set projection distance to {ax.dist} for maximum wireframe size")
+            except AttributeError:
+                print("Note: Unable to adjust projection distance (older matplotlib version)")
+            
+            # Disable auto-scaling margins
+            try:
+                ax.autoscale(enable=False)
+            except:
+                pass
+            
             # Store reference to current axes for direct rotation
             self.current_ax = ax
             
@@ -475,8 +504,44 @@ class Plot3DApp:
                     ax.set_zlim(current_zlim)
                     print(f"Restored zoom levels: X={current_xlim}, Y={current_ylim}, Z={current_zlim}")
             
-            # Ensure equal aspect ratio for proper 3D rendering
-            ax.set_box_aspect([1, 1, 1])
+            # Choose aspect ratio based on whether spheres are being displayed
+            # Use 1:1:1 when spheres are shown to keep them round, otherwise use dynamic ratios
+            use_equal_aspect = False
+            
+            # Check if any spheres are currently visible
+            if hasattr(self, 'sphere_manager') and self.sphere_manager:
+                # Check if any sphere checkboxes are enabled
+                if hasattr(self, 'show_delta_e_sphere') and self.show_delta_e_sphere.get():
+                    use_equal_aspect = True
+                elif hasattr(self, 'show_nested_spheres') and self.show_nested_spheres.get():
+                    use_equal_aspect = True
+            
+            if use_equal_aspect:
+                # Use equal aspect ratio to keep spheres round
+                ax.set_box_aspect([1, 1, 1])
+                print("Applied equal aspect ratios [1, 1, 1] to preserve sphere geometry")
+            else:
+                # Calculate dynamic aspect ratios to maximize window space utilization
+                xlim = ax.get_xlim()
+                ylim = ax.get_ylim()
+                zlim = ax.get_zlim()
+                
+                # Calculate ranges
+                x_range = xlim[1] - xlim[0]
+                y_range = ylim[1] - ylim[0]
+                z_range = zlim[1] - zlim[0]
+                
+                # Calculate aspect ratios to fill available space
+                max_range = max(x_range, y_range, z_range)
+                aspect_ratios = [
+                    x_range / max_range,
+                    y_range / max_range,
+                    z_range / max_range
+                ]
+                
+                # Apply calculated aspect ratios
+                ax.set_box_aspect(aspect_ratios)
+                print(f"Applied dynamic aspect ratios: {aspect_ratios} based on ranges X={x_range:.3f}, Y={y_range:.3f}, Z={z_range:.3f}")
             print("Applying rotation values to plot")
             # First priority: Use rotation controls values
             if hasattr(self, 'rotation_controls'):
@@ -1368,14 +1433,30 @@ class Plot3DApp:
         
         # Create canvas frame FIRST before any controls
         canvas_frame = ttk.Frame(main_container)
-        canvas_frame.grid(row=0, column=0, sticky='nsew', padx=5, pady=5)
+        canvas_frame.grid(row=0, column=0, sticky='nsew')  # Removed padding to maximize space
         canvas_frame.grid_columnconfigure(0, weight=1)
         canvas_frame.grid_rowconfigure(0, weight=1)
         
         # Use the figure created before _init_ui and create canvas
         self.canvas = FigureCanvasTkAgg(self.fig, master=canvas_frame)
         self.canvas.draw()
-        self.canvas.get_tk_widget().grid(row=0, column=0, sticky='nsew')
+        canvas_widget = self.canvas.get_tk_widget()
+        canvas_widget.grid(row=0, column=0, sticky='nsew')
+        
+        # Make figure resize with window - bind to configure event
+        def _on_resize(event):
+            # Get new size in pixels
+            width_px = event.width
+            height_px = event.height
+            # Convert to inches (assuming 100 DPI)
+            dpi = self.fig.dpi
+            width_inches = width_px / dpi
+            height_inches = height_px / dpi
+            # Resize figure
+            self.fig.set_size_inches(width_inches, height_inches, forward=True)
+            self.canvas.draw_idle()
+        
+        canvas_widget.bind('<Configure>', _on_resize)
         
         # Create toolbar frame and toolbar
         toolbar_frame = ttk.Frame(canvas_frame)
@@ -1451,7 +1532,8 @@ class Plot3DApp:
             # Ensure figure exists
             if not hasattr(self, 'fig') or self.fig is None:
                 print("Warning: Figure doesn't exist yet, creating a new one")
-                self.fig = plt.figure(figsize=(8, 6))
+                # Larger figure size for better display on modern monitors
+                self.fig = plt.figure(figsize=(14, 10))
                 
             # Ensure canvas exists
             if not hasattr(self, 'canvas') or self.canvas is None:

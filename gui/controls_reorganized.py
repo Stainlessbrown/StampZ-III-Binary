@@ -1020,20 +1020,23 @@ class ReorganizedControlPanel(ttk.Frame):
     
     def _on_angle_changed(self, *args):
         """Handle real-time angle changes with live rotation preview."""
-        # Always get the current original image to ensure we're using the right one
-        if hasattr(self, 'main_app') and self.main_app and hasattr(self.main_app, 'canvas'):
-            if self.main_app.canvas and self.main_app.canvas.core.original_image:
-                self._preview_original_image = self.main_app.canvas.core.original_image.copy()
+        # Get the true original unrotated image - need to retrieve from a stored reference
+        # that doesn't get modified by previews
+        if not hasattr(self, '_true_original_image') or self._true_original_image is None:
+            # First time - store the original
+            if hasattr(self, 'main_app') and self.main_app and hasattr(self.main_app, 'canvas'):
+                if self.main_app.canvas and self.main_app.canvas.core.original_image:
+                    self._true_original_image = self.main_app.canvas.core.original_image.copy()
         
-        # Update preview with current angle
-        if hasattr(self, '_preview_original_image') and self._preview_original_image:
+        # Update preview with current angle, always from the TRUE original
+        if hasattr(self, '_true_original_image') and self._true_original_image:
             try:
                 from utils.image_straightener import ImageStraightener
                 angle = self.straightening_angle_value.get()
                 
-                # Create preview image with current angle
+                # IMPORTANT: Always rotate from the TRUE original, not the preview
                 preview_image = ImageStraightener.rotate_image(
-                    self._preview_original_image,
+                    self._true_original_image,  # Use stored true original
                     angle,
                     background_color='white',
                     expand=False,
