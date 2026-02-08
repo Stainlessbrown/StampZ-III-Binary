@@ -113,7 +113,16 @@ class ImageAlignmentManager:
             crop_box = (x_min, y_min, x_max, y_max)
             cropped = pil_image.crop(crop_box)
             
-            print(f"  Auto-cropped from {pil_image.size} to {cropped.size}")
+            # Preserve 16-bit data if present
+            if hasattr(pil_image, '_stampz_16bit_data'):
+                # Crop the 16-bit array to match
+                img_16bit = pil_image._stampz_16bit_data
+                cropped_16bit = img_16bit[y_min:y_max, x_min:x_max]
+                cropped._stampz_16bit_data = cropped_16bit
+                print(f"  Auto-cropped from {pil_image.size} to {cropped.size} (16-bit preserved)")
+            else:
+                print(f"  Auto-cropped from {pil_image.size} to {cropped.size}")
+            
             return cropped, crop_box
             
         except Exception as e:
