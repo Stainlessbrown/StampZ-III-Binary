@@ -289,17 +289,23 @@ class ShapeManager:
         """Get the cropped version of the image based on current shape.
         
         Returns:
-            Cropped PIL Image
+            Cropped PIL Image (with _stampz_16bit_data preserved if present)
             
         Raises:
             ValueError: If no valid shape is defined
         """
+        import numpy as np
+        
         if not self.core.original_image:
             raise ValueError("No image loaded")
         
         current_shape = self._get_current_shape()
         if not current_shape:
             raise ValueError("No valid shape defined")
+        
+        # Check if we have 16-bit data to preserve
+        has_16bit = hasattr(self.core.original_image, '_stampz_16bit_data')
+        print(f"DEBUG get_cropped_image: has _stampz_16bit_data: {has_16bit}")
         
         # Create mask
         mask = Image.new('L', self.core.original_image.size, 0)
@@ -315,16 +321,49 @@ class ShapeManager:
             draw.polygon(vertices_xy, fill=255)
             print(f"DEBUG: Crop mask vertices: {vertices_xy}")
         
-        # Apply mask and crop
-        orig_rgba = self.core.original_image.convert('RGBA')
-        result = Image.new('RGBA', self.core.original_image.size, (0, 0, 0, 0))
-        result.paste(orig_rgba, mask=mask)
-        
-        # Get bounding box and crop
+        # Get bounding box
         if isinstance(current_shape, (Circle, Oval)):
             bbox = get_shape_bbox(current_shape)
         else:
             bbox = self._get_polygon_bbox()
+        
+        # Handle 16-bit images specially to preserve precision
+        if has_16bit:
+            # Crop the 16-bit numpy array directly
+            img_16bit = self.core.original_image._stampz_16bit_data
+            mask_array = np.array(mask)
+            
+            # Apply mask to 16-bit data (set masked areas to white background)
+            # Create a white background (65535 for 16-bit)
+            result_16bit = np.full_like(img_16bit, 65535, dtype=np.uint16)
+            
+            # Copy pixels where mask is non-zero
+            mask_bool = mask_array > 0
+            if len(img_16bit.shape) == 3:  # RGB
+                for c in range(img_16bit.shape[2]):
+                    result_16bit[:, :, c] = np.where(mask_bool, img_16bit[:, :, c], 65535)
+            else:  # Grayscale
+                result_16bit = np.where(mask_bool, img_16bit, 65535)
+            
+            # Crop the 16-bit array
+            left, top, right, bottom = bbox
+            cropped_16bit = result_16bit[top:bottom, left:right]
+            
+            # Create 8-bit display version
+            cropped_8bit = (cropped_16bit / 256).astype(np.uint8)
+            cropped = Image.fromarray(cropped_8bit)
+            
+            # Attach cropped 16-bit data
+            cropped._stampz_16bit_data = cropped_16bit
+            print(f"DEBUG get_cropped_image: preserved 16-bit data, shape: {cropped_16bit.shape}")
+            
+            return cropped
+        
+        # Standard 8-bit cropping
+        # Apply mask and crop
+        orig_rgba = self.core.original_image.convert('RGBA')
+        result = Image.new('RGBA', self.core.original_image.size, (0, 0, 0, 0))
+        result.paste(orig_rgba, mask=mask)
         
         cropped = result.crop(bbox)
         
