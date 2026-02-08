@@ -1010,11 +1010,13 @@ class StampZApp:
 
         try:
             # Get the original image before any preview modifications
-            # If preview was active, restore original first
-            if hasattr(self.control_panel, '_preview_original_image'):
-                original_to_rotate = self.control_panel._preview_original_image
+            # Use _true_original_image if available (stores 16-bit data), otherwise use canvas image
+            if hasattr(self.control_panel, '_true_original_image') and self.control_panel._true_original_image is not None:
+                original_to_rotate = self.control_panel._true_original_image
+                print(f"DEBUG: Using _true_original_image for rotation, has 16-bit data: {hasattr(original_to_rotate, '_stampz_16bit_data')}")
             else:
                 original_to_rotate = self.canvas.original_image
+                print(f"DEBUG: Using canvas.original_image for rotation, has 16-bit data: {hasattr(original_to_rotate, '_stampz_16bit_data')}")
             
             # Directly rotate by the specified angle
             from utils.image_straightener import ImageStraightener
@@ -1026,6 +1028,9 @@ class StampZApp:
                 auto_crop=True
             )
             
+            # Debug: check if rotated image has 16-bit data
+            print(f"DEBUG: Rotated image has 16-bit data: {hasattr(straightened_image, '_stampz_16bit_data')}")
+            
             self.canvas.load_image(straightened_image)
             self.straightening_tool.clear_points()
             self.control_panel.update_straightening_status(0)
@@ -1033,8 +1038,8 @@ class StampZApp:
                 self.canvas.delete('straightening_point')
             
             # Clear preview cache so next adjustment starts fresh
-            if hasattr(self.control_panel, '_preview_original_image'):
-                delattr(self.control_panel, '_preview_original_image')
+            if hasattr(self.control_panel, '_true_original_image'):
+                self.control_panel._true_original_image = None
             
             # Reset angle spinbox after applying
             self.control_panel.straightening_angle_value.set(0.0)

@@ -165,6 +165,33 @@ def load_image(file_path: Union[str, Path]) -> Tuple[Image.Image, dict]:
     except (OSError, IOError) as e:
         raise ImageLoadError(f"Failed to load image {file_path}: {str(e)}")
 
+def copy_image_preserve_16bit(image: Image.Image) -> Image.Image:
+    """
+    Copy a PIL Image while preserving the _stampz_16bit_data attribute.
+    
+    PIL's .copy() method does NOT preserve custom attributes, so we need
+    this helper to maintain 16-bit data through operations like leveling.
+    
+    Args:
+        image: PIL Image object to copy
+        
+    Returns:
+        Copied PIL Image with _stampz_16bit_data preserved if present
+    """
+    copied = image.copy()
+    
+    # Preserve 16-bit data if present
+    if hasattr(image, '_stampz_16bit_data'):
+        copied._stampz_16bit_data = image._stampz_16bit_data.copy()  # Copy numpy array too
+        logger.debug("Preserved _stampz_16bit_data during image copy")
+    
+    # Preserve source file info if present
+    if hasattr(image, '_stampz_source_file'):
+        copied._stampz_source_file = image._stampz_source_file
+        
+    return copied
+
+
 # Save functionality moved to save_as.py
 
 def scale_image(

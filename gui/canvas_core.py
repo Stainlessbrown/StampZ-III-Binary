@@ -41,6 +41,7 @@ class CanvasCore:
             image: PIL Image to load
         """
         self.original_image = image
+        print(f"DEBUG canvas_core.load_image: stored image has _stampz_16bit_data: {hasattr(self.original_image, '_stampz_16bit_data')}")
         self.display_image = None
         
         # Reset view state

@@ -10,7 +10,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from typing import Callable, Optional, Dict
 import logging
-from utils.image_processor import load_image, ImageLoadError
+from utils.image_processor import load_image, ImageLoadError, copy_image_preserve_16bit
 
 from utils.save_as import SaveOptions, SaveFormat
 from gui.canvas import ShapeType
@@ -1024,9 +1024,10 @@ class ReorganizedControlPanel(ttk.Frame):
         # that doesn't get modified by previews
         if not hasattr(self, '_true_original_image') or self._true_original_image is None:
             # First time - store the original
+            # IMPORTANT: Use copy_image_preserve_16bit to preserve _stampz_16bit_data attribute
             if hasattr(self, 'main_app') and self.main_app and hasattr(self.main_app, 'canvas'):
                 if self.main_app.canvas and self.main_app.canvas.core.original_image:
-                    self._true_original_image = self.main_app.canvas.core.original_image.copy()
+                    self._true_original_image = copy_image_preserve_16bit(self.main_app.canvas.core.original_image)
         
         # Update preview with current angle, always from the TRUE original
         if hasattr(self, '_true_original_image') and self._true_original_image:

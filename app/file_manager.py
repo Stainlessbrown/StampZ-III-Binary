@@ -59,6 +59,7 @@ class FileManager:
         if filename:
             try:
                 image, metadata = load_image(filename)
+                print(f"DEBUG open_image: loaded image has _stampz_16bit_data: {hasattr(image, '_stampz_16bit_data')}")
                 self.app.canvas.load_image(image)
                 self.app.current_file = filename
                 self.app.current_image_metadata = metadata  # Store metadata for later use
@@ -165,14 +166,19 @@ class FileManager:
             messagebox.showwarning("No Image", "Please open an image before saving.")
             return
         
+        # Debug: check 16-bit status of original image
+        print(f"DEBUG save_image: canvas.original_image has _stampz_16bit_data: {hasattr(self.app.canvas.original_image, '_stampz_16bit_data')}")
+        
         # Check if we have a crop selection or if we're saving the whole image (e.g., aligned)
         try:
             cropped = self.app.canvas.get_cropped_image()
             is_cropped = True
+            print(f"DEBUG save_image: cropped image has _stampz_16bit_data: {hasattr(cropped, '_stampz_16bit_data')}")
         except ValueError:
             # No crop selection - save the entire image (e.g., aligned image)
             cropped = self.app.canvas.original_image
             is_cropped = False
+            print(f"DEBUG save_image: using whole image, has _stampz_16bit_data: {hasattr(cropped, '_stampz_16bit_data')}")
             
         try:
             panel_options = self.app.control_panel.get_save_options()
