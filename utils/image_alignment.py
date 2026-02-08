@@ -473,8 +473,21 @@ class ImageAlignmentManager:
                     output_filename = f"{base_name}_aligned{ext}"
                     output_path = os.path.join(output_dir, output_filename)
                     
-                    # Save aligned image
-                    aligned_image.save(output_path)
+                    # Save aligned image - use SaveManager to preserve 16-bit if present
+                    from utils.save_as import SaveManager, SaveOptions, SaveFormat
+                    save_manager = SaveManager()
+                    
+                    # Determine format from extension
+                    if ext.lower() in ['.tif', '.tiff']:
+                        save_format = SaveFormat.TIFF
+                    elif ext.lower() == '.png':
+                        save_format = SaveFormat.PNG
+                    else:
+                        save_format = SaveFormat.TIFF  # Default to TIFF
+                        output_path = output_path.replace(ext, '.tif')
+                    
+                    save_options = SaveOptions(format=save_format, optimize=True)
+                    save_manager.save_image(aligned_image, output_path, save_options)
                     
                     successful.append((image_path, output_path))
                     if progress_callback:
