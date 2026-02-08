@@ -247,16 +247,15 @@ class ImageStraightener:
                 cropped_pil, crop_box = ImageStraightener._crop_background_padding_with_box(rotated_pil, background_color)
                 rotated_pil = cropped_pil
                 
-                # Crop the 16-bit array to match if we're working with 16-bit data
-                if is_16bit and crop_box is not None:
+                # Crop the 16-bit array to match (this function is specifically for 16-bit)
+                if crop_box is not None:
                     left, top, right, bottom = crop_box
                     rotated_array = rotated_array[top:bottom+1, left:right+1]
                     logger.debug(f"Cropped 16-bit array to {rotated_array.shape}")
                 
                 # Re-attach the cropped 16-bit data
-                if is_16bit:
-                    rotated_pil._stampz_16bit_data = rotated_array
-                    logger.debug(f"Attached cropped 16-bit data to PIL image")
+                rotated_pil._stampz_16bit_data = rotated_array
+                logger.debug(f"Attached cropped 16-bit data to PIL image")
             
             logger.debug(f"Rotated 16-bit image by {angle_degrees} degrees using OpenCV")
             return rotated_pil

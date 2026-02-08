@@ -77,10 +77,13 @@ def load_image(file_path: Union[str, Path]) -> Tuple[Image.Image, dict]:
                 # Convert numpy array to PIL Image
                 if tiff_metadata.get('true_16bit', False):
                     # For 16-bit data, we need to scale down to 8-bit for display
-                    # but preserve the original precision info
+                    # but preserve the original 16-bit data as an attribute
                     img_array_8bit = (img_array / 65535.0 * 255.0).astype(np.uint8)
                     image = Image.fromarray(img_array_8bit)
-                    logger.info(f"Loaded 16-bit TIFF with full precision: {file_path}")
+                    # Attach the original 16-bit data for use in rotation/save operations
+                    image._stampz_16bit_data = img_array
+                    image._stampz_source_file = str(file_path)
+                    logger.info(f"Loaded 16-bit TIFF with full precision, attached _stampz_16bit_data: {file_path}")
                 else:
                     image = Image.fromarray(img_array)
                     logger.info(f"Loaded TIFF as 8-bit: {file_path}")
