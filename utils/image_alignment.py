@@ -250,8 +250,18 @@ class ImageAlignmentManager:
                 info['num_matches'] = inliers
                 return None, info
             
+            # Check if we have 16-bit data to preserve
+            has_16bit = hasattr(pil_image, '_stampz_16bit_data')
+            print(f"DEBUG align_image: input has _stampz_16bit_data: {has_16bit}")
+            
             # Warp image to align with reference
-            img_array = np.array(pil_image)
+            if has_16bit:
+                # Use the 16-bit data directly for alignment
+                img_array = pil_image._stampz_16bit_data
+                print(f"DEBUG align_image: using 16-bit data, dtype: {img_array.dtype}")
+            else:
+                img_array = np.array(pil_image)
+            
             if self.alignment_mode in ['similarity', 'affine']:
                 # Use warpAffine for 2x3 similarity/affine matrix
                 aligned_array = cv2.warpAffine(img_array, M, self.reference_size)
@@ -259,8 +269,16 @@ class ImageAlignmentManager:
                 # Use warpPerspective for 3x3 homography
                 aligned_array = cv2.warpPerspective(img_array, M, self.reference_size)
             
-            # Convert back to PIL
-            aligned_pil = Image.fromarray(aligned_array)
+            # Convert back to PIL, preserving 16-bit if present
+            if has_16bit:
+                # Create 8-bit display version
+                aligned_8bit = (aligned_array / 256).astype(np.uint8)
+                aligned_pil = Image.fromarray(aligned_8bit)
+                # Attach the 16-bit aligned data
+                aligned_pil._stampz_16bit_data = aligned_array
+                print(f"DEBUG align_image: preserved 16-bit data, shape: {aligned_array.shape}")
+            else:
+                aligned_pil = Image.fromarray(aligned_array)
             
             # Success!
             info['success'] = True
@@ -460,8 +478,10 @@ class ImageAlignmentManager:
                 if progress_callback:
                     progress_callback(idx, total, filename, "Processing...")
                 
-                # Load image
-                pil_image = Image.open(image_path)
+                # Load image using load_image to preserve 16-bit data
+                from utils.image_processor import load_image
+                pil_image, metadata = load_image(image_path)
+                print(f"DEBUG bulk_align: loaded {filename}, has _stampz_16bit_data: {hasattr(pil_image, '_stampz_16bit_data')}")
                 
                 # Align image
                 aligned_image, info = self.align_image(pil_image)
