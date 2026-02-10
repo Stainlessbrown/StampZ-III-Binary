@@ -69,6 +69,33 @@ class MeasurementPreferences:
     default_background_color: str = 'black'  # Default scan background color
 
 
+@dataclass
+class WorkspaceConfig:
+    """Configuration for a single workspace."""
+    databases: List[str] = None  # List of active database filenames
+    libraries: List[str] = None  # List of active library filenames
+    templates: List[str] = None  # List of active template filenames
+    
+    def __post_init__(self):
+        if self.databases is None:
+            self.databases = []
+        if self.libraries is None:
+            self.libraries = []
+        if self.templates is None:
+            self.templates = []
+
+
+@dataclass
+class WorkspacePreferences:
+    """Preferences for workspace management."""
+    workspaces: Dict[str, Any] = None  # Named workspace configurations (name -> WorkspaceConfig dict)
+    active_workspace: str = ""  # Currently active workspace name (empty = "All Resources")
+    
+    def __post_init__(self):
+        if self.workspaces is None:
+            self.workspaces = {}
+
+
 # InterfacePreferences class removed - complexity levels no longer used
 @dataclass 
 class UserPreferences:
@@ -79,6 +106,7 @@ class UserPreferences:
     sample_area_prefs: SampleAreaPreferences
     compare_mode_prefs: CompareModePreferences
     measurement_prefs: MeasurementPreferences
+    workspace_prefs: WorkspacePreferences
     # interface_prefs removed - complexity levels no longer used
     
     def __init__(self):
@@ -88,6 +116,7 @@ class UserPreferences:
         self.sample_area_prefs = SampleAreaPreferences()
         self.compare_mode_prefs = CompareModePreferences()
         self.measurement_prefs = MeasurementPreferences()
+        self.workspace_prefs = WorkspacePreferences()
         # self.interface_prefs removed - complexity levels no longer used
 
 
@@ -694,6 +723,294 @@ class PreferencesManager:
             print(f"Error setting default background color: {e}")
             return False
     
+    # ==================== Workspace Management Methods ====================
+    
+    def get_workspaces(self) -> Dict[str, Any]:
+        """Get all workspace configurations.
+        
+        Returns:
+            Dictionary mapping workspace names to their configurations
+        """
+        return self.preferences.workspace_prefs.workspaces.copy()
+    
+    def get_active_workspace(self) -> str:
+        """Get the currently active workspace name.
+        
+        Returns:
+            Active workspace name, or empty string for 'All Resources' mode
+        """
+        return self.preferences.workspace_prefs.active_workspace
+    
+    def set_active_workspace(self, name: str) -> bool:
+        """Set the active workspace.
+        
+        Args:
+            name: Workspace name, or empty string for 'All Resources' mode
+            
+        Returns:
+            True if successful
+        """
+        try:
+            # Allow empty string (All Resources mode) or valid workspace name
+            if name and name not in self.preferences.workspace_prefs.workspaces:
+                print(f"Error: Workspace '{name}' does not exist")
+                return False
+            
+            self.preferences.workspace_prefs.active_workspace = name
+            self.save_preferences()
+            return True
+        except Exception as e:
+            print(f"Error setting active workspace: {e}")
+            return False
+    
+    def create_workspace(self, name: str, databases: List[str] = None, 
+                         libraries: List[str] = None, templates: List[str] = None) -> bool:
+        """Create a new workspace.
+        
+        Args:
+            name: Workspace name (must be unique)
+            databases: List of database filenames to include
+            libraries: List of library filenames to include
+            templates: List of template filenames to include
+            
+        Returns:
+            True if successful
+        """
+        try:
+            if not name or not name.strip():
+                print("Error: Workspace name cannot be empty")
+                return False
+            
+            name = name.strip()
+            if name in self.preferences.workspace_prefs.workspaces:
+                print(f"Error: Workspace '{name}' already exists")
+                return False
+            
+            # Create workspace config as a dictionary (for JSON serialization)
+            config = {
+                'databases': databases or [],
+                'libraries': libraries or [],
+                'templates': templates or []
+            }
+            
+            self.preferences.workspace_prefs.workspaces[name] = config
+            self.save_preferences()
+            return True
+        except Exception as e:
+            print(f"Error creating workspace: {e}")
+            return False
+    
+    def delete_workspace(self, name: str) -> bool:
+        """Delete a workspace.
+        
+        Args:
+            name: Workspace name to delete
+            
+        Returns:
+            True if successful
+        """
+        try:
+            if name not in self.preferences.workspace_prefs.workspaces:
+                print(f"Error: Workspace '{name}' does not exist")
+                return False
+            
+            # If deleting the active workspace, switch to All Resources
+            if self.preferences.workspace_prefs.active_workspace == name:
+                self.preferences.workspace_prefs.active_workspace = ""
+            
+            del self.preferences.workspace_prefs.workspaces[name]
+            self.save_preferences()
+            return True
+        except Exception as e:
+            print(f"Error deleting workspace: {e}")
+            return False
+    
+    def update_workspace(self, name: str, databases: List[str] = None,
+                         libraries: List[str] = None, templates: List[str] = None) -> bool:
+        """Update a workspace configuration.
+        
+        Args:
+            name: Workspace name to update
+            databases: New list of database filenames (None to keep existing)
+            libraries: New list of library filenames (None to keep existing)
+            templates: New list of template filenames (None to keep existing)
+            
+        Returns:
+            True if successful
+        """
+        try:
+            if name not in self.preferences.workspace_prefs.workspaces:
+                print(f"Error: Workspace '{name}' does not exist")
+                return False
+            
+            config = self.preferences.workspace_prefs.workspaces[name]
+            
+            if databases is not None:
+                config['databases'] = databases
+            if libraries is not None:
+                config['libraries'] = libraries
+            if templates is not None:
+                config['templates'] = templates
+            
+            self.save_preferences()
+            return True
+        except Exception as e:
+            print(f"Error updating workspace: {e}")
+            return False
+    
+    def get_workspace_config(self, name: str) -> Optional[Dict[str, List[str]]]:
+        """Get configuration for a specific workspace.
+        
+        Args:
+            name: Workspace name
+            
+        Returns:
+            Workspace config dict or None if not found
+        """
+        return self.preferences.workspace_prefs.workspaces.get(name)
+    
+    def get_available_databases(self) -> List[str]:
+        """Get all available database files from the color_analysis directory.
+        
+        Returns:
+            List of database filenames (without path)
+        """
+        try:
+            from .path_utils import get_color_analysis_dir
+            analysis_dir = get_color_analysis_dir()
+            
+            if not os.path.exists(analysis_dir):
+                return []
+            
+            # Get all .db files, excluding system files
+            databases = []
+            for f in os.listdir(analysis_dir):
+                if f.endswith('.db') and not f.startswith('.'):
+                    databases.append(f)
+            
+            return sorted(databases)
+        except Exception as e:
+            print(f"Error getting available databases: {e}")
+            return []
+    
+    def get_available_libraries(self) -> List[str]:
+        """Get all available library files from the color_libraries directory.
+        
+        Returns:
+            List of library filenames (without path)
+        """
+        try:
+            from .path_utils import get_color_libraries_dir
+            library_dir = get_color_libraries_dir()
+            
+            if not os.path.exists(library_dir):
+                return []
+            
+            # Get all *_library.db files
+            libraries = []
+            for f in os.listdir(library_dir):
+                if f.endswith('_library.db') and not f.startswith('.'):
+                    libraries.append(f)
+            
+            return sorted(libraries)
+        except Exception as e:
+            print(f"Error getting available libraries: {e}")
+            return []
+    
+    def get_available_templates(self) -> List[str]:
+        """Get all available sampling templates from coordinates.db.
+        
+        Returns:
+            List of template names (coordinate sets)
+        """
+        try:
+            import sqlite3
+            from .path_utils import get_base_data_dir
+            
+            db_path = os.path.join(get_base_data_dir(), "coordinates.db")
+            
+            if not os.path.exists(db_path):
+                return []
+            
+            templates = []
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                # Get template names, excluding temporary/manual mode templates
+                cursor.execute("""
+                    SELECT DISTINCT cs.name
+                    FROM coordinate_sets cs
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM coordinates c 
+                        WHERE c.set_id = cs.id AND c.temporary = 1
+                    )
+                    ORDER BY cs.name
+                """)
+                templates = [row[0] for row in cursor.fetchall() if row[0]]
+            
+            return sorted(templates)
+        except Exception as e:
+            print(f"Error getting available templates: {e}")
+            return []
+    
+    def get_active_databases(self) -> List[str]:
+        """Get databases active in the current workspace.
+        
+        Returns:
+            List of active database filenames, or all databases if no workspace is active
+        """
+        active_ws = self.preferences.workspace_prefs.active_workspace
+        
+        if not active_ws:  # All Resources mode
+            return self.get_available_databases()
+        
+        config = self.preferences.workspace_prefs.workspaces.get(active_ws)
+        if config:
+            # Return only databases that still exist
+            available = set(self.get_available_databases())
+            return [db for db in config.get('databases', []) if db in available]
+        
+        return self.get_available_databases()
+    
+    def get_active_libraries(self) -> List[str]:
+        """Get libraries active in the current workspace.
+        
+        Returns:
+            List of active library filenames, or all libraries if no workspace is active
+        """
+        active_ws = self.preferences.workspace_prefs.active_workspace
+        
+        if not active_ws:  # All Resources mode
+            return self.get_available_libraries()
+        
+        config = self.preferences.workspace_prefs.workspaces.get(active_ws)
+        if config:
+            # Return only libraries that still exist
+            available = set(self.get_available_libraries())
+            return [lib for lib in config.get('libraries', []) if lib in available]
+        
+        return self.get_available_libraries()
+    
+    def get_active_templates(self) -> List[str]:
+        """Get templates active in the current workspace.
+        
+        Returns:
+            List of active template filenames, or all templates if no workspace is active
+        """
+        active_ws = self.preferences.workspace_prefs.active_workspace
+        
+        if not active_ws:  # All Resources mode
+            return self.get_available_templates()
+        
+        config = self.preferences.workspace_prefs.workspaces.get(active_ws)
+        if config:
+            # Return only templates that still exist
+            available = set(self.get_available_templates())
+            return [tpl for tpl in config.get('templates', []) if tpl in available]
+        
+        return self.get_available_templates()
+    
+    # ==================== End Workspace Methods ====================
+    
     def get_export_filename(self, sample_set_name: str = None, extension: str = ".ods") -> str:
         """Generate export filename based on preferences."""
         from datetime import datetime
@@ -800,6 +1117,14 @@ class PreferencesManager:
                         default_background_color=measurement_data.get('default_background_color', 'black')
                     )
                 
+                # Load workspace preferences
+                if 'workspace_prefs' in data:
+                    workspace_data = data['workspace_prefs']
+                    self.preferences.workspace_prefs = WorkspacePreferences(
+                        workspaces=workspace_data.get('workspaces', {}),
+                        active_workspace=workspace_data.get('active_workspace', '')
+                    )
+                
                 # Interface preferences removed - complexity levels no longer used
                 
                 print(f"Loaded preferences from {self.prefs_file}")
@@ -835,6 +1160,7 @@ class PreferencesManager:
                 'sample_area_prefs': asdict(self.preferences.sample_area_prefs),
                 'compare_mode_prefs': asdict(self.preferences.compare_mode_prefs),
                 'measurement_prefs': asdict(self.preferences.measurement_prefs),
+                'workspace_prefs': asdict(self.preferences.workspace_prefs),
                 # 'interface_prefs': removed - complexity levels no longer used
             })
             

@@ -167,6 +167,9 @@ class PreferencesDialog:
         # Debug preferences tab
         self._create_debug_tab(notebook)
         
+        # Workspaces tab for managing active resources
+        self._create_workspaces_tab(notebook)
+        
         # Future tabs can be added here
         # self._create_general_tab(notebook)
         # self._create_appearance_tab(notebook)
@@ -1529,6 +1532,10 @@ class PreferencesDialog:
             except Exception as e:
                 print(f"Warning: Could not apply debug logging setting: {e}")
             
+            # Workspace preferences
+            if hasattr(self, '_save_workspace_preferences'):
+                self._save_workspace_preferences()
+            
             # Save preferences
             success = self.prefs_manager.save_preferences()
             
@@ -1653,6 +1660,386 @@ class PreferencesDialog:
             font=("TkDefaultFont", 9),
             foreground="orange"
         ).pack(anchor=tk.W)
+    
+    def _create_workspaces_tab(self, notebook):
+        """Create the workspaces management tab."""
+        # Create outer frame and add to notebook
+        outer_frame = ttk.Frame(notebook)
+        notebook.add(outer_frame, text="Workspaces")
+        
+        # Create canvas and scrollbar for scrolling
+        canvas = tk.Canvas(outer_frame, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(outer_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Pack canvas and scrollbar
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Enable mousewheel scrolling
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        
+        # Main content frame
+        workspace_frame = ttk.Frame(scrollable_frame, padding="10")
+        workspace_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Description
+        ttk.Label(
+            workspace_frame,
+            text="Workspaces let you organize your databases, libraries, and templates into focused groups.\n"
+                 "Select a workspace to see only the resources assigned to it, or use 'All Resources' to see everything.",
+            wraplength=600,
+            justify=tk.LEFT,
+            font=("TkDefaultFont", 9)
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Workspace selector section
+        selector_frame = ttk.LabelFrame(workspace_frame, text="Active Workspace", padding="10")
+        selector_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Workspace dropdown and buttons row
+        selector_row = ttk.Frame(selector_frame)
+        selector_row.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(selector_row, text="Workspace:").pack(side=tk.LEFT, padx=(0, 5))
+        
+        self.workspace_var = tk.StringVar()
+        self.workspace_combo = ttk.Combobox(
+            selector_row,
+            textvariable=self.workspace_var,
+            state="readonly",
+            width=25
+        )
+        self.workspace_combo.pack(side=tk.LEFT, padx=(0, 10))
+        self.workspace_combo.bind("<<ComboboxSelected>>", self._on_workspace_selected)
+        
+        ttk.Button(
+            selector_row,
+            text="New...",
+            command=self._create_new_workspace
+        ).pack(side=tk.LEFT, padx=(0, 5))
+        
+        ttk.Button(
+            selector_row,
+            text="Delete",
+            command=self._delete_workspace
+        ).pack(side=tk.LEFT)
+        
+        # Status label
+        self.workspace_status_var = tk.StringVar(value="No workspace selected - showing all resources")
+        ttk.Label(
+            selector_frame,
+            textvariable=self.workspace_status_var,
+            font=("TkDefaultFont", 9),
+            foreground="blue"
+        ).pack(anchor=tk.W)
+        
+        # Resources section - three columns for DBs, Libraries, Templates
+        resources_frame = ttk.LabelFrame(workspace_frame, text="Resources in Selected Workspace", padding="10")
+        resources_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        # Create three columns
+        columns_frame = ttk.Frame(resources_frame)
+        columns_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Databases column
+        db_frame = ttk.Frame(columns_frame)
+        db_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
+        
+        ttk.Label(db_frame, text="Databases", font=("TkDefaultFont", 10, "bold")).pack(anchor=tk.W)
+        
+        db_list_frame = ttk.Frame(db_frame)
+        db_list_frame.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
+        
+        self.db_listbox = tk.Listbox(
+            db_list_frame,
+            selectmode=tk.MULTIPLE,
+            height=10,
+            exportselection=False
+        )
+        db_scrollbar = ttk.Scrollbar(db_list_frame, orient="vertical", command=self.db_listbox.yview)
+        self.db_listbox.configure(yscrollcommand=db_scrollbar.set)
+        self.db_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        db_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.db_listbox.bind("<<ListboxSelect>>", self._on_resource_selection_changed)
+        
+        # Libraries column
+        lib_frame = ttk.Frame(columns_frame)
+        lib_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
+        
+        ttk.Label(lib_frame, text="Libraries", font=("TkDefaultFont", 10, "bold")).pack(anchor=tk.W)
+        
+        lib_list_frame = ttk.Frame(lib_frame)
+        lib_list_frame.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
+        
+        self.lib_listbox = tk.Listbox(
+            lib_list_frame,
+            selectmode=tk.MULTIPLE,
+            height=10,
+            exportselection=False
+        )
+        lib_scrollbar = ttk.Scrollbar(lib_list_frame, orient="vertical", command=self.lib_listbox.yview)
+        self.lib_listbox.configure(yscrollcommand=lib_scrollbar.set)
+        self.lib_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        lib_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.lib_listbox.bind("<<ListboxSelect>>", self._on_resource_selection_changed)
+        
+        # Templates column
+        tpl_frame = ttk.Frame(columns_frame)
+        tpl_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(5, 0))
+        
+        ttk.Label(tpl_frame, text="Sampling Templates", font=("TkDefaultFont", 10, "bold")).pack(anchor=tk.W)
+        
+        tpl_list_frame = ttk.Frame(tpl_frame)
+        tpl_list_frame.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
+        
+        self.tpl_listbox = tk.Listbox(
+            tpl_list_frame,
+            selectmode=tk.MULTIPLE,
+            height=10,
+            exportselection=False
+        )
+        tpl_scrollbar = ttk.Scrollbar(tpl_list_frame, orient="vertical", command=self.tpl_listbox.yview)
+        self.tpl_listbox.configure(yscrollcommand=tpl_scrollbar.set)
+        self.tpl_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        tpl_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tpl_listbox.bind("<<ListboxSelect>>", self._on_resource_selection_changed)
+        
+        # Selection info label
+        self.selection_info_var = tk.StringVar(value="Select items to include in the workspace")
+        ttk.Label(
+            resources_frame,
+            textvariable=self.selection_info_var,
+            font=("TkDefaultFont", 9),
+            foreground="gray"
+        ).pack(anchor=tk.W, pady=(10, 0))
+        
+        # Information section
+        info_frame = ttk.LabelFrame(workspace_frame, text="How Workspaces Work", padding="10")
+        info_frame.pack(fill=tk.X)
+        
+        info_text = (
+            "• Select 'All Resources' to see all databases, libraries, and templates\n"
+            "• Create workspaces to organize resources by project or stamp series\n"
+            "• Highlighted items in the lists are included in the current workspace\n"
+            "• Changes are saved when you click Apply or OK\n"
+            "• Deleting a workspace does not delete the actual files"
+        )
+        
+        ttk.Label(
+            info_frame,
+            text=info_text,
+            wraplength=600,
+            justify=tk.LEFT,
+            font=("TkDefaultFont", 9),
+            foreground="gray"
+        ).pack(anchor=tk.W)
+        
+        # Initialize workspace data
+        self._workspace_modified = False
+        self._load_workspace_preferences()
+    
+    def _load_workspace_preferences(self):
+        """Load workspace preferences and populate the UI."""
+        try:
+            # Get available workspaces
+            workspaces = self.prefs_manager.get_workspaces()
+            active_workspace = self.prefs_manager.get_active_workspace()
+            
+            # Populate workspace dropdown
+            workspace_names = ['All Resources'] + sorted(workspaces.keys())
+            self.workspace_combo['values'] = workspace_names
+            
+            # Set current selection
+            if active_workspace and active_workspace in workspaces:
+                self.workspace_var.set(active_workspace)
+            else:
+                self.workspace_var.set('All Resources')
+            
+            # Populate resource lists
+            self._populate_resource_lists()
+            
+            # Update selection based on workspace
+            self._update_workspace_selection()
+            
+        except Exception as e:
+            print(f"Error loading workspace preferences: {e}")
+    
+    def _populate_resource_lists(self):
+        """Populate the resource listboxes with available resources."""
+        # Clear existing items
+        self.db_listbox.delete(0, tk.END)
+        self.lib_listbox.delete(0, tk.END)
+        self.tpl_listbox.delete(0, tk.END)
+        
+        # Get available resources
+        databases = self.prefs_manager.get_available_databases()
+        libraries = self.prefs_manager.get_available_libraries()
+        templates = self.prefs_manager.get_available_templates()
+        
+        # Populate listboxes
+        for db in databases:
+            self.db_listbox.insert(tk.END, db)
+        
+        for lib in libraries:
+            # Display friendly name (remove _library.db suffix)
+            self.lib_listbox.insert(tk.END, lib)
+        
+        for tpl in templates:
+            self.tpl_listbox.insert(tk.END, tpl)
+    
+    def _update_workspace_selection(self):
+        """Update listbox selections based on current workspace."""
+        workspace_name = self.workspace_var.get()
+        
+        # Clear all selections first
+        self.db_listbox.selection_clear(0, tk.END)
+        self.lib_listbox.selection_clear(0, tk.END)
+        self.tpl_listbox.selection_clear(0, tk.END)
+        
+        if workspace_name == 'All Resources' or not workspace_name:
+            # Select all items
+            for i in range(self.db_listbox.size()):
+                self.db_listbox.selection_set(i)
+            for i in range(self.lib_listbox.size()):
+                self.lib_listbox.selection_set(i)
+            for i in range(self.tpl_listbox.size()):
+                self.tpl_listbox.selection_set(i)
+            self.workspace_status_var.set("Showing all resources (no workspace filter)")
+            self.selection_info_var.set("All items selected - create a workspace to filter")
+        else:
+            # Get workspace config
+            config = self.prefs_manager.get_workspace_config(workspace_name)
+            if config:
+                # Select items that are in the workspace
+                active_dbs = set(config.get('databases', []))
+                active_libs = set(config.get('libraries', []))
+                active_tpls = set(config.get('templates', []))
+                
+                for i in range(self.db_listbox.size()):
+                    if self.db_listbox.get(i) in active_dbs:
+                        self.db_listbox.selection_set(i)
+                
+                for i in range(self.lib_listbox.size()):
+                    if self.lib_listbox.get(i) in active_libs:
+                        self.lib_listbox.selection_set(i)
+                
+                for i in range(self.tpl_listbox.size()):
+                    if self.tpl_listbox.get(i) in active_tpls:
+                        self.tpl_listbox.selection_set(i)
+                
+                db_count = len(active_dbs)
+                lib_count = len(active_libs)
+                tpl_count = len(active_tpls)
+                self.workspace_status_var.set(f"Workspace '{workspace_name}': {db_count} DBs, {lib_count} libraries, {tpl_count} templates")
+                self.selection_info_var.set("Click items to add/remove from this workspace")
+    
+    def _on_workspace_selected(self, event=None):
+        """Handle workspace selection change."""
+        self._update_workspace_selection()
+    
+    def _on_resource_selection_changed(self, event=None):
+        """Handle resource selection change in listboxes."""
+        workspace_name = self.workspace_var.get()
+        if workspace_name and workspace_name != 'All Resources':
+            self._workspace_modified = True
+            # Update counts
+            db_count = len(self.db_listbox.curselection())
+            lib_count = len(self.lib_listbox.curselection())
+            tpl_count = len(self.tpl_listbox.curselection())
+            self.selection_info_var.set(f"Selected: {db_count} DBs, {lib_count} libraries, {tpl_count} templates (unsaved)")
+    
+    def _create_new_workspace(self):
+        """Create a new workspace."""
+        from tkinter import simpledialog
+        
+        name = simpledialog.askstring(
+            "New Workspace",
+            "Enter a name for the new workspace:",
+            parent=self.root
+        )
+        
+        if name:
+            name = name.strip()
+            if not name:
+                messagebox.showwarning("Invalid Name", "Workspace name cannot be empty.")
+                return
+            
+            # Check if name already exists
+            workspaces = self.prefs_manager.get_workspaces()
+            if name in workspaces:
+                messagebox.showwarning("Name Exists", f"A workspace named '{name}' already exists.")
+                return
+            
+            # Create the workspace with currently selected items
+            selected_dbs = [self.db_listbox.get(i) for i in self.db_listbox.curselection()]
+            selected_libs = [self.lib_listbox.get(i) for i in self.lib_listbox.curselection()]
+            selected_tpls = [self.tpl_listbox.get(i) for i in self.tpl_listbox.curselection()]
+            
+            if self.prefs_manager.create_workspace(name, selected_dbs, selected_libs, selected_tpls):
+                # Update dropdown and select new workspace
+                self._load_workspace_preferences()
+                self.workspace_var.set(name)
+                self._update_workspace_selection()
+                messagebox.showinfo("Workspace Created", f"Workspace '{name}' has been created.")
+            else:
+                messagebox.showerror("Error", f"Failed to create workspace '{name}'.")
+    
+    def _delete_workspace(self):
+        """Delete the selected workspace."""
+        workspace_name = self.workspace_var.get()
+        
+        if not workspace_name or workspace_name == 'All Resources':
+            messagebox.showwarning("Cannot Delete", "Please select a workspace to delete.")
+            return
+        
+        result = messagebox.askyesno(
+            "Delete Workspace",
+            f"Are you sure you want to delete the workspace '{workspace_name}'?\n\n"
+            "This will not delete any files, only the workspace configuration."
+        )
+        
+        if result:
+            if self.prefs_manager.delete_workspace(workspace_name):
+                self._load_workspace_preferences()
+                messagebox.showinfo("Workspace Deleted", f"Workspace '{workspace_name}' has been deleted.")
+            else:
+                messagebox.showerror("Error", f"Failed to delete workspace '{workspace_name}'.")
+    
+    def _save_workspace_preferences(self):
+        """Save workspace preferences from the UI."""
+        workspace_name = self.workspace_var.get()
+        
+        # Set active workspace
+        if workspace_name == 'All Resources':
+            self.prefs_manager.set_active_workspace('')
+        else:
+            self.prefs_manager.set_active_workspace(workspace_name)
+            
+            # Update workspace config if modified
+            if self._workspace_modified and workspace_name:
+                selected_dbs = [self.db_listbox.get(i) for i in self.db_listbox.curselection()]
+                selected_libs = [self.lib_listbox.get(i) for i in self.lib_listbox.curselection()]
+                selected_tpls = [self.tpl_listbox.get(i) for i in self.tpl_listbox.curselection()]
+                
+                self.prefs_manager.update_workspace(
+                    workspace_name,
+                    databases=selected_dbs,
+                    libraries=selected_libs,
+                    templates=selected_tpls
+                )
+        
+        self._workspace_modified = False
     
     def _on_cancel(self):
         """Handle Cancel button."""
