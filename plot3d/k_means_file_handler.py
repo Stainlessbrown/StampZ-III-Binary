@@ -324,6 +324,15 @@ class KMeansFileHandler:
                             except Exception:
                                 pass
                     
+                    # Ensure sheet has enough rows for all data points
+                    if data_point_updates:
+                        max_row_needed = max(update['row'] for update in data_point_updates)
+                        current_rows = sheet.nrows()
+                        if max_row_needed >= current_rows:
+                            rows_to_add = max_row_needed - current_rows + 1
+                            self.logger.info(f"Expanding sheet from {current_rows} to {max_row_needed + 1} rows")
+                            sheet.append_rows(rows_to_add)
+                    
                     # Update data points
                     successful_writes = 0
                     failed_writes = 0
@@ -331,14 +340,33 @@ class KMeansFileHandler:
                         try:
                             row_idx = update['row']
                             cluster_value = update['cluster']
-                            cluster_cell = sheet[row_idx, cluster_col_idx]
-                            if cluster_cell is None:
-                                self.logger.error(f"Cell at row {row_idx}, col {cluster_col_idx} is None!")
+                            
+                            # Get or create the cell - ezodf may return None for uninitialized cells
+                            try:
+                                cluster_cell = sheet[row_idx, cluster_col_idx]
+                                if cluster_cell is None:
+                                    # Cell doesn't exist, try to access it differently
+                                    self.logger.warning(f"Cell at row {row_idx}, col {cluster_col_idx} is None, attempting direct write")
+                                    # Use sheet.set_cell_value if available, or access via row
+                                    row = sheet.row(row_idx)
+                                    if row is not None and len(row) > cluster_col_idx:
+                                        row[cluster_col_idx].set_value(cluster_value)
+                                        successful_writes += 1
+                                        self.logger.info(f"✓ Updated row {row_idx} with cluster {cluster_value} (via row access)")
+                                    else:
+                                        # Last resort: try setting value on the indexed cell
+                                        sheet[row_idx, cluster_col_idx].set_value(cluster_value)
+                                        successful_writes += 1
+                                        self.logger.info(f"✓ Updated row {row_idx} with cluster {cluster_value} (via direct set)")
+                                else:
+                                    cluster_cell.set_value(cluster_value)
+                                    successful_writes += 1
+                                    self.logger.info(f"✓ Updated row {row_idx} with cluster {cluster_value}")
+                            except (IndexError, AttributeError) as cell_error:
+                                self.logger.error(f"Cell access error at row {row_idx}: {cell_error}")
                                 failed_writes += 1
                                 continue
-                            cluster_cell.set_value(cluster_value)
-                            successful_writes += 1
-                            self.logger.info(f"✓ Updated row {row_idx} with cluster {cluster_value}")
+                                
                         except Exception as e:
                             failed_writes += 1
                             self.logger.error(f"✗ Failed to update cluster at row {row_idx}: {str(e)}")

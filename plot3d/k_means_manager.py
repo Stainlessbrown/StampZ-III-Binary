@@ -71,7 +71,7 @@ class KmeansManager:
     """
     
     # Define expected column structure
-    EXPECTED_COLUMNS = ['Xnorm','Ynorm','Znorm','DataID','Cluster','∆E','Marker',
+    EXPECTED_COLUMNS = ['Xnorm','Ynorm','Znorm','DataID','Cluster','∆E','Exclude','Marker',
                         'Color','Centroid_X','Centroid_Y','Centroid_Z','Sphere']
     
     # Alternative column names that should be accepted
@@ -375,6 +375,41 @@ class KmeansManager:
             
             # A row is valid if at least one coordinate is valid (non-zero and non-NaN)
             coord_mask = x_valid | y_valid | z_valid
+            
+            # Check for Exclude column - exclude rows where Exclude has any non-empty value
+            print(f"\n🔍 EXCLUDE COLUMN DEBUG:")
+            print(f"   Available columns: {list(subset_data.columns)}")
+            
+            if 'Exclude' in subset_data.columns:
+                print(f"   ✅ 'Exclude' column found")
+                print(f"   Column dtype: {subset_data['Exclude'].dtype}")
+                print(f"   Non-null count: {subset_data['Exclude'].notna().sum()}")
+                non_null_values = subset_data['Exclude'].dropna()
+                if len(non_null_values) > 0:
+                    print(f"   Sample non-null values: {non_null_values.head(10).tolist()}")
+                else:
+                    print(f"   All values are null/empty")
+                
+                # Exclude rows where Exclude column has any non-empty, non-null value
+                exclude_mask = subset_data['Exclude'].notna() & (subset_data['Exclude'].astype(str).str.strip() != '')
+                excluded_count = exclude_mask.sum()
+                print(f"   Rows matching exclusion criteria: {excluded_count}")
+                
+                if excluded_count > 0:
+                    print(f"\n🚫 Excluding {excluded_count} rows marked in 'Exclude' column")
+                    self.logger.info(f"Excluding {excluded_count} rows marked in 'Exclude' column")
+                    # Show which rows are being excluded
+                    excluded_rows = subset_data[exclude_mask]
+                    if 'DataID' in excluded_rows.columns:
+                        excluded_ids = excluded_rows['DataID'].tolist()[:10]  # Show first 10
+                        print(f"   Excluded DataIDs: {excluded_ids}{'...' if excluded_count > 10 else ''}")
+                else:
+                    print(f"   ⚠️ No rows marked for exclusion")
+                    
+                # Combine with coordinate mask - row must be valid AND not excluded
+                coord_mask = coord_mask & ~exclude_mask
+            else:
+                print(f"   ❌ 'Exclude' column NOT found in data")
             
             # Check for gaps in original row numbers (indicating blank line separators)
             if 'original_row' in subset_data.columns:

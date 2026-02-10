@@ -19,7 +19,7 @@ class DeltaEManager:
     """
     
     # Define expected column structure - note ∆E can be either ∆E or DeltaE
-    EXPECTED_COLUMNS = ['Xnorm', 'Ynorm', 'Znorm', 'DataID', 'Cluster', '∆E', 'Marker',
+    EXPECTED_COLUMNS = ['Xnorm', 'Ynorm', 'Znorm', 'DataID', 'Cluster', '∆E', 'Exclude', 'Marker',
                      'Color', 'Sphere', 'Centroid_X', 'Centroid_Y', 'Centroid_Z']
     
     # Alternative column names that should be accepted
@@ -764,6 +764,13 @@ class DeltaEManager:
             
             for idx_in_subset, row_idx in enumerate(row_indices):
                 row = self.data.iloc[row_idx]
+                
+                # Check if row is marked for exclusion
+                exclude_value = row.get('Exclude')
+                if pd.notna(exclude_value) and str(exclude_value).strip() != '':
+                    self.data.at[row_idx, '∆E'] = None  # Clear any existing ∆E value
+                    continue  # Skip excluded rows
+                
                 cluster = row.get('Cluster')
                 
                 if pd.notna(cluster):
@@ -812,8 +819,8 @@ class DeltaEManager:
                             if successful_calculations == 0:
                                 self.logger.info(f"  Calculated ΔE: {delta_e:.4f}")
                             
-                            # Round to 4 decimal places
-                            delta_e = round(delta_e, 4)
+                            # Round to 2 decimal places
+                            delta_e = round(delta_e, 2)
                             
                             # Update the DataFrame
                             self.data.at[row_idx, '∆E'] = delta_e
@@ -1285,8 +1292,8 @@ class DeltaEManager:
                                 # 10-50: Colors are more similar than opposite
                                 # 50+: Colors are very different
                                 
-                                # Round to 4 decimal places
-                                delta_e = round(delta_e, 4)
+                                # Round to 2 decimal places
+                                delta_e = round(delta_e, 2)
                                 
                                 # Validate the calculated value
                                 if pd.isna(delta_e) or delta_e < 0:
@@ -1382,7 +1389,7 @@ class DeltaEManager:
                                         if use_excel:
                                             # Excel: row_idx is 1-based sheet row, openpyxl columns are also 1-based
                                             # delta_e_col_idx is 0-based from pandas, so add 1 for openpyxl
-                                            ws.cell(row=row_idx, column=delta_e_col_idx + 1, value=round(value, 4))
+                                            ws.cell(row=row_idx, column=delta_e_col_idx + 1, value=round(value, 2))
                                             update_count += 1
                                             self.logger.info(f"Updated ∆E at Excel row {row_idx} to {value}")
                                         else:
@@ -1390,7 +1397,18 @@ class DeltaEManager:
                                             # row_idx is 1-based (from our Excel-compatible format), so subtract 1 for ODS
                                             ods_row_idx = row_idx - 1
                                             cell = sheet[ods_row_idx, delta_e_col_idx]
-                                            cell.set_value(format(value, '.4f'))
+                                            formatted_value = format(value, '.2f')
+                                            # Clear existing value first using multiple methods
+                                            try:
+                                                # Try clear() method if available
+                                                if hasattr(cell, 'clear'):
+                                                    cell.clear()
+                                                # Also try setting value_type to force type change
+                                                if hasattr(cell, 'value_type'):
+                                                    cell.value_type = 'string'
+                                            except Exception as clear_err:
+                                                self.logger.debug(f"Clear attempt: {clear_err}")
+                                            cell.set_value(formatted_value)
                                             self.logger.debug(f"Updated ∆E at ODS row {ods_row_idx} (sheet row {row_idx}) to {value}")
                                     except Exception as cell_error:
                                         self.logger.warning(f"Failed to update cell at row {row_idx}: {str(cell_error)}")
