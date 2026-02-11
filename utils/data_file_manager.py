@@ -96,20 +96,20 @@ class DataFileManager:
         plot3d_columns = [
             'Xnorm', 'Ynorm', 'Znorm', 'DataID', 'Cluster', 
             'ΔE', 'Marker', 'Color', 'Centroid_X', 'Centroid_Y', 
-            'Centroid_Z', 'Sphere', 'Radius'
+            'Centroid_Z', 'Sphere', 'Radius', 'Exclude'
         ]
         
         specs[DataFormat.PLOT3D] = FormatSpecification(
             columns=plot3d_columns,
             required_columns=['Xnorm', 'Ynorm', 'Znorm', 'DataID'],
-            optional_columns=['Cluster', 'ΔE', 'Marker', 'Color', 'Centroid_X', 'Centroid_Y', 'Centroid_Z', 'Sphere', 'Radius'],
+            optional_columns=['Cluster', 'ΔE', 'Marker', 'Color', 'Centroid_X', 'Centroid_Y', 'Centroid_Z', 'Sphere', 'Radius', 'Exclude'],
             validation_lists={
                 'Marker': MARKERS,
                 'Color': COLORS,
                 'Sphere': SPHERES
             },
             numeric_columns=['Xnorm', 'Ynorm', 'Znorm', 'Cluster', 'ΔE', 'Centroid_X', 'Centroid_Y', 'Centroid_Z', 'Radius'],
-            text_columns=['DataID', 'Marker', 'Color', 'Sphere'],
+            text_columns=['DataID', 'Marker', 'Color', 'Sphere', 'Exclude'],
             protected_areas=[],  # No longer reserving rows 2-7 since centroids are dynamically placed starting at row 8
             header_row=0,
             data_start_row=7  # Row 8 in 1-based indexing

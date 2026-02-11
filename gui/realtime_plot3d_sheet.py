@@ -42,7 +42,7 @@ class RealtimePlot3DSheet:
     PLOT3D_COLUMNS = [
         'Xnorm', 'Ynorm', 'Znorm', 'DataID', 'Cluster', 
         'DeltaE', 'Marker', 'Color', 'Centroid_X', 'Centroid_Y', 
-        'Centroid_Z', 'Sphere', 'Radius'
+        'Centroid_Z', 'Sphere', 'Radius', 'Exclude'
     ]
     
     # Data validation lists from Plot_3D
@@ -1638,6 +1638,7 @@ class RealtimePlot3DSheet:
             df['Marker'] = df['Marker'].fillna('.')
             df['Color'] = df['Color'].fillna('blue')
             df['Sphere'] = df['Sphere'].fillna('')
+            df['Exclude'] = df['Exclude'].fillna('')  # Empty = not excluded
             
             # CRITICAL FIX: Add trendline_valid column for Plot_3D trendline functionality
             # Mark all data points with valid coordinates as trendline-valid
