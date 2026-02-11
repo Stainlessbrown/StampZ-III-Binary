@@ -91,6 +91,20 @@ def load_data(file_path, use_rgb=False, handle_blank_rows=True, sheet_name=None)
         print("Debug: Raw DataFrame columns:", df.columns.tolist())
         logger.info(f"Loaded raw DataFrame with columns: {df.columns.tolist()}")
         
+        # DEBUG: Check Exclude column values after loading
+        if 'Exclude' in df.columns:
+            non_empty_exclude = df['Exclude'].dropna()
+            non_empty_exclude = non_empty_exclude[non_empty_exclude.astype(str).str.strip() != '']
+            print(f"\n📥 LOAD DEBUG - Exclude column:")
+            print(f"   Column dtype: {df['Exclude'].dtype}")
+            print(f"   Non-empty values count: {len(non_empty_exclude)}")
+            if len(non_empty_exclude) > 0:
+                print(f"   Sample values: {non_empty_exclude.head(10).tolist()}")
+            else:
+                print(f"   ⚠️ All Exclude values are empty/null!")
+        else:
+            print(f"\n📥 LOAD DEBUG - Exclude column NOT FOUND in file!")
+        
         # Process the DataFrame
         df = process_dataframe(df)
         

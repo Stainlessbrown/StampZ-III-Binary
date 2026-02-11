@@ -183,17 +183,101 @@ class KMeansFileHandler:
             raise
     
     def _save_to_ods(self, start: int, end: int, row_indices) -> bool:
-        """Save cluster assignments to an ODS (.ods) file."""
-        import ezodf
+        """Save cluster assignments to an ODS (.ods) file using direct XML manipulation.
+        
+        Uses zipfile + lxml to modify content.xml directly, preserving all formatting
+        and data validation.
+        """
+        import zipfile
+        from lxml import etree
+        
+        # ODS namespaces
+        NS = {
+            'office': 'urn:oasis:names:tc:opendocument:xmlns:office:1.0',
+            'table': 'urn:oasis:names:tc:opendocument:xmlns:table:1.0',
+            'text': 'urn:oasis:names:tc:opendocument:xmlns:text:1.0',
+        }
+        OFFICE_NS = '{urn:oasis:names:tc:opendocument:xmlns:office:1.0}'
+        TABLE_NS = '{urn:oasis:names:tc:opendocument:xmlns:table:1.0}'
+        TEXT_NS = '{urn:oasis:names:tc:opendocument:xmlns:text:1.0}'
         
         lockfile = None
         lock_path = f"{self.file_path}.lock"
         
+        def set_cell_value(cell, value):
+            """Set a cell's value while preserving its structure."""
+            # Remove old text content
+            for p in cell.findall(f'{TEXT_NS}p'):
+                cell.remove(p)
+            # Set value attributes
+            cell.set(f'{OFFICE_NS}value-type', 'float')
+            cell.set(f'{OFFICE_NS}value', str(value))
+            # Add text for display
+            p = etree.SubElement(cell, f'{TEXT_NS}p')
+            p.text = str(value)
+        
+        def get_cell_at_column(row, col_idx):
+            """Get the cell at a specific column, splitting repeated cells if needed.
+            
+            If the target column is within a repeated cell span, splits the repeated
+            cell into individual cells so we can modify just one column.
+            """
+            cells = list(row.findall(f'{TABLE_NS}table-cell'))
+            current_col = 0
+            
+            for cell in cells:
+                repeat = cell.get(f'{TABLE_NS}number-columns-repeated')
+                repeat_count = int(repeat) if repeat else 1
+                
+                if current_col <= col_idx < current_col + repeat_count:
+                    # Found the cell containing our target column
+                    if repeat_count == 1:
+                        return cell
+                    
+                    # Need to split the repeated cell
+                    offset = col_idx - current_col
+                    
+                    # Remove repeat attribute from original
+                    if f'{TABLE_NS}number-columns-repeated' in cell.attrib:
+                        del cell.attrib[f'{TABLE_NS}number-columns-repeated']
+                    
+                    # Get cell's position in row
+                    cell_pos = list(row).index(cell)
+                    
+                    # Copy style if present
+                    style = cell.get(f'{TABLE_NS}style-name')
+                    
+                    # Create cells BEFORE target (if offset > 0)
+                    if offset > 0:
+                        before_cell = etree.Element(f'{TABLE_NS}table-cell')
+                        if style:
+                            before_cell.set(f'{TABLE_NS}style-name', style)
+                        if offset > 1:
+                            before_cell.set(f'{TABLE_NS}number-columns-repeated', str(offset))
+                        row.insert(cell_pos, before_cell)
+                        cell_pos += 1  # Original cell shifted right
+                    
+                    # Create cells AFTER target (if any remain)
+                    after_count = repeat_count - offset - 1
+                    if after_count > 0:
+                        after_cell = etree.Element(f'{TABLE_NS}table-cell')
+                        if style:
+                            after_cell.set(f'{TABLE_NS}style-name', style)
+                        if after_count > 1:
+                            after_cell.set(f'{TABLE_NS}number-columns-repeated', str(after_count))
+                        row.insert(cell_pos + 1, after_cell)
+                    
+                    return cell
+                
+                current_col += repeat_count
+            
+            return None
+        
         try:
             # Inform user of the process
             msg = (f"Saving cluster assignments for rows {start}-{end}:\\n\\n"
-                  "1. Your original .ods file will be updated directly\\n"
-                  "2. Only the Cluster column will be modified\\n\\n"
+                  "1. Your original .ods file will be updated in-place\\n"
+                  "2. Formatting and data validation will be preserved\\n\\n"
                   "Continue?")
             
             if not messagebox.askokcancel("Save Clusters", msg):
@@ -241,7 +325,7 @@ class KMeansFileHandler:
                     "Could not acquire file lock after multiple attempts.")
                 return False
             
-            # Get cluster assignments
+            # Get cluster assignments from in-memory data
             clusters = self.data.iloc[row_indices]['Cluster']
             valid_clusters = clusters[clusters.notna()]
             
@@ -252,8 +336,8 @@ class KMeansFileHandler:
                     self.logger.info(f"Creating backup at: {backup_path}")
                     shutil.copy2(self.file_path, backup_path)
                     
-                    # Read file structure
-                    self.logger.info("Reading file structure")
+                    # Get column indices using pandas
+                    self.logger.info("Reading column structure with pandas")
                     df = pd.read_excel(self.file_path, engine='odf')
                     
                     # Verify required columns
@@ -262,162 +346,98 @@ class KMeansFileHandler:
                     if missing_columns:
                         raise ValueError(f"Required columns missing: {missing_columns}")
                     
-                    # Get column indices
-                    cluster_col_idx = df.columns.get_loc('Cluster')
-                    centroid_x_col_idx = df.columns.get_loc('Centroid_X')
-                    centroid_y_col_idx = df.columns.get_loc('Centroid_Y')
-                    centroid_z_col_idx = df.columns.get_loc('Centroid_Z')
+                    cluster_col_idx = list(df.columns).index('Cluster')
+                    centroid_x_idx = list(df.columns).index('Centroid_X')
+                    centroid_y_idx = list(df.columns).index('Centroid_Y')
+                    centroid_z_idx = list(df.columns).index('Centroid_Z')
                     
-                    centroid_col_indices = {
-                        'Centroid_X': centroid_x_col_idx,
-                        'Centroid_Y': centroid_y_col_idx,
-                        'Centroid_Z': centroid_z_col_idx
-                    }
+                    self.logger.info(f"Column indices: Cluster={cluster_col_idx}, Centroid_X={centroid_x_idx}")
                     
                     # Calculate centroids
                     cluster_centroids = self._calculate_centroids()
                     
-                    # Prepare updates
-                    # CRITICAL: ezodf uses 0-based row indexing, unlike openpyxl
-                    # ezodf row 0 = first row (header), row 1 = first data row
-                    # openpyxl row 1 = first row (header), row 2 = first data row
-                    # DataFrame index 0 = first data row
-                    data_point_updates = []
+                    # Read ODS as ZIP and parse content.xml
+                    self.logger.info("Reading ODS file as ZIP archive")
+                    
+                    # Read all files from the ODS archive
+                    ods_files = {}
+                    with zipfile.ZipFile(self.file_path, 'r') as zf:
+                        for name in zf.namelist():
+                            ods_files[name] = zf.read(name)
+                    
+                    # Parse content.xml
+                    content_xml = ods_files['content.xml']
+                    tree = etree.fromstring(content_xml)
+                    
+                    # Find the first table
+                    tables = tree.xpath('//table:table', namespaces=NS)
+                    if not tables:
+                        raise ValueError("No tables found in ODS file")
+                    table = tables[0]
+                    
+                    # Get all rows (row 0 is header, row 1+ is data)
+                    rows = table.findall(f'{TABLE_NS}table-row')
+                    self.logger.info(f"Found {len(rows)} rows in table")
+                    
+                    # Update cluster assignments in data rows
+                    successful_writes = 0
                     for i, idx in enumerate(row_indices):
-                        # For ODS with ezodf: DataFrame index X = ezodf row (X + 1)
-                        # +1 accounts for header row at ezodf row 0
-                        sheet_row_idx = idx + 1  # DataFrame index to ezodf row (0-based)
                         cluster_value = clusters.iloc[i]
                         if pd.notna(cluster_value):
-                            data_point_updates.append({
-                                'row': sheet_row_idx,
-                                'cluster': int(cluster_value)
-                            })
-                            self.logger.info(f"Prepared update: DataFrame idx {idx} → ezodf row {sheet_row_idx} = cluster {int(cluster_value)}")
-                    
-                    # Prepare centroid updates
-                    centroid_row_mapping = {}
-                    unique_clusters = sorted(self.data['Cluster'].dropna().unique())
-                    for i, cluster_id in enumerate(unique_clusters):
-                        centroid_row_mapping[int(cluster_id)] = i + 1
-                    
-                    centroid_updates = []
-                    for cluster_num, centroid in cluster_centroids.items():
-                        fixed_row = centroid_row_mapping.get(cluster_num)
-                        centroid_updates.append({
-                            'row': fixed_row,
-                            'cluster': cluster_num,
-                            'centroid': centroid
-                        })
-                    
-                    # Open and update file
-                    ods_doc = ezodf.opendoc(self.file_path)
-                    sheet = ods_doc.sheets[0]
-                    
-                    # Clear existing centroid data
-                    for row_idx in range(2, len(centroid_row_mapping) + 1):
-                        for col_name, col_idx in centroid_col_indices.items():
-                            try:
-                                cell = sheet[row_idx, col_idx]
+                            # ODS row index = DataFrame index + 1 (for header)
+                            ods_row_idx = idx + 1
+                            if ods_row_idx < len(rows):
+                                row = rows[ods_row_idx]
+                                cell = get_cell_at_column(row, cluster_col_idx)
                                 if cell is not None:
-                                    cell.set_value("")
-                            except Exception:
-                                pass
-                    
-                    # Ensure sheet has enough rows for all data points
-                    if data_point_updates:
-                        max_row_needed = max(update['row'] for update in data_point_updates)
-                        current_rows = sheet.nrows()
-                        if max_row_needed >= current_rows:
-                            rows_to_add = max_row_needed - current_rows + 1
-                            self.logger.info(f"Expanding sheet from {current_rows} to {max_row_needed + 1} rows")
-                            sheet.append_rows(rows_to_add)
-                    
-                    # Update data points
-                    successful_writes = 0
-                    failed_writes = 0
-                    for update in data_point_updates:
-                        try:
-                            row_idx = update['row']
-                            cluster_value = update['cluster']
-                            
-                            # Get or create the cell - ezodf may return None for uninitialized cells
-                            try:
-                                cluster_cell = sheet[row_idx, cluster_col_idx]
-                                if cluster_cell is None:
-                                    # Cell doesn't exist, try to access it differently
-                                    self.logger.warning(f"Cell at row {row_idx}, col {cluster_col_idx} is None, attempting direct write")
-                                    # Use sheet.set_cell_value if available, or access via row
-                                    row = sheet.row(row_idx)
-                                    if row is not None and len(row) > cluster_col_idx:
-                                        row[cluster_col_idx].set_value(cluster_value)
-                                        successful_writes += 1
-                                        self.logger.info(f"✓ Updated row {row_idx} with cluster {cluster_value} (via row access)")
-                                    else:
-                                        # Last resort: try setting value on the indexed cell
-                                        sheet[row_idx, cluster_col_idx].set_value(cluster_value)
-                                        successful_writes += 1
-                                        self.logger.info(f"✓ Updated row {row_idx} with cluster {cluster_value} (via direct set)")
-                                else:
-                                    cluster_cell.set_value(cluster_value)
+                                    set_cell_value(cell, int(cluster_value))
                                     successful_writes += 1
-                                    self.logger.info(f"✓ Updated row {row_idx} with cluster {cluster_value}")
-                            except (IndexError, AttributeError) as cell_error:
-                                self.logger.error(f"Cell access error at row {row_idx}: {cell_error}")
-                                failed_writes += 1
-                                continue
-                                
-                        except Exception as e:
-                            failed_writes += 1
-                            self.logger.error(f"✗ Failed to update cluster at row {row_idx}: {str(e)}")
+                                    self.logger.debug(f"✓ Updated ODS row {ods_row_idx} with cluster {int(cluster_value)}")
+                                else:
+                                    self.logger.warning(f"Could not find cell at row {ods_row_idx}, col {cluster_col_idx}")
                     
-                    self.logger.info(f"Cluster assignment write summary: {successful_writes} successful, {failed_writes} failed")
+                    self.logger.info(f"Cluster assignment update summary: {successful_writes} rows updated")
                     
-                    if failed_writes > 0 and successful_writes == 0:
-                        raise ValueError(f"Failed to write any cluster assignments! All {failed_writes} writes failed.")
-                    
-                    # Update centroid rows
-                    for update in centroid_updates:
-                        try:
-                            row_idx = update['row']
-                            cluster_value = update['cluster']
-                            centroid = update['centroid']
+                    # Update centroid rows (rows 1, 2, 3 in ODS for clusters 0, 1, 2)
+                    for cluster_num, centroid in cluster_centroids.items():
+                        ods_row_idx = int(cluster_num) + 1  # +1 for header
+                        if ods_row_idx < len(rows):
+                            row = rows[ods_row_idx]
                             
-                            cluster_cell = sheet[row_idx, cluster_col_idx]
-                            cluster_cell.set_value(cluster_value)
+                            # Set cluster number
+                            cell = get_cell_at_column(row, cluster_col_idx)
+                            if cell is not None:
+                                set_cell_value(cell, int(cluster_num))
                             
-                            sheet[row_idx, centroid_col_indices['Centroid_X']].set_value(format(centroid[0], '.4f'))
-                            sheet[row_idx, centroid_col_indices['Centroid_Y']].set_value(format(centroid[1], '.4f'))
-                            sheet[row_idx, centroid_col_indices['Centroid_Z']].set_value(format(centroid[2], '.4f'))
+                            # Set centroid coordinates
+                            cell_x = get_cell_at_column(row, centroid_x_idx)
+                            if cell_x is not None:
+                                set_cell_value(cell_x, round(centroid[0], 4))
                             
-                            self.logger.info(f"Updated centroid for cluster {cluster_value} at row {row_idx}")
-                        except Exception as e:
-                            self.logger.error(f"Failed to update centroid at row {row_idx}: {str(e)}")
-                            raise
+                            cell_y = get_cell_at_column(row, centroid_y_idx)
+                            if cell_y is not None:
+                                set_cell_value(cell_y, round(centroid[1], 4))
+                            
+                            cell_z = get_cell_at_column(row, centroid_z_idx)
+                            if cell_z is not None:
+                                set_cell_value(cell_z, round(centroid[2], 4))
+                            
+                            self.logger.info(f"Updated centroid for cluster {cluster_num} at ODS row {ods_row_idx}")
                     
-                    # Save to temporary file and verify
-                    temp_path = f"{self.file_path}.new"
-                    self.logger.info(f"Saving to temporary file: {temp_path}")
+                    # Serialize modified XML and repackage ODS
+                    self.logger.info("Repackaging ODS file")
+                    modified_content = etree.tostring(tree, xml_declaration=True, encoding='UTF-8')
+                    ods_files['content.xml'] = modified_content
                     
-                    try:
-                        ods_doc.saveas(temp_path)
-                        del ods_doc
-                        
-                        # Verify the save
-                        verify_doc = ezodf.opendoc(temp_path)
-                        self._verify_centroid_data(verify_doc, centroid_updates, cluster_col_idx, centroid_col_indices)
-                        del verify_doc
-                        
-                        # Replace original with new file
-                        os.replace(temp_path, self.file_path)
-                        self.logger.info("File saved and verified successfully")
-                        
-                    finally:
-                        try:
-                            if os.path.exists(temp_path):
-                                os.remove(temp_path)
-                        except Exception as cleanup_error:
-                            self.logger.warning(f"Could not clean up temporary file: {str(cleanup_error)}")
+                    # Write new ODS file (preserving all other files like styles.xml)
+                    temp_path = f"{self.file_path}.tmp"
+                    with zipfile.ZipFile(temp_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                        for name, data in ods_files.items():
+                            zf.writestr(name, data)
+                    
+                    # Replace original with updated file
+                    os.replace(temp_path, self.file_path)
+                    self.logger.info("File saved successfully")
                     
                     # Clean up backup
                     try:
@@ -436,6 +456,7 @@ class KMeansFileHandler:
                         f"Original .ods file has been updated with:\\n"
                         f"- Cluster assignments\\n"
                         f"- Centroid_X, Centroid_Y, Centroid_Z coordinates\\n\\n"
+                        f"Formatting and data validation preserved.\\n\\n"
                         f"NEXT STEP: You can now calculate ΔE values by clicking the 'Calculate' button in the ΔE CIE2000 panel."
                     )
                     
@@ -444,6 +465,8 @@ class KMeansFileHandler:
                     
                 except Exception as e:
                     self.logger.error(f"Error updating spreadsheet: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
                     raise
             else:
                 messagebox.showwarning("Warning", 

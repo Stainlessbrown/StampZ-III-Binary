@@ -1539,6 +1539,14 @@ class RealtimePlot3DSheet:
             # Create DataFrame
             df = pd.DataFrame(data, columns=self.PLOT3D_COLUMNS)
             
+            # DEBUG: Check Exclude column values before save
+            if 'Exclude' in df.columns:
+                non_empty_exclude = df['Exclude'].apply(lambda x: x if x and str(x).strip() else None).dropna()
+                print(f"\n💾 SAVE DEBUG - Exclude column:")
+                print(f"   Non-empty values count: {len(non_empty_exclude)}")
+                if len(non_empty_exclude) > 0:
+                    print(f"   Sample values: {non_empty_exclude.head(10).tolist()}")
+            
             # CRITICAL FIX: Don't remove empty rows - preserve the structure!
             # Rows 2-7 are intentionally reserved for cluster summary and must be preserved
             # Only replace empty strings with empty strings to maintain cell formatting
