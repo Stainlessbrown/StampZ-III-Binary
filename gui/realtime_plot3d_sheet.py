@@ -691,21 +691,22 @@ class RealtimePlot3DSheet:
                     if cluster_id is not None and 0 <= cluster_id <= 5:  # Valid centroid area
                         centroid_row_idx = 1 + cluster_id  # Row 1-6 (display 2-7)
                         
-                        # Build centroid row with proper data
+                        # Build centroid row with proper data (14 elements to match PLOT3D_COLUMNS)
                         centroid_row = [
-                            '',  # Xnorm - empty for centroids
-                            '',  # Ynorm - empty for centroids
-                            '',  # Znorm - empty for centroids
-                            '',  # DataID - empty for centroids (they don't need DataID)
-                            str(cluster_id),  # Cluster
-                            '',  # ΔE - empty for centroids
-                            '',  # Marker - empty for centroids (spheres don't use markers)
-                            '',  # Color - empty for centroids (spheres use sphere_color instead)
-                            str(centroid.get('centroid_x')) if centroid.get('centroid_x') is not None else '',  # Centroid_X
-                            str(centroid.get('centroid_y')) if centroid.get('centroid_y') is not None else '',  # Centroid_Y
-                            str(centroid.get('centroid_z')) if centroid.get('centroid_z') is not None else '',  # Centroid_Z
-                            centroid.get('sphere_color', ''),  # Sphere
-                            str(centroid.get('sphere_radius')) if centroid.get('sphere_radius') is not None else ''  # Radius
+                            '',  # Xnorm [0] - empty for centroids
+                            '',  # Ynorm [1] - empty for centroids
+                            '',  # Znorm [2] - empty for centroids
+                            '',  # DataID [3] - empty for centroids
+                            str(cluster_id),  # Cluster [4]
+                            '',  # DeltaE [5] - empty for centroids
+                            '',  # Exclude [6] - empty placeholder for column alignment
+                            '',  # Marker [7] - empty for centroids
+                            '',  # Color [8] - empty for centroids
+                            str(centroid.get('centroid_x')) if centroid.get('centroid_x') is not None else '',  # Centroid_X [9]
+                            str(centroid.get('centroid_y')) if centroid.get('centroid_y') is not None else '',  # Centroid_Y [10]
+                            str(centroid.get('centroid_z')) if centroid.get('centroid_z') is not None else '',  # Centroid_Z [11]
+                            centroid.get('sphere_color', ''),  # Sphere [12]
+                            str(centroid.get('sphere_radius')) if centroid.get('sphere_radius') is not None else ''  # Radius [13]
                         ]
                         
                         # Set centroid data in worksheet
@@ -812,20 +813,24 @@ class RealtimePlot3DSheet:
                     
                     # Variables already defined above - no need to redefine
                     
+                    # Get saved Exclude value from database (empty string if not set)
+                    saved_exclude = measurement.get('exclude', '')
+                    
                     row = [
-                        round(x_norm, 4),                   # Xnorm  
-                        round(y_norm, 4),                   # Ynorm
-                        round(z_norm, 4),                   # Znorm
-                        data_id,                             # DataID (image_name_ptN format!)
-                        str(saved_cluster) if saved_cluster is not None else '',  # Cluster (restored from DB!)
-                        str(saved_delta_e) if saved_delta_e is not None else '',  # ∆E (restored from DB!)
-                        saved_marker,                        # Marker (restored from DB!)
-                        saved_color,                         # Color (restored from DB!)
-                        str(saved_centroid_x) if saved_centroid_x is not None else '',  # Centroid_X (restored from DB!)
-                        str(saved_centroid_y) if saved_centroid_y is not None else '',  # Centroid_Y (restored from DB!)
-                        str(saved_centroid_z) if saved_centroid_z is not None else '',  # Centroid_Z (restored from DB!)
-                        str(saved_sphere_color) if saved_sphere_color else '',          # Sphere (restored from DB!)
-                        str(saved_sphere_radius) if saved_sphere_radius is not None else ''  # Radius (restored from DB!)
+                        round(x_norm, 4),                   # Xnorm  [0]
+                        round(y_norm, 4),                   # Ynorm  [1]
+                        round(z_norm, 4),                   # Znorm  [2]
+                        data_id,                             # DataID [3] (image_name_ptN format!)
+                        str(saved_cluster) if saved_cluster is not None else '',  # Cluster [4] (restored from DB!)
+                        str(saved_delta_e) if saved_delta_e is not None else '',  # DeltaE [5] (restored from DB!)
+                        str(saved_exclude) if saved_exclude else '',              # Exclude [6] (restored from DB!)
+                        saved_marker,                        # Marker [7] (restored from DB!)
+                        saved_color,                         # Color [8] (restored from DB!)
+                        str(saved_centroid_x) if saved_centroid_x is not None else '',  # Centroid_X [9] (restored from DB!)
+                        str(saved_centroid_y) if saved_centroid_y is not None else '',  # Centroid_Y [10] (restored from DB!)
+                        str(saved_centroid_z) if saved_centroid_z is not None else '',  # Centroid_Z [11] (restored from DB!)
+                        str(saved_sphere_color) if saved_sphere_color else '',          # Sphere [12] (restored from DB!)
+                        str(saved_sphere_radius) if saved_sphere_radius is not None else ''  # Radius [13] (restored from DB!)
                     ]
                     data_rows.append(row)
                     
@@ -879,23 +884,24 @@ class RealtimePlot3DSheet:
                                 if row_idx < self.sheet.get_total_rows():
                                     current_row_data = self.sheet.get_row_data(row_idx)
                                     
-                                    # Create updated row preserving user changes:
+                                    # Create updated row preserving user changes (14 elements to match PLOT3D_COLUMNS):
                                     # - Update coordinates (Xnorm, Ynorm, Znorm) and DataID from database
-                                    # - Preserve Plot_3D preferences (Marker, Color, Cluster, ΔE, etc.) from current sheet
+                                    # - Preserve Plot_3D preferences (Marker, Color, Cluster, ΔE, Exclude, etc.) from current sheet
                                     updated_row = [
-                                        db_row[0],  # Xnorm - from database (normalized coordinates)
-                                        db_row[1],  # Ynorm - from database
-                                        db_row[2],  # Znorm - from database
-                                        db_row[3],  # DataID - from database (standardized format)
-                                        current_row_data[4] if len(current_row_data) > 4 else '',  # Cluster - preserve current
-                                        current_row_data[5] if len(current_row_data) > 5 else '',  # ΔE - preserve current
-                                        current_row_data[6] if len(current_row_data) > 6 else '.',  # Marker - preserve current
-                                        current_row_data[7] if len(current_row_data) > 7 else 'blue',  # Color - preserve current
-                                        current_row_data[8] if len(current_row_data) > 8 else '',  # Centroid_X - preserve current
-                                        current_row_data[9] if len(current_row_data) > 9 else '',  # Centroid_Y - preserve current
-                                        current_row_data[10] if len(current_row_data) > 10 else '',  # Centroid_Z - preserve current
-                                        current_row_data[11] if len(current_row_data) > 11 else '',  # Sphere - preserve current
-                                        current_row_data[12] if len(current_row_data) > 12 else ''   # Radius - preserve current
+                                        db_row[0],  # Xnorm [0] - from database (normalized coordinates)
+                                        db_row[1],  # Ynorm [1] - from database
+                                        db_row[2],  # Znorm [2] - from database
+                                        db_row[3],  # DataID [3] - from database (standardized format)
+                                        current_row_data[4] if len(current_row_data) > 4 else '',  # Cluster [4] - preserve current
+                                        current_row_data[5] if len(current_row_data) > 5 else '',  # DeltaE [5] - preserve current
+                                        current_row_data[6] if len(current_row_data) > 6 else '',  # Exclude [6] - preserve current
+                                        current_row_data[7] if len(current_row_data) > 7 else '.',  # Marker [7] - preserve current
+                                        current_row_data[8] if len(current_row_data) > 8 else 'blue',  # Color [8] - preserve current
+                                        current_row_data[9] if len(current_row_data) > 9 else '',  # Centroid_X [9] - preserve current
+                                        current_row_data[10] if len(current_row_data) > 10 else '',  # Centroid_Y [10] - preserve current
+                                        current_row_data[11] if len(current_row_data) > 11 else '',  # Centroid_Z [11] - preserve current
+                                        current_row_data[12] if len(current_row_data) > 12 else '',  # Sphere [12] - preserve current
+                                        current_row_data[13] if len(current_row_data) > 13 else ''   # Radius [13] - preserve current
                                     ]
                                     
                                     # Update the row
@@ -906,7 +912,7 @@ class RealtimePlot3DSheet:
                                     if i < 5:
                                         print(f"    Row {row_idx}: Updated coordinates, preserved preferences")
                                         print(f"      Coords: ({db_row[0]:.4f}, {db_row[1]:.4f}, {db_row[2]:.4f})")
-                                        print(f"      Preserved: Marker='{updated_row[6]}', Color='{updated_row[7]}'")
+                                        print(f"      Preserved: Marker='{updated_row[7]}', Color='{updated_row[8]}'")
                                     
                                     preserved_count += 1
                                     
@@ -966,7 +972,8 @@ class RealtimePlot3DSheet:
             if current_selection:
                 row, col = current_selection[0], current_selection[1] if len(current_selection) > 1 else 0
                 # Check if this is a marker, color, or sphere column that might have changed
-                if col in [6, 7, 11]:  # Marker, Color, Sphere columns
+                # Column indices: 7=Marker, 8=Color, 12=Sphere (after Exclude column addition)
+                if col in [7, 8, 12]:  # Marker, Color, Sphere columns
                     print(f"\n📝 CELL SELECTED IN DROPDOWN COLUMN (row {row}, col {col})")
                     self._schedule_auto_save("CellSelected")
         except Exception as e:
@@ -1564,11 +1571,12 @@ class RealtimePlot3DSheet:
             print(f"  Raw sheet data rows: {len(data)}")
             
             # DEBUG: Show first few raw rows to verify manual edits are captured
+            # Column indices: 0=Xnorm, 1=Ynorm, 2=Znorm, 3=DataID, 4=Cluster, 5=DeltaE, 6=Exclude, 7=Marker, 8=Color, 9-11=Centroid, 12=Sphere, 13=Radius
             print(f"\n🔍 FIRST 3 RAW SHEET ROWS:")
             for i in range(min(3, len(data))):
-                if i < len(data) and len(data[i]) >= 8:  # Make sure row has enough columns
+                if i < len(data) and len(data[i]) >= 9:  # Make sure row has enough columns
                     row = data[i]
-                    print(f"  Sheet row {i}: DataID='{row[3] if len(row) > 3 else 'N/A'}', Marker='{row[6] if len(row) > 6 else 'N/A'}', Color='{row[7] if len(row) > 7 else 'N/A'}', Sphere='{row[11] if len(row) > 11 else 'N/A'}'")
+                    print(f"  Sheet row {i}: DataID='{row[3] if len(row) > 3 else 'N/A'}', Marker='{row[7] if len(row) > 7 else 'N/A'}', Color='{row[8] if len(row) > 8 else 'N/A'}', Sphere='{row[12] if len(row) > 12 else 'N/A'}'")
             
             # Create DataFrame with correct column names
             df = pd.DataFrame(data, columns=self.PLOT3D_COLUMNS)
@@ -1624,7 +1632,8 @@ class RealtimePlot3DSheet:
                     print(f"  DataFrame index {i} → original sheet row {orig_row} (display {orig_row+1}), DataID: {data_id}")
             
             # Convert coordinate columns to numeric
-            numeric_cols = ['Xnorm', 'Ynorm', 'Znorm', 'Centroid_X', 'Centroid_Y', 'Centroid_Z', '∆E', 'Radius']
+            # Note: PLOT3D_COLUMNS uses 'DeltaE' not '∆E' - use column name from PLOT3D_COLUMNS
+            numeric_cols = ['Xnorm', 'Ynorm', 'Znorm', 'Centroid_X', 'Centroid_Y', 'Centroid_Z', 'DeltaE', 'Radius']
             for col in numeric_cols:
                 if col in df.columns:
                     # For Radius column, preserve valid numeric values and convert empty strings to NaN properly
@@ -1681,8 +1690,16 @@ class RealtimePlot3DSheet:
             print(f"  Data source type: {self.data_source_type}")
             print(f"  DataFrame shape: {df.shape if df is not None else 'None'}")
             if df is not None and len(df) > 0:
+                print(f"  DataFrame columns: {list(df.columns)}")
                 print(f"  First 3 DataIDs: {list(df['DataID'].head(3))}")
                 print(f"  Sample Xnorm values: {list(df['Xnorm'].head(3))}")
+                print(f"  Sample Ynorm values: {list(df['Ynorm'].head(3))}")
+                print(f"  Sample Znorm values: {list(df['Znorm'].head(3))}")
+                # Check for NaN values in coordinate columns
+                xnorm_nan = df['Xnorm'].isna().sum()
+                ynorm_nan = df['Ynorm'].isna().sum()
+                znorm_nan = df['Znorm'].isna().sum()
+                print(f"  NaN counts: Xnorm={xnorm_nan}, Ynorm={ynorm_nan}, Znorm={znorm_nan}")
             
             if df is None or len(df) == 0:
                 messagebox.showwarning(
@@ -2127,15 +2144,33 @@ class RealtimePlot3DSheet:
         """Export current data to external file for standalone Plot_3D work.
         
         This creates a protected workflow where the original StampZ data remains untouched.
+        Exports ALL data including centroid summary rows (2-7).
         """
         print("DEBUG: Export for Standalone Plot_3D button clicked")
         try:
-            # Get current data as DataFrame
-            # NOTE: get_data_as_dataframe() filters OUT rows 2-7 (centroid area)
-            # This is correct - we want only actual data rows for the DataFrame
-            df = self.get_data_as_dataframe()
+            # Get ALL data from sheet directly (not filtered)
+            # This includes centroid summary rows (1-6) and data rows (7+)
+            sheet_data = self.sheet.get_sheet_data(get_header=False)
+            df = pd.DataFrame(sheet_data, columns=self.PLOT3D_COLUMNS)
             
-            if df is None or len(df) == 0:
+            # IMPORTANT: Skip row 0 (tksheet internal row 0 is typically empty/unused)
+            # This maintains correct alignment: tksheet row 1 (centroid 0) -> ODS row 2
+            # After skipping: df row 0 = tksheet row 1 = centroid cluster 0
+            if len(df) > 0:
+                df = df.iloc[1:].reset_index(drop=True)  # Skip first row, reset index
+                print(f"DEBUG: Skipped empty row 0, now have {len(df)} rows")
+            
+            # Count actual data rows (rows with coordinate data, excluding empty rows)
+            coordinate_cols = ['Xnorm', 'Ynorm', 'Znorm']
+            centroid_cols = ['Centroid_X', 'Centroid_Y', 'Centroid_Z']
+            df_check = df.replace('', np.nan)
+            has_coord = df_check[coordinate_cols].notna().any(axis=1)
+            has_centroid = df_check[centroid_cols].notna().any(axis=1)
+            data_row_count = (has_coord | has_centroid).sum()
+            
+            print(f"DEBUG: Exporting {len(df)} total rows, {data_row_count} with data")
+            
+            if data_row_count == 0:
                 messagebox.showwarning(
                     "No Data",
                     "No valid coordinate data found in the spreadsheet to export."
@@ -2550,32 +2585,31 @@ class RealtimePlot3DSheet:
                         print(f"DEBUG: Working with sheet: {sheet.name}")
                         
                         # Clear all existing data and rebuild with correct rigid format
-                        # Headers in row 1, reserved area rows 2-7, data starts row 8
-                        data_start_row = 7  # Row 8 in 1-based, 7 in 0-based
+                        # Headers in row 1, ALL data (including centroids) starts row 2
+                        data_start_row = 1  # Row 2 in 1-based, 1 in 0-based (after headers)
                         
                         # Clear data area but preserve template formulas in columns N-P
-                        print(f"DEBUG: Clearing data area (columns A-M) while preserving formula columns N-P")
+                        print(f"DEBUG: Clearing data area (columns A-N) while preserving formula columns")
                         
-                        # Clear only data columns (A-M, indices 0-12)
+                        # Clear only data columns (A-N, indices 0-13 for 14 PLOT3D_COLUMNS)
                         for row_idx in range(sheet.nrows()):
-                            for col_idx in range(13):  # Only columns A-M (0-12)
+                            for col_idx in range(14):  # Columns A-N (0-13)
                                 sheet[row_idx, col_idx].set_value('')
                         
-                        # Set headers in row 1 (0-based index 0) for data columns A-M
-                        print(f"DEBUG: Setting headers in row 1 for columns A-M")
+                        # Set headers in row 1 (0-based index 0)
+                        print(f"DEBUG: Setting headers in row 1")
                         for col_idx, column_name in enumerate(self.PLOT3D_COLUMNS):
                             if col_idx < sheet.ncols():  # Make sure we don't exceed sheet width
                                 sheet[0, col_idx].set_value(column_name)
-                        print(f"DEBUG: Headers set for columns A-M, template columns N-P preserved")
+                        print(f"DEBUG: Headers set for {len(self.PLOT3D_COLUMNS)} columns")
                         
                         # Create column mapping for data writing
                         coord_columns = {col: idx for idx, col in enumerate(self.PLOT3D_COLUMNS) if idx < sheet.ncols()}
                         
                         print(f"DEBUG: Created column mapping: {coord_columns}")
-                        print(f"DEBUG: A2:H7 restricted area will remain blank (no imported data)")
-                        print(f"DEBUG: I2:K7 available for K-means centroids, L2:M7 for Sphere/Radius input")
+                        print(f"DEBUG: Exporting ALL rows including centroid summary area (rows 2-7)")
                         
-                        # Ensure sheet has enough rows (minimum 107 rows for Plot_3D)
+                        # Ensure sheet has enough rows
                         min_rows = max(107, data_start_row + len(df))
                         current_sheet_rows = sheet.nrows()
                         print(f"DEBUG: Sheet has {current_sheet_rows} rows, need {min_rows} rows")
@@ -2583,39 +2617,34 @@ class RealtimePlot3DSheet:
                         if current_sheet_rows < min_rows:
                             rows_to_add = min_rows - current_sheet_rows
                             print(f"DEBUG: Adding {rows_to_add} empty rows to sheet")
-                            # Add empty rows using ezodf
                             for _ in range(rows_to_add):
                                 sheet.append_rows(1)
                             print(f"DEBUG: Sheet now has {sheet.nrows()} rows")
                         
-                        # Rows 2-8 are already blank (reserved for Plot_3D)
-                        # No need to clear since we cleared the entire sheet above
-                        
-                        # Write our data starting from row 8 (0-based index 7)
-                        # A2:H7 remains blank (restricted), I2:M7 available for Plot_3D functions
-                        current_row = data_start_row  # Should be 7 (row 8 in 1-based)
+                        # Write ALL data starting from row 2 (0-based index 1)
+                        # This includes centroid summary rows (sheet rows 1-6) and data rows (7+)
+                        current_row = data_start_row  # Should be 1 (row 2 in 1-based)
                         print(f"DEBUG: data_start_row = {data_start_row}")
-                        print(f"DEBUG: Writing {len(df)} rows of data starting from row {current_row + 1} (1-based)")
-                        print(f"DEBUG: First data will go to 0-based row {current_row}, which is 1-based row {current_row + 1}")
+                        print(f"DEBUG: Writing {len(df)} rows starting from row {current_row + 1} (1-based)")
                         
                         for row_idx, (_, row_data) in enumerate(df.iterrows()):
-                            actual_sheet_row = current_row + row_idx  # This should start at 7 (row 8 in 1-based)
-                            if row_idx < 3:  # Only print first 3 rows to avoid spam
-                                print(f"DEBUG: Data row {row_idx + 1} -> 0-based sheet row {actual_sheet_row} (1-based row {actual_sheet_row + 1})")
-                                print(f"  DataID: {row_data.get('DataID', 'N/A')}, Xnorm: {row_data.get('Xnorm', 'N/A')}")
+                            actual_sheet_row = current_row + row_idx  # Maps tksheet row to ODS row
+                            if row_idx < 10:  # Print first 10 rows for debugging
+                                has_centroid = row_data.get('Centroid_X', '') or row_data.get('Centroid_Y', '') or row_data.get('Centroid_Z', '')
+                                if has_centroid or row_idx < 3:
+                                    print(f"DEBUG: Row {row_idx} -> ODS row {actual_sheet_row + 1}: Cluster={row_data.get('Cluster', '')}, Centroid=({row_data.get('Centroid_X', '')}, {row_data.get('Centroid_Y', '')}, {row_data.get('Centroid_Z', '')})")
                             for column_name, col_idx in coord_columns.items():
                                 value = row_data.get(column_name, '')
                                 if pd.isna(value):
                                     value = ''
                                 try:
-                                    if isinstance(value, (int, float)):
+                                    if isinstance(value, (int, float)) and value != '':
                                         sheet[actual_sheet_row, col_idx].set_value(float(value))
                                     else:
-                                        sheet[actual_sheet_row, col_idx].set_value(str(value))
+                                        sheet[actual_sheet_row, col_idx].set_value(str(value) if value else '')
                                 except IndexError as idx_error:
                                     print(f"DEBUG: IndexError at row {actual_sheet_row}, col {col_idx}: {idx_error}")
                                     print(f"DEBUG: Sheet dimensions: {sheet.nrows()} x {sheet.ncols()}")
-                                    print(f"DEBUG: Trying to access row {actual_sheet_row}, col {col_idx}")
                                     raise
                         
                         

@@ -240,9 +240,27 @@ class Plot3DApp:
                 sys.exit(1)
         else:
             print(f"Using provided DataFrame with {len(self.df)} rows")
+            print(f"DEBUG: DataFrame columns: {list(self.df.columns)}")
             # If DataFrame was provided directly, ensure it has required columns for Plot3D
             from .data_processor import process_dataframe
             self.df = process_dataframe(self.df)
+            
+            # CRITICAL: Check if process_dataframe returned None (failure)
+            if self.df is None:
+                print("ERROR: process_dataframe returned None - DataFrame processing failed!")
+                messagebox.showerror(
+                    "Data Processing Error", 
+                    "Failed to process DataFrame for plotting.\n\n"
+                    "Please check the console output for details."
+                )
+                if parent is None:
+                    sys.exit(1)
+                else:
+                    return
+            else:
+                print(f"DEBUG: Processed DataFrame has {len(self.df)} rows")
+                print(f"DEBUG: valid_data count: {self.df['valid_data'].sum() if 'valid_data' in self.df.columns else 'N/A'}")
+                print(f"DEBUG: trendline_valid count: {self.df['trendline_valid'].sum() if 'trendline_valid' in self.df.columns else 'N/A'}")
             
         # Initialize variables first
         self._init_variables()
