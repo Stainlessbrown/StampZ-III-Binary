@@ -95,14 +95,14 @@ class DataFileManager:
         # Plot_3D Format Specification
         plot3d_columns = [
             'Xnorm', 'Ynorm', 'Znorm', 'DataID', 'Cluster', 
-            'ΔE', 'Marker', 'Color', 'Centroid_X', 'Centroid_Y', 
-            'Centroid_Z', 'Sphere', 'Radius', 'Exclude'
+            'ΔE', 'Exclude', 'Marker', 'Color', 'Centroid_X', 'Centroid_Y', 
+            'Centroid_Z', 'Sphere', 'Radius'
         ]
         
         specs[DataFormat.PLOT3D] = FormatSpecification(
             columns=plot3d_columns,
             required_columns=['Xnorm', 'Ynorm', 'Znorm', 'DataID'],
-            optional_columns=['Cluster', 'ΔE', 'Marker', 'Color', 'Centroid_X', 'Centroid_Y', 'Centroid_Z', 'Sphere', 'Radius', 'Exclude'],
+            optional_columns=['Cluster', 'ΔE', 'Exclude', 'Marker', 'Color', 'Centroid_X', 'Centroid_Y', 'Centroid_Z', 'Sphere', 'Radius'],
             validation_lists={
                 'Marker': MARKERS,
                 'Color': COLORS,

@@ -41,8 +41,8 @@ class RealtimePlot3DSheet:
     # Plot_3D column structure
     PLOT3D_COLUMNS = [
         'Xnorm', 'Ynorm', 'Znorm', 'DataID', 'Cluster', 
-        'DeltaE', 'Marker', 'Color', 'Centroid_X', 'Centroid_Y', 
-        'Centroid_Z', 'Sphere', 'Radius', 'Exclude'
+        'DeltaE', 'Exclude', 'Marker', 'Color', 'Centroid_X', 'Centroid_Y', 
+        'Centroid_Z', 'Sphere', 'Radius'
     ]
     
     # Data validation lists from Plot_3D
@@ -275,44 +275,44 @@ class RealtimePlot3DSheet:
             
             print(f"DEBUG: Formatting columns up to row {last_data_row} (data ends around row {last_data_row})")
             
-            # Column G (index 6): salmon color from row 8 to end of data
+            # Marker column (index 7): salmon color from row 8 to end of data
             try:
                 if last_data_row > 7:  # Only apply if we have data rows
-                    column_g_cells = [(row, 6) for row in range(7, last_data_row)]  # Rows 8+ with data
+                    marker_cells = [(row, 7) for row in range(7, last_data_row)]  # Rows 8+ with data
                     self.sheet.highlight_cells(
-                        cells=column_g_cells,
+                        cells=marker_cells,
                         bg='#FA8072',  # Salmon color
                         fg='black'
                     )
-                    logger.info(f"Column G formatted with salmon color (rows 8-{last_data_row})")
-            except Exception as g_error:
-                logger.debug(f"Error formatting column G: {g_error}")
+                    logger.info(f"Marker column (index 7) formatted with salmon color (rows 8-{last_data_row})")
+            except Exception as marker_error:
+                logger.debug(f"Error formatting Marker column: {marker_error}")
             
-            # Column H (index 7): yellow color from row 8 to end of data
+            # Color column (index 8): yellow color from row 8 to end of data
             try:
                 if last_data_row > 7:  # Only apply if we have data rows
-                    column_h_cells = [(row, 7) for row in range(7, last_data_row)]  # Rows 8+ with data
+                    color_cells = [(row, 8) for row in range(7, last_data_row)]  # Rows 8+ with data
                     self.sheet.highlight_cells(
-                        cells=column_h_cells,
+                        cells=color_cells,
                         bg='#FFFF99',  # Yellow color
                         fg='black'
                     )
-                    logger.info(f"Column H formatted with yellow color (rows 8-{last_data_row})")
-            except Exception as h_error:
-                logger.debug(f"Error formatting column H: {h_error}")
+                    logger.info(f"Color column (index 8) formatted with yellow color (rows 8-{last_data_row})")
+            except Exception as color_error:
+                logger.debug(f"Error formatting Color column: {color_error}")
             
-            # Column L (Sphere column, index 11): yellow color from row 2 to end of data  
+            # Sphere column (index 12): yellow color from row 2 to end of data  
             try:
                 if last_data_row > 1:  # Only apply if we have data
-                    column_l_cells = [(row, 11) for row in range(1, last_data_row)]  # Rows 2+ with data
+                    sphere_cells = [(row, 12) for row in range(1, last_data_row)]  # Rows 2+ with data
                     self.sheet.highlight_cells(
-                        cells=column_l_cells,
+                        cells=sphere_cells,
                         bg='#FFFF99',  # Yellow color
                         fg='black'
                     )
-                    logger.info(f"Column L formatted with yellow color (rows 2-{last_data_row})")
-            except Exception as l_error:
-                logger.debug(f"Error formatting column L: {l_error}")
+                    logger.info(f"Sphere column (index 12) formatted with yellow color (rows 2-{last_data_row})")
+            except Exception as sphere_error:
+                logger.debug(f"Error formatting Sphere column: {sphere_error}")
             
             # Center align cells with data (not empty rows)
             try:
@@ -337,7 +337,7 @@ class RealtimePlot3DSheet:
             print("DEBUG: Setting up validation dropdowns...")
             
             # For tksheet, we need to create dropdowns for ranges, not individual cells
-            # Marker column validation (column 6, rows 8+ - skip rows 7 and earlier)
+            # Marker column validation (column 7, rows 8+ - skip rows 7 and earlier)
             try:
                 # Dynamic validation - cover all data rows plus buffer
                 current_sheet_rows = self.sheet.get_total_rows()
@@ -347,63 +347,63 @@ class RealtimePlot3DSheet:
                 for row in range(7, max_data_rows):  # Start from row 7 = display row 8
                     # Get existing value to preserve it, or use default if empty
                     try:
-                        current_value = self.sheet.get_cell_data(row, 6)
+                        current_value = self.sheet.get_cell_data(row, 7)  # Marker at index 7
                         if not current_value or current_value.strip() == '':
                             current_value = '.'
                     except:
                         current_value = '.'
                     
                     self.sheet.create_dropdown(
-                        r=row, c=6,
+                        r=row, c=7,  # Marker at index 7
                         values=self.VALID_MARKERS,
                         set_value=current_value,
                         redraw=False
                     )
-                print(f"DEBUG: Marker dropdowns created for rows 8-{max_data_rows} (starting at data row 8)")
+                print(f"DEBUG: Marker dropdowns created for rows 8-{max_data_rows} (column index 7)")
             except Exception as marker_error:
                 print(f"DEBUG: Marker dropdown error: {marker_error}")
             
-            # Color column validation (column 7, rows 8+ - skip rows 7 and earlier)
+            # Color column validation (column 8, rows 8+ - skip rows 7 and earlier)
             try:
                 max_data_rows = self.sheet.get_total_rows()  # Dynamic - use all rows
                 for row in range(7, max_data_rows):
                     # Get existing value to preserve it, or use default if empty
                     try:
-                        current_value = self.sheet.get_cell_data(row, 7)
+                        current_value = self.sheet.get_cell_data(row, 8)  # Color at index 8
                         if not current_value or current_value.strip() == '':
                             current_value = 'blue'
                     except:
                         current_value = 'blue'
                     
                     self.sheet.create_dropdown(
-                        r=row, c=7,
+                        r=row, c=8,  # Color at index 8
                         values=self.VALID_COLORS,
                         set_value=current_value,
                         redraw=False
                     )
-                print(f"DEBUG: Color dropdowns created for rows 8-{max_data_rows} (starting at data row 8)")
+                print(f"DEBUG: Color dropdowns created for rows 8-{max_data_rows} (column index 8)")
             except Exception as color_error:
                 print(f"DEBUG: Color dropdown error: {color_error}")
             
-            # Sphere column validation (column 11, rows 1+)
+            # Sphere column validation (column 12, rows 1+)
             try:
                 max_data_rows = self.sheet.get_total_rows()  # Dynamic - use all rows
                 for row in range(1, max_data_rows):
                     # Get existing value to preserve it, or use default if empty
                     try:
-                        current_value = self.sheet.get_cell_data(row, 11)
+                        current_value = self.sheet.get_cell_data(row, 12)  # Sphere at index 12
                         if not current_value or current_value.strip() == '':
                             current_value = ''
                     except:
                         current_value = ''
                     
                     self.sheet.create_dropdown(
-                        r=row, c=11,
+                        r=row, c=12,  # Sphere at index 12
                         values=self.VALID_SPHERES,
                         set_value=current_value,
                         redraw=False
                     )
-                print(f"DEBUG: Sphere dropdowns created for rows 2-{max_data_rows}")
+                print(f"DEBUG: Sphere dropdowns created for rows 2-{max_data_rows} (column index 12)")
             except Exception as sphere_error:
                 print(f"DEBUG: Sphere dropdown error: {sphere_error}")
             
