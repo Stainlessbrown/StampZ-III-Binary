@@ -214,7 +214,7 @@ class View2DWindow:
                 )
                 # Store the DataFrame index for point identification
                 scatter._df_index = idx
-                scatter._data_id = row.get('DataID', f'Point_{idx}')
+                scatter._data_id = row.get('DataID', f'Point_{idx + 1}')
             
             # Style the plot
             self.ax.set_xlabel(x_label, fontsize=14, fontweight='bold')
@@ -265,7 +265,7 @@ class View2DWindow:
             
             if hasattr(event.artist, '_df_index'):
                 df_idx = event.artist._df_index
-                data_id = getattr(event.artist, '_data_id', f'Point_{df_idx}')
+                data_id = getattr(event.artist, '_data_id', f'Point_{df_idx + 1}')
                 print(f"DEBUG: Picked point {data_id} (DataFrame index: {df_idx})")
             
             if df_idx is not None:
@@ -307,7 +307,7 @@ class View2DWindow:
         """Add highlight to a point in the 2D window"""
         try:
             point = self.data_df.loc[df_idx]
-            data_id = point.get('DataID', f'Point_{df_idx}')
+            data_id = point.get('DataID', f'Point_{df_idx + 1}')
             
             # Get coordinates based on current view
             if self.current_view == 'xy':

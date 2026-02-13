@@ -299,6 +299,10 @@ class Plot3DApp:
         self.kmeans_manager = KmeansManager(on_data_update=on_kmeans_update)
         if self.file_path:  # Only set file path if we're in file-based mode
             self.kmeans_manager.set_file_path(self.file_path)
+            # Also set sheet name for multi-sheet files
+            sheet_name = getattr(self, 'sheet_name', None)
+            if sheet_name:
+                self.kmeans_manager.set_sheet_name(sheet_name)
         self.kmeans_manager.load_data(self.df)
         
         # Initialize Delta E manager with the same callback and color space info

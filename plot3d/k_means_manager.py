@@ -100,6 +100,7 @@ class KmeansManager:
         self.data = None
         self.on_data_update = on_data_update
         self.file_path = None
+        self.sheet_name = None  # Track which sheet to write to
         
         # Initialize GUI components as None
         self.frame = None
@@ -1115,6 +1116,14 @@ class KmeansManager:
         self.logger.info(f"Set current file path to: {self.file_path}")
         self.logger.info(f"File exists and is accessible: {os.access(self.file_path, os.R_OK | os.W_OK)}")
     
+    def set_sheet_name(self, sheet_name: str):
+        """Set the sheet name for multi-sheet files."""
+        self.sheet_name = sheet_name
+        if sheet_name:
+            self.logger.info(f"Set sheet name to: {sheet_name}")
+        else:
+            self.logger.info("Cleared sheet name (will use default/first sheet)")
+    
     def _verify_file_access(self) -> bool:
         """Verify that the current file is accessible for read/write operations."""
         try:
@@ -1263,7 +1272,7 @@ class KmeansManager:
             
             # Use the file handler to save clusters
             from .k_means_file_handler import KMeansFileHandler
-            handler = KMeansFileHandler(self.data, self.file_path, self.logger)
+            handler = KMeansFileHandler(self.data, self.file_path, self.logger, sheet_name=self.sheet_name)
             success = handler.save_clusters(start, end, row_indices)
             
             if success:

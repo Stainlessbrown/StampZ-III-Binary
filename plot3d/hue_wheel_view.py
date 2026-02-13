@@ -385,16 +385,9 @@ class HueWheelViewer:
         c_val = self.point_data['c_values'][ind]
         l_val = self.point_data['l_values'][ind]
         
-        # Get sample name/ID if available
+        # Get sample name/ID if available - use 1-based row number
         df_idx = self.point_data['indices'][ind]
-        sample_name = "Unknown"
-        if hasattr(self, 'df') and df_idx < len(self.df):
-            row = self.df.iloc[df_idx]
-            # Try common column names for sample ID
-            for col in ['Sample', 'DataID', 'ID', 'Name']:
-                if col in row.index and pd.notna(row[col]):
-                    sample_name = str(row[col])
-                    break
+        sample_name = f"Point {df_idx + 1}"  # Always use 1-based row number
         
         print(f"DEBUG: Identified point - Sample: {sample_name}, Hue: {h_val:.1f}°, Chroma: {c_val:.1f}, L*: {l_val:.1f}")
         
@@ -459,16 +452,9 @@ class HueWheelViewer:
             c_val = self.point_data['c_values'][ind]
             l_val = self.point_data['l_values'][ind]
             
-            # Get sample name/ID if available
+            # Get sample name/ID if available - use 1-based row number
             df_idx = self.point_data['indices'][ind]
-            sample_name = "Unknown"
-            if hasattr(self, 'df') and df_idx < len(self.df):
-                row = self.df.iloc[df_idx]
-                # Try common column names for sample ID
-                for col in ['Sample', 'DataID', 'ID', 'Name']:
-                    if col in row.index and pd.notna(row[col]):
-                        sample_name = str(row[col])
-                        break
+            sample_name = f"Point {df_idx + 1}"  # Always use 1-based row number
             
             print(f"DEBUG: Clicked point - Sample: {sample_name}, Hue: {h_val:.1f}°, Chroma: {c_val:.1f}, L*: {l_val:.1f}")
             

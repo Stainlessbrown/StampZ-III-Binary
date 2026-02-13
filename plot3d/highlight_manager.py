@@ -253,7 +253,7 @@ class HighlightManager:
                 if min_distance <= pixel_tolerance:
                     # Get the original DataFrame index
                     df_idx = valid_data.index[min_idx]
-                    data_id = valid_data.iloc[min_idx].get('DataID', f'Point_{df_idx}')
+                    data_id = valid_data.iloc[min_idx].get('DataID', f'Point_{df_idx + 1}')
                     print(f"DEBUG: Found point {data_id} at distance {min_distance:.2f} pixels")
                     return df_idx
                 
@@ -289,7 +289,7 @@ class HighlightManager:
                 
                 if min_distance <= tolerance:
                     df_idx = valid_data.index[min_idx]
-                    data_id = valid_data.iloc[min_idx].get('DataID', f'Point_{df_idx}')
+                    data_id = valid_data.iloc[min_idx].get('DataID', f'Point_{df_idx + 1}')
                     print(f"DEBUG: Fallback - Found point {data_id} at distance {min_distance:.4f}")
                     return df_idx
             
@@ -328,7 +328,7 @@ class HighlightManager:
         """Highlight a point in the 2D view"""
         try:
             point = self.data_df.loc[df_idx]
-            data_id = point.get('DataID', f'Point_{df_idx}')
+            data_id = point.get('DataID', f'Point_{df_idx + 1}')
             
             # Get coordinates based on current view
             if self.current_2d_view == 'xy':
@@ -580,7 +580,7 @@ class HighlightManager:
                     x_data[i], y_data[i],
                     c=color, marker=marker, s=50,
                     picker=True, pickradius=10,
-                    label=row.get('DataID', f'Point_{idx}')
+                    label=row.get('DataID', f'Point_{idx + 1}')
                 )
                 # Store the DataFrame index for later retrieval
                 scatter._df_index = idx
@@ -744,7 +744,7 @@ class HighlightManager:
                 
                 # Get point data for display
                 point = self.data_df.loc[df_idx]
-                data_id = point.get('DataID', f'Point_{df_idx}')
+                data_id = point.get('DataID', f'Point_{df_idx + 1}')
                 
                 # Enhanced info display based on mode
                 if in_2d_mode:
@@ -794,7 +794,7 @@ class HighlightManager:
     def _display_point_info(self, point, df_idx):
         """Display detailed information about the selected point"""
         try:
-            data_id = point.get('DataID', f'Point_{df_idx}')
+            data_id = point.get('DataID', f'Point_{df_idx + 1}')
             x, y, z = point['Xnorm'], point['Ynorm'], point['Znorm']
             
             # Build detailed info text
@@ -887,7 +887,7 @@ class HighlightManager:
             # Get point data
             point = self.data_df.iloc[idx]
             x, y, z = point['Xnorm'], point['Ynorm'], point['Znorm']
-            data_id = point.get('DataID', f'Point_{idx}')
+            data_id = point.get('DataID', f'Point_{idx + 1}')
             self.selected_data_id = data_id
             
             print(f"DEBUG: Highlighting point at index {idx}, DataID: {data_id}")
@@ -950,7 +950,7 @@ class HighlightManager:
                 return
                 
             point = self.data_df.iloc[idx]
-            data_id = point.get('DataID', f'Point_{idx}')
+            data_id = point.get('DataID', f'Point_{idx + 1}')
             x, y, z = point['Xnorm'], point['Ynorm'], point['Znorm']
             
             # Create info text with point details
@@ -1283,7 +1283,7 @@ class HighlightManager:
             self.highlight_scatters.append(highlight_scatter)
             
             # Add text label with offset for better readability
-            data_id = row_data.get('DataID', f'Point_{df_index}')
+            data_id = row_data.get('DataID', f'Point_{df_index + 1}')
             label_text = f"Row {spreadsheet_row}\n{data_id}"
             
             # Calculate offset coordinates for better visibility

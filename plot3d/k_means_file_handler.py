@@ -18,7 +18,7 @@ import logging
 class KMeansFileHandler:
     """Handles saving K-means cluster assignments to spreadsheet files."""
     
-    def __init__(self, data, file_path, logger=None):
+    def __init__(self, data, file_path, logger=None, sheet_name=None):
         """
         Initialize the file handler.
         
@@ -26,10 +26,12 @@ class KMeansFileHandler:
             data: pandas DataFrame containing cluster assignments
             file_path: Path to the spreadsheet file (.ods or .xlsx)
             logger: Logger instance for debugging
+            sheet_name: Name of the sheet to write to (for multi-sheet files)
         """
         self.data = data
         self.file_path = file_path
         self.logger = logger or logging.getLogger(__name__)
+        self.sheet_name = sheet_name
     
     def save_clusters(self, start: int, end: int, row_indices) -> bool:
         """
@@ -78,7 +80,14 @@ class KMeansFileHandler:
             try:
                 # Load the Excel file
                 wb = load_workbook(self.file_path)
-                ws = wb.active
+                # Use specified sheet or default to active
+                if self.sheet_name and self.sheet_name in wb.sheetnames:
+                    ws = wb[self.sheet_name]
+                    self.logger.info(f"Using specified sheet: {self.sheet_name}")
+                else:
+                    ws = wb.active
+                    if self.sheet_name:
+                        self.logger.warning(f"Sheet '{self.sheet_name}' not found, using active sheet: {ws.title}")
                 self.logger.info(f"Opened Excel sheet: {ws.title}")
                 
                 # Get cluster assignments
@@ -338,7 +347,7 @@ class KMeansFileHandler:
                     
                     # Get column indices using pandas
                     self.logger.info("Reading column structure with pandas")
-                    df = pd.read_excel(self.file_path, engine='odf')
+                    df = pd.read_excel(self.file_path, engine='odf', sheet_name=self.sheet_name)
                     
                     # Verify required columns
                     required_columns = ['Cluster', 'Centroid_X', 'Centroid_Y', 'Centroid_Z']
@@ -369,11 +378,25 @@ class KMeansFileHandler:
                     content_xml = ods_files['content.xml']
                     tree = etree.fromstring(content_xml)
                     
-                    # Find the first table
+                    # Find the correct table (sheet)
                     tables = tree.xpath('//table:table', namespaces=NS)
                     if not tables:
                         raise ValueError("No tables found in ODS file")
-                    table = tables[0]
+                    
+                    # Use specified sheet or default to first
+                    table = None
+                    if self.sheet_name:
+                        for t in tables:
+                            table_name = t.get(f'{TABLE_NS}name')
+                            if table_name == self.sheet_name:
+                                table = t
+                                self.logger.info(f"Using specified ODS sheet: {self.sheet_name}")
+                                break
+                        if table is None:
+                            self.logger.warning(f"Sheet '{self.sheet_name}' not found, using first sheet")
+                            table = tables[0]
+                    else:
+                        table = tables[0]
                     
                     # Get all rows (row 0 is header, row 1+ is data)
                     rows = table.findall(f'{TABLE_NS}table-row')
