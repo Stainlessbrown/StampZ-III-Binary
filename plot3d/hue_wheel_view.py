@@ -385,9 +385,8 @@ class HueWheelViewer:
         c_val = self.point_data['c_values'][ind]
         l_val = self.point_data['l_values'][ind]
         
-        # Get sample name/ID if available - use 1-based row number
-        df_idx = self.point_data['indices'][ind]
-        sample_name = f"Point {df_idx + 1}"  # Always use 1-based row number
+        # Get sample name/ID from stored data_ids
+        sample_name = self.point_data['data_ids'][ind]
         
         print(f"DEBUG: Identified point - Sample: {sample_name}, Hue: {h_val:.1f}°, Chroma: {c_val:.1f}, L*: {l_val:.1f}")
         
@@ -452,9 +451,8 @@ class HueWheelViewer:
             c_val = self.point_data['c_values'][ind]
             l_val = self.point_data['l_values'][ind]
             
-            # Get sample name/ID if available - use 1-based row number
-            df_idx = self.point_data['indices'][ind]
-            sample_name = f"Point {df_idx + 1}"  # Always use 1-based row number
+            # Get sample name/ID from stored data_ids
+            sample_name = self.point_data['data_ids'][ind]
             
             print(f"DEBUG: Clicked point - Sample: {sample_name}, Hue: {h_val:.1f}°, Chroma: {c_val:.1f}, L*: {l_val:.1f}")
             
@@ -568,13 +566,25 @@ class HueWheelViewer:
         size_value = marker_size.get() if marker_size else 50
         
         # Store data for point identification
+        valid_indices = valid_mask[valid_mask].index.tolist()
+        
+        # Get DataID values if available, otherwise use row numbers
+        data_ids = []
+        for idx in valid_indices:
+            if 'DataID' in self.df.columns and pd.notna(self.df.loc[idx, 'DataID']):
+                data_ids.append(str(self.df.loc[idx, 'DataID']))
+            else:
+                # Use 1-based row number (idx + 2 for header row offset in spreadsheet)
+                data_ids.append(f"Row {idx + 2}")
+        
         self.point_data = {
             'theta': theta,
             'r': r,
             'h_values': h_values,
             'c_values': c_values,
             'l_values': l_values,
-            'indices': valid_mask[valid_mask].index.tolist()  # Store original DataFrame indices
+            'indices': valid_indices,
+            'data_ids': data_ids  # Store DataID or row labels
         }
         
         scatter = ax.scatter(
