@@ -569,13 +569,29 @@ class HueWheelViewer:
         valid_indices = valid_mask[valid_mask].index.tolist()
         
         # Get DataID values if available, otherwise use row numbers
+        # Use original_row if available (tracks actual spreadsheet row for .ods/.xlsx)
         data_ids = []
         for idx in valid_indices:
-            if 'DataID' in self.df.columns and pd.notna(self.df.loc[idx, 'DataID']):
-                data_ids.append(str(self.df.loc[idx, 'DataID']))
+            data_id_val = None
+            if 'DataID' in self.df.columns:
+                data_id_val = self.df.loc[idx, 'DataID']
+            
+            # Use DataID if it exists and is not empty/null
+            if pd.notna(data_id_val) and str(data_id_val).strip() != '':
+                data_ids.append(str(data_id_val))
             else:
-                # Use 1-based row number (idx + 2 for header row offset in spreadsheet)
-                data_ids.append(f"Row {idx + 2}")
+                # Fallback: Use spreadsheet row number
+                if 'original_row' in self.df.columns and pd.notna(self.df.loc[idx, 'original_row']):
+                    spreadsheet_row = int(self.df.loc[idx, 'original_row']) + 2
+                else:
+                    spreadsheet_row = idx + 2
+                data_ids.append(f"Row {spreadsheet_row}")
+        
+        print(f"DEBUG: DataID column found: {'DataID' in self.df.columns}")
+        if 'DataID' in self.df.columns:
+            print(f"DEBUG: Sample DataID values from DataFrame: {self.df['DataID'].head(10).tolist()}")
+        print(f"DEBUG: DataFrame columns: {list(self.df.columns)}")
+        print(f"DEBUG: First few data_ids being used: {data_ids[:5] if len(data_ids) >= 5 else data_ids}")
         
         self.point_data = {
             'theta': theta,
