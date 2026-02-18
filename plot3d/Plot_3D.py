@@ -309,6 +309,10 @@ class Plot3DApp:
         self.delta_e_manager = DeltaEManager(on_data_update=on_kmeans_update, color_space=self.label_type)
         if self.file_path:  # Only set file path if we're in file-based mode
             self.delta_e_manager.set_file_path(self.file_path)
+            # Also set sheet name for multi-sheet files
+            sheet_name = getattr(self, 'sheet_name', None)
+            if sheet_name:
+                self.delta_e_manager.set_sheet_name(sheet_name)
         self.delta_e_manager.load_data(self.df)
         
         # Initialize logger for custom delta E calculator

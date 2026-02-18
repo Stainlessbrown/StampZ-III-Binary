@@ -61,6 +61,8 @@ class DeltaEManager:
                 handler.setFormatter(formatter)
                 self.logger.addHandler(handler)
             self.logger.setLevel(logging.INFO)
+            # Prevent duplicate logs from propagating to root logger
+            self.logger.propagate = False
         else:
             self.logger = logger
         
@@ -70,6 +72,7 @@ class DeltaEManager:
         self.data = None
         self.on_data_update = on_data_update
         self.file_path = None
+        self.sheet_name = None  # For multi-sheet ODS files
         # Initialize GUI components as None
         self.frame = None
         self.centroid_start_row = None  # StringVar for centroid start row spinbox
@@ -198,6 +201,11 @@ class DeltaEManager:
         self.file_path = os.path.abspath(file_path)
         self.logger.info(f"Set current file path to: {self.file_path}")
         self.logger.info(f"File exists and is accessible: {os.access(self.file_path, os.R_OK | os.W_OK)}")
+    
+    def set_sheet_name(self, sheet_name: str):
+        """Set the sheet name for multi-sheet ODS files."""
+        self.sheet_name = sheet_name
+        self.logger.info(f"Set sheet name to: {self.sheet_name}")
     
     def validate_row_range(self, start_row: int, end_row: int) -> Tuple[int, int]:
         """Validate that the row range is within bounds."""
@@ -884,9 +892,11 @@ class DeltaEManager:
         if self.file_path and os.path.exists(self.file_path):
             try:
                 self.logger.info(f"Reloading data from file before ΔE calculation: {self.file_path}")
+                self.logger.info(f"Using sheet: {self.sheet_name if self.sheet_name else 'default (first)'}")
                 # Use correct engine based on file format
                 engine = 'odf' if self.file_path.endswith('.ods') else 'openpyxl'
-                updated_data = pd.read_excel(self.file_path, engine=engine)
+                # IMPORTANT: Use the correct sheet for multi-sheet files
+                updated_data = pd.read_excel(self.file_path, engine=engine, sheet_name=self.sheet_name or 0)
                 
                 # For Excel files, ensure Cluster column is integer type (not float)
                 if self.file_path.endswith('.xlsx') and 'Cluster' in updated_data.columns:
@@ -1104,7 +1114,8 @@ class DeltaEManager:
                         self.logger.info("Reading file structure")
                         # Determine which engine to use based on file extension
                         engine = 'odf' if self.file_path.endswith('.ods') else 'openpyxl'
-                        df = pd.read_excel(self.file_path, engine=engine)
+                        # IMPORTANT: Use the correct sheet for multi-sheet files
+                        df = pd.read_excel(self.file_path, engine=engine, sheet_name=self.sheet_name or 0)
                         
                         # Check if required columns exist
                         required_columns = ['∆E', 'Centroid_X', 'Centroid_Y', 'Centroid_Z']
@@ -1343,14 +1354,41 @@ class DeltaEManager:
                                 else:
                                     # ODS format
                                     ods_doc = ezodf.opendoc(self.file_path)
-                                    sheet = ods_doc.sheets[0]
                                     use_excel = False
-                                    self.logger.info("Using ezodf for ODS file")
+                                    
+                                    # Find the correct sheet by name (for multi-sheet files)
+                                    if self.sheet_name:
+                                        sheet = None
+                                        for i, s in enumerate(ods_doc.sheets):
+                                            if s.name == self.sheet_name:
+                                                sheet = s
+                                                self.logger.info(f"Found sheet '{self.sheet_name}' at index {i}")
+                                                break
+                                        if sheet is None:
+                                            self.logger.error(f"Sheet '{self.sheet_name}' not found in ODS file")
+                                            raise ValueError(f"Sheet '{self.sheet_name}' not found")
+                                    else:
+                                        sheet = ods_doc.sheets[0]
+                                        self.logger.info(f"Using first sheet: {sheet.name}")
+                                    
+                                    self.logger.info(f"Using ezodf for ODS file, sheet: {sheet.name}")
+                                    self.logger.info(f"ODS sheet dimensions: {sheet.nrows()} rows x {sheet.ncols()} cols")
+                                    
+                                    # DEBUG: Log header row to verify column positions
+                                    header_values = []
+                                    for col_idx in range(min(15, sheet.ncols())):
+                                        val = sheet[0, col_idx].value
+                                        header_values.append(f"{col_idx}:'{val}'")
+                                    self.logger.info(f"ODS Header row (row 1, index 0): {', '.join(header_values)}")
+                                    
+                                    # Verify the ∆E column index matches between pandas and ODS
+                                    ods_header_delta_e = sheet[0, delta_e_col_idx].value
+                                    self.logger.info(f"Pandas says ∆E is at column index {delta_e_col_idx}, ODS header at that index: '{ods_header_delta_e}'")
                                 
                                 # Check if we need to add centroid columns (ODS only - Excel columns should already exist)
                                 if not use_excel:
-                                    header_row = 0  # Header row index
-                                    num_cols = len(sheet.row(header_row))
+                                    header_row = 0  # Header row index (row 1 in spreadsheet)
+                                    num_cols = sheet.ncols()
                                     
                                     # Create centroid columns if they don't exist
                                     for col_name in ['Centroid_X', 'Centroid_Y', 'Centroid_Z']:
@@ -1397,24 +1435,24 @@ class DeltaEManager:
                                             # row_idx is 1-based (from our Excel-compatible format), so subtract 1 for ODS
                                             ods_row_idx = row_idx - 1
                                             cell = sheet[ods_row_idx, delta_e_col_idx]
-                                            formatted_value = format(value, '.2f')
-                                            # Clear existing value first using multiple methods
-                                            try:
-                                                # Try clear() method if available
-                                                if hasattr(cell, 'clear'):
-                                                    cell.clear()
-                                                # Also try setting value_type to force type change
-                                                if hasattr(cell, 'value_type'):
-                                                    cell.value_type = 'string'
-                                            except Exception as clear_err:
-                                                self.logger.debug(f"Clear attempt: {clear_err}")
-                                            cell.set_value(formatted_value)
-                                            self.logger.debug(f"Updated ∆E at ODS row {ods_row_idx} (sheet row {row_idx}) to {value}")
+                                            
+                                            # DEBUG: Log cell state before write
+                                            old_value = cell.value
+                                            
+                                            # Use numeric value directly (not string) for proper spreadsheet handling
+                                            numeric_value = round(value, 2)
+                                            cell.set_value(numeric_value)
+                                            
+                                            # DEBUG: Read back immediately to verify write
+                                            new_value = cell.value
+                                            
+                                            update_count += 1
+                                            self.logger.info(f"ODS cell[{ods_row_idx},{delta_e_col_idx}]: old='{old_value}' -> set({numeric_value}) -> read='{new_value}'")
                                     except Exception as cell_error:
                                         self.logger.warning(f"Failed to update cell at row {row_idx}: {str(cell_error)}")
                                 
-                                if use_excel:
-                                    self.logger.info(f"Total \u0394E updates written to Excel: {update_count}/{len(updates)}")
+                                # Log total updates for both Excel and ODS
+                                self.logger.info(f"Total ∆E updates written: {update_count}/{len(updates)}")
                                 
                                 # Create a file backup before saving
                                 pre_save_backup = f"{self.file_path}.presave"
@@ -1455,7 +1493,18 @@ class DeltaEManager:
                                     if not use_excel:
                                         self.logger.info("Verifying save operation")
                                         verify_doc = ezodf.opendoc(self.file_path)
-                                        verify_sheet = verify_doc.sheets[0]
+                                        
+                                        # Find the correct sheet for verification
+                                        if self.sheet_name:
+                                            verify_sheet = None
+                                            for s in verify_doc.sheets:
+                                                if s.name == self.sheet_name:
+                                                    verify_sheet = s
+                                                    break
+                                            if verify_sheet is None:
+                                                verify_sheet = verify_doc.sheets[0]
+                                        else:
+                                            verify_sheet = verify_doc.sheets[0]
                                         
                                         # Check updates
                                         for row_idx, value in updates[:min(3, len(updates))]:
