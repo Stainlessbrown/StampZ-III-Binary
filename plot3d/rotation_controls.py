@@ -188,49 +188,6 @@ class RotationControls(tk.LabelFrame):
         knob_frame.bind("<Enter>", on_knob_enter)
         knob_frame.bind("<Leave>", on_knob_leave)
         
-        # Add a tooltip to explain knob interaction
-        tooltip_text = f"CLICK and DRAG to adjust {label_text.lower()}"
-        tooltip_label = ttk.Label(frame, text="↻", font=('Arial', 20, 'bold'), foreground='blue',
-                                background='#f0f0ff')  # Light background for better visibility
-        tooltip_label.grid(row=1, column=0, sticky='ne', padx=1, pady=1)
-        
-        # Add "Drag" instruction directly on the knob frame
-        drag_label = ttk.Label(frame, text="Drag", font=('Arial', 8), 
-                              foreground='blue', background='#f0f0ff')
-        drag_label.grid(row=1, column=0, sticky='sw', padx=2, pady=0)
-        
-        # Create tooltip with instructions when hovering over knob or icon
-        def show_tooltip(event):
-            tooltip = tk.Toplevel(frame)
-            tooltip.wm_overrideredirect(True)  # Remove window decorations
-            tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
-            label = ttk.Label(tooltip, text=tooltip_text, background="#ffffe0", relief="solid", borderwidth=1)
-            label.pack()
-            return tooltip
-            
-        def hide_tooltip(tooltip, event):
-            if tooltip:
-                try:
-                    tooltip.destroy()
-                except:
-                    pass  # Ignore errors if tooltip was already destroyed
-            
-        # Apply tooltip to all interactive elements
-        for widget in [knob, tooltip_label, drag_label, knob_frame]:
-            # Create proper functions for enter and leave events
-            def on_enter(e, w=widget):
-                w.tooltip_ref = show_tooltip(e)
-                return "break"
-                
-            def on_leave(e, w=widget):
-                if hasattr(w, 'tooltip_ref'):
-                    hide_tooltip(w.tooltip_ref, e)
-                return "break"
-                
-            # Bind the properly defined event handlers
-            widget.bind("<Enter>", on_enter)
-            widget.bind("<Leave>", on_leave)
-        
         # Store reference to the knob
         if label_text == "Elevation":
             self.elevation_knob = knob
@@ -273,37 +230,6 @@ class RotationControls(tk.LabelFrame):
         spinbox.bind("<Up>", lambda e: (self._increment_spinbox(variable, 1.0), self._immediate_update(variable)))
         spinbox.bind("<Down>", lambda e: (self._increment_spinbox(variable, -1.0), self._immediate_update(variable)))
         spinbox.bind("<MouseWheel>", lambda e: (self._increment_spinbox(variable, 1.0 if e.delta > 0 else -1.0), self._immediate_update(variable)))
-        
-        # Add tooltip for spinbox usage
-        tooltip_text = "Enter value or use up/down arrows to adjust"
-        def show_tooltip(event):
-            tooltip = tk.Toplevel(parent)
-            tooltip.wm_overrideredirect(True)
-            tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
-            label = ttk.Label(tooltip, text=tooltip_text, background="#ffffe0", relief="solid", borderwidth=1,
-                            font=('Arial', 10, 'bold'))
-            label.pack(padx=4, pady=4)
-            return tooltip
-            
-        def hide_tooltip(tooltip, event):
-            if tooltip:
-                try:
-                    tooltip.destroy()
-                except:
-                    pass  # Ignore errors if tooltip was already destroyed
-            
-        # Create proper event handlers for spinbox tooltip
-        def on_spinbox_enter(e):
-            spinbox.tooltip_ref = show_tooltip(e)
-            return "break"
-            
-        def on_spinbox_leave(e):
-            if hasattr(spinbox, 'tooltip_ref'):
-                hide_tooltip(spinbox.tooltip_ref, e)
-            return "break"
-            
-        spinbox.bind("<Enter>", on_spinbox_enter)
-        spinbox.bind("<Leave>", on_spinbox_leave)
         
         return spinbox
     
