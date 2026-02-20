@@ -379,6 +379,16 @@ class Plot3DApp:
                     self._refresh_in_progress = False
                     return
             
+            # ===== 2D MODE BRANCH =====
+            # If the "Use 2D Plot" toggle is on and a plane view is selected,
+            # delegate to the dedicated 2D renderer and skip all 3D code.
+            if self._is_2d_mode():
+                try:
+                    self._refresh_plot_2d()
+                finally:
+                    self._refresh_in_progress = False
+                return
+            
             # Store current view angles and zoom level before clearing
             current_elev = None
             current_azim = None
@@ -1291,6 +1301,10 @@ class Plot3DApp:
         if not hasattr(self, 'current_ax') or self.current_ax is None:
             print("No axes available for rotation")
             return False
+        
+        # In 2D mode, rotation doesn't apply – fall back to full refresh
+        if self._is_2d_mode():
+            return False
             
         try:
             # Get current values if not specified
@@ -1321,7 +1335,239 @@ class Plot3DApp:
             return True
         except Exception as e:
             print(f"Error applying direct rotation: {e}")
+    
+    def _is_2d_mode(self):
+        """Check if we should render in 2D mode.
         
+        Returns True when the '2D Plot' toggle is checked AND a plane view is selected.
+        """
+        try:
+            if (hasattr(self, 'rotation_controls') and
+                self.rotation_controls is not None and
+                self.rotation_controls.use_2d_view.get() and
+                self.rotation_controls.current_plane is not None):
+                return True
+        except Exception:
+            pass
+        return False
+    
+    def _refresh_plot_2d(self):
+        """Render the plot as a true 2D view for the currently selected plane.
+        
+        This eliminates 3D perspective projection so that points and spheres
+        stay strictly within the axis frame.
+        """
+        plane = self.rotation_controls.current_plane
+        print(f"\n=== 2D PLOT REFRESH for plane '{plane}' ===")
+        
+        # --- Coordinate mapping ---------------------------------------------------
+        # Each plane selects two of the three normalized axes.
+        # 'h' = horizontal axis column, 'v' = vertical axis column
+        label_sets = {
+            'LAB': {'x': 'L*', 'y': 'a*', 'z': 'b*'},
+            'RGB': {'x': 'R', 'y': 'G', 'z': 'B'},
+            'CMY': {'x': 'C', 'y': 'M', 'z': 'Y'},
+        }
+        labels = label_sets.get(self.label_type, label_sets['LAB'])
+        
+        plane_config = {
+            'xy': {'h_col': 'Xnorm', 'v_col': 'Ynorm', 'h_label': labels['x'], 'v_label': labels['y']},
+            'xz': {'h_col': 'Xnorm', 'v_col': 'Znorm', 'h_label': labels['x'], 'v_label': labels['z']},
+            'yz': {'h_col': 'Ynorm', 'v_col': 'Znorm', 'h_label': labels['y'], 'v_label': labels['z']},
+        }
+        
+        if plane not in plane_config:
+            print(f"Unknown plane '{plane}' – falling back to 3D")
+            return  # caller will continue with normal 3D
+        
+        cfg = plane_config[plane]
+        
+        # --- Figure / axes setup --------------------------------------------------
+        try:
+            plt.clf()
+            self.fig.clear()
+        except Exception:
+            self.fig = plt.figure(figsize=(14, 10))
+            self.canvas.figure = self.fig
+        
+        ax = self.fig.add_subplot(111)  # TRUE 2D axes – no projection='3d'
+        self.current_ax = ax
+        
+        # Apply axis limits from the axis controls
+        try:
+            min_val = float(self.axis_vars['x_min'].get())
+            max_val = float(self.axis_vars['x_max'].get())
+            if min_val >= max_val:
+                min_val, max_val = 0.0, 1.0
+        except (ValueError, tk.TclError):
+            min_val, max_val = 0.0, 1.0
+        
+        ax.set_xlim(min_val, max_val)
+        ax.set_ylim(min_val, max_val)
+        ax.set_aspect('equal', adjustable='box')
+        ax.grid(True, alpha=0.5, linestyle='--', color='gray')
+        
+        # Axis labels with consistent styling
+        ax.set_xlabel(cfg['h_label'], fontsize=16, fontweight='bold')
+        ax.set_ylabel(cfg['v_label'], fontsize=16, fontweight='bold')
+        ax.set_title(f"{cfg['h_label']} / {cfg['v_label']}  (2D View)",
+                     fontsize=14, fontweight='bold', pad=12)
+        
+        # --- Visibility mask ------------------------------------------------------
+        visible_mask = pd.Series(True, index=self.df.index)
+        if hasattr(self, 'group_display_manager') and self.group_display_manager:
+            try:
+                visible_mask = self.group_display_manager.get_visible_mask()
+            except Exception:
+                visible_mask = pd.Series(True, index=self.df.index)
+        
+        try:
+            if not visible_mask.index.equals(self.df.index):
+                visible_mask = pd.Series(True, index=self.df.index)
+            visible_df = self.df[visible_mask]
+        except Exception:
+            visible_df = self.df
+        
+        # --- Plot data points -----------------------------------------------------
+        h_col = cfg['h_col']
+        v_col = cfg['v_col']
+        
+        for idx, row in visible_df.iterrows():
+            marker = row['Marker'] if pd.notna(row['Marker']) else 'o'
+            color = row['Color'] if pd.notna(row['Color']) else 'blue'
+            data_id = row.get('DataID', f'Row {idx}')
+            marker_size = self.MARKER_SIZES.get(marker, 25)
+            
+            ax.scatter(
+                row[h_col], row[v_col],
+                c=color,
+                marker=marker,
+                s=marker_size,
+                label=data_id,
+                zorder=10,
+                edgecolors='none',
+                linewidths=0
+            )
+        
+        # --- Sphere circles -------------------------------------------------------
+        self.sphere_manager.update_references(ax, self.canvas, self.df)
+        self._update_sphere_toggles()
+        self.sphere_manager.render_spheres_2d(ax, plane)
+        
+        # --- Linear trendline (projected) -----------------------------------------
+        if self.show_trendline.get():
+            try:
+                valid_df = self.df[self.df['trendline_valid']].copy()
+                if len(valid_df) > 2:
+                    self.trendline_manager.calculate_linear_regression(valid_df)
+                    a, b, c = self.trendline_manager.get_line_equation()
+                    
+                    h_vals = valid_df[h_col].values
+                    v_vals = valid_df[v_col].values
+                    
+                    # Draw a best-fit line in the chosen plane
+                    from numpy.polynomial import polynomial as P
+                    coeffs = np.polyfit(h_vals, v_vals, 1)
+                    h_line = np.linspace(min_val, max_val, 100)
+                    v_line = np.polyval(coeffs, h_line)
+                    
+                    ax.plot(h_line, v_line,
+                            color=self.trendline_manager.get_color(),
+                            linewidth=0.8, zorder=30,
+                            label='Linear Trendline')
+                    eq_text = f"{cfg['v_label']} = {coeffs[0]:.4f}·{cfg['h_label']} + {coeffs[1]:.4f}"
+                    ax.text(0.05, 0.95, eq_text, transform=ax.transAxes,
+                            fontsize=10, verticalalignment='top',
+                            bbox=dict(facecolor='white', alpha=0.7))
+            except Exception as e:
+                print(f"Error plotting 2D trendline: {e}")
+        
+        # --- Color-filtered trendlines (projected) --------------------------------
+        colors_list = ['red', 'green', 'blue']
+        color_vars = [self.show_red_trendline, self.show_green_trendline, self.show_blue_trendline]
+        line_styles = ['--', '-.', ':']
+        eq_y_positions = [0.89, 0.83, 0.77]
+        
+        for tl_color, show_var, ls, eq_y in zip(colors_list, color_vars, line_styles, eq_y_positions):
+            if show_var.get():
+                try:
+                    valid_df = self.df[self.df['trendline_valid']].copy()
+                    color_df = valid_df[valid_df['Color'].str.lower() == tl_color.lower()].copy()
+                    color_clean = color_df.dropna(subset=[h_col, v_col])
+                    if len(color_clean) > 2:
+                        h_vals = color_clean[h_col].values
+                        v_vals = color_clean[v_col].values
+                        coeffs = np.polyfit(h_vals, v_vals, 1)
+                        h_line = np.linspace(min_val, max_val, 100)
+                        v_line = np.polyval(coeffs, h_line)
+                        ax.plot(h_line, v_line, color=tl_color, linestyle=ls,
+                                linewidth=1.0, alpha=0.8, zorder=25)
+                        eq_text = f"{tl_color[0].upper()}: {cfg['v_label']} = {coeffs[0]:.4f}·{cfg['h_label']} + {coeffs[1]:.4f}"
+                        ax.text(0.05, eq_y, eq_text, transform=ax.transAxes,
+                                fontsize=9, color=tl_color,
+                                bbox=dict(facecolor='white', alpha=0.7))
+                except Exception as e:
+                    print(f"Error plotting 2D {tl_color} trendline: {e}")
+        
+        # --- Polynomial surface (projected as curve) ------------------------------
+        if self.show_polynomial.get():
+            try:
+                valid_df = self.df[self.df['trendline_valid']].copy()
+                if len(valid_df) > 5:
+                    h_vals = valid_df[h_col].values
+                    v_vals = valid_df[v_col].values
+                    coeffs = np.polyfit(h_vals, v_vals, 2)
+                    h_line = np.linspace(min_val, max_val, 100)
+                    v_line = np.polyval(coeffs, h_line)
+                    ax.plot(h_line, v_line,
+                            color=self.trendline_manager.get_polynomial_color(),
+                            linewidth=0.8, alpha=0.8, zorder=20,
+                            label='Polynomial (deg 2)')
+            except Exception as e:
+                print(f"Error plotting 2D polynomial: {e}")
+        
+        # --- Cubic (projected as curve) -------------------------------------------
+        if self.show_cubic.get():
+            try:
+                valid_df = self.df[self.df['trendline_valid']].copy()
+                if len(valid_df) > 9:
+                    h_vals = valid_df[h_col].values
+                    v_vals = valid_df[v_col].values
+                    coeffs = np.polyfit(h_vals, v_vals, 3)
+                    h_line = np.linspace(min_val, max_val, 100)
+                    v_line = np.polyval(coeffs, h_line)
+                    ax.plot(h_line, v_line,
+                            color=self.trendline_manager.get_cubic_color(),
+                            linewidth=0.8, alpha=0.8, zorder=18,
+                            label='Cubic (deg 3)')
+            except Exception as e:
+                print(f"Error plotting 2D cubic: {e}")
+        
+        # --- Apply tick visibility from axis controls -----------------------------
+        if hasattr(self, 'axis_controls'):
+            try:
+                if not self.axis_controls.x_tick_visible.get():
+                    ax.xaxis.set_ticklabels([])
+                if not self.axis_controls.y_tick_visible.get():
+                    ax.yaxis.set_ticklabels([])
+            except Exception:
+                pass
+        
+        # --- Update managers ------------------------------------------------------
+        if self.highlight_manager:
+            self.highlight_manager.update_references(ax, self.df, self.use_rgb)
+        if hasattr(self, 'group_display_manager') and self.group_display_manager:
+            self.group_display_manager.update_references(self.df)
+        
+        # --- Final draw -----------------------------------------------------------
+        self.fig.tight_layout()
+        try:
+            self.canvas.draw()
+        except Exception:
+            self.canvas.draw_idle()
+        
+        print(f"=== 2D plot refresh complete ({plane} plane) ===")
+
     def _init_variables(self):
         """Initialize tkinter variables with shared axis ranges.
         
@@ -1405,6 +1651,9 @@ class Plot3DApp:
                 msg_label.grid(row=0, column=0, padx=5, pady=5)
                 return
             
+            # Get DataID mapping for each sphere color
+            color_data_ids = self.sphere_manager.get_color_data_ids()
+            
             # Create toggle for each active color with proper styling
             for i, color in enumerate(active_colors):
                 if color not in self.sphere_toggle_vars:
@@ -1413,17 +1662,35 @@ class Plot3DApp:
                 # Create container frame for better visibility
                 toggle_container = ttk.Frame(self.toggle_frame)
                 toggle_container.grid(row=i, column=0, sticky='ew', padx=5, pady=2)
-                toggle_container.grid_columnconfigure(0, weight=1)
+                toggle_container.grid_columnconfigure(1, weight=1)
+                
+                # Build label: color name + DataIDs (if any)
+                label_text = color.capitalize()
                 
                 # Create checkbutton with explicit width and padding
                 cb = ttk.Checkbutton(
                     toggle_container,
-                    text=color.capitalize(),
+                    text=label_text,
                     variable=self.sphere_toggle_vars[color],
                     command=lambda c=color: self._on_sphere_toggle(c),
                     padding=5
                 )
                 cb.grid(row=0, column=0, sticky='w')
+                
+                # Show DataIDs next to the checkbox if present
+                data_ids = color_data_ids.get(color, [])
+                if data_ids:
+                    # Join multiple IDs with commas, truncate if very long
+                    ids_text = ", ".join(data_ids)
+                    if len(ids_text) > 30:
+                        ids_text = ids_text[:27] + "..."
+                    id_label = ttk.Label(
+                        toggle_container,
+                        text=ids_text,
+                        foreground='black',
+                        font=('Arial', 12)
+                    )
+                    id_label.grid(row=0, column=1, sticky='w', padx=(2, 5))
             
             # Force toggle frame update
             self.toggle_frame.update_idletasks()
@@ -2118,8 +2385,9 @@ class Plot3DApp:
                         self.axis_vars[min_key].set(axis_ranges[min_key])
                         self.axis_vars[max_key].set(axis_ranges[max_key])
                 
-                # Update rotation controls with new view if available
-                if hasattr(self, 'rotation_controls') and hasattr(self, 'current_ax'):
+                # Update rotation controls with new view if available (3D only)
+                if (hasattr(self, 'rotation_controls') and hasattr(self, 'current_ax')
+                        and not self._is_2d_mode() and hasattr(self.current_ax, 'elev')):
                     self.rotation_controls.update_values(
                         self.current_ax.elev,
                         self.current_ax.azim,

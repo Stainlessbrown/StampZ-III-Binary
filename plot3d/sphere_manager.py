@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 from matplotlib import cm
 from mpl_toolkits.mplot3d import Axes3D
 import logging
@@ -61,16 +62,19 @@ class SphereManager:
         self.logger.info("SphereManager initialized successfully")
     
     def clear_spheres(self) -> None:
-        """Remove all sphere objects from the plot."""
+        """Remove all sphere objects from the plot (3D surfaces and 2D patches)."""
         try:
-            # Remove all sphere objects from the plot
-            for sphere in self.sphere_objects:
-                if sphere in self.ax.collections:
-                    sphere.remove()
+            count = len(self.sphere_objects)
+            # Remove all sphere/circle objects from the plot
+            for obj in self.sphere_objects:
+                try:
+                    obj.remove()
+                except Exception:
+                    pass  # Already removed or axes changed
             
             # Clear the list of sphere objects
             self.sphere_objects = []
-            self.logger.info(f"Cleared {len(self.sphere_objects)} sphere objects from plot")
+            self.logger.info(f"Cleared {count} sphere/circle objects from plot")
         except Exception as e:
             self.logger.error(f"Error clearing spheres: {str(e)}")
             import traceback
@@ -133,6 +137,37 @@ class SphereManager:
         except Exception as e:
             self.logger.error(f"Error getting active colors: {str(e)}")
             return []
+    
+    def get_color_data_ids(self) -> Dict[str, List[str]]:
+        """
+        Get a mapping of sphere color codes to their associated DataIDs.
+        
+        Only includes rows that have valid centroid coordinates.
+        
+        Returns:
+            Dict mapping color code -> list of DataID strings
+        """
+        color_to_ids: Dict[str, List[str]] = {}
+        try:
+            # Filter to rows with valid centroid coordinates
+            valid_mask = (
+                self.data_df['Centroid_X'].notna() &
+                self.data_df['Centroid_Y'].notna() &
+                self.data_df['Centroid_Z'].notna()
+            )
+            centroid_data = self.data_df[valid_mask]
+            
+            for _, row in centroid_data.iterrows():
+                color_name = row.get('Sphere')
+                if pd.isna(color_name):
+                    continue
+                color = self._get_color(str(color_name))
+                data_id = row.get('DataID')
+                if pd.notna(data_id) and str(data_id).strip():
+                    color_to_ids.setdefault(color, []).append(str(data_id).strip())
+        except Exception as e:
+            self.logger.error(f"Error getting color data IDs: {str(e)}")
+        return color_to_ids
     
     def _create_sphere_mesh(self, center: Tuple[float, float, float], radius: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
@@ -284,6 +319,85 @@ class SphereManager:
             
         except Exception as e:
             self.logger.error(f"Error rendering spheres: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    
+    def render_spheres_2d(self, ax_2d, plane: str) -> None:
+        """Render spheres as 2D circles projected onto the specified plane.
+        
+        Args:
+            ax_2d: A 2D matplotlib Axes to draw circles on
+            plane: Which plane to project onto - 'xy', 'xz', or 'yz'
+        """
+        try:
+            # Clear existing sphere objects (2D circles stored in same list)
+            self.clear_spheres()
+            
+            # Filter data to rows with valid centroid coordinates
+            valid_mask = (
+                self.data_df['Centroid_X'].notna() & 
+                self.data_df['Centroid_Y'].notna() & 
+                self.data_df['Centroid_Z'].notna()
+            )
+            centroid_data = self.data_df[valid_mask].copy()
+            
+            if len(centroid_data) == 0:
+                print("DEBUG: No valid centroid data for 2D sphere rendering")
+                return
+            
+            # Coordinate mapping for each plane
+            coord_map = {
+                'xy': ('Centroid_X', 'Centroid_Y'),
+                'xz': ('Centroid_X', 'Centroid_Z'),
+                'yz': ('Centroid_Y', 'Centroid_Z'),
+            }
+            
+            if plane not in coord_map:
+                print(f"DEBUG: Unknown plane '{plane}' for 2D sphere rendering")
+                return
+            
+            col_h, col_v = coord_map[plane]
+            
+            circle_count = 0
+            for idx, row in centroid_data.iterrows():
+                try:
+                    color_name = row.get('Sphere')
+                    color = self._get_color(str(color_name) if pd.notna(color_name) else 'gray')
+                    
+                    if not self.visibility_states.get(color, True):
+                        continue
+                    
+                    radius = row.get('Radius', self.DEFAULT_RADIUS)
+                    try:
+                        radius = float(radius)
+                        if not (radius > 0):
+                            radius = self.DEFAULT_RADIUS
+                    except (ValueError, TypeError):
+                        radius = self.DEFAULT_RADIUS
+                    
+                    cx = float(row[col_h])
+                    cy = float(row[col_v])
+                    
+                    circle = mpatches.Circle(
+                        (cx, cy), radius,
+                        facecolor=color,
+                        edgecolor=color,
+                        alpha=self.ALPHA * 2,  # Slightly more opaque in 2D for visibility
+                        linewidth=1.0,
+                        zorder=5
+                    )
+                    ax_2d.add_patch(circle)
+                    self.sphere_objects.append(circle)
+                    circle_count += 1
+                    
+                except Exception as e:
+                    self.logger.warning(f"Error rendering 2D circle at index {idx}: {str(e)}")
+                    continue
+            
+            print(f"DEBUG: Rendered {circle_count} 2D circles for plane {plane}")
+            
+        except Exception as e:
+            self.logger.error(f"Error rendering 2D spheres: {str(e)}")
             import traceback
             traceback.print_exc()
 
