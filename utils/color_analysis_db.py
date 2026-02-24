@@ -9,10 +9,63 @@ import os
 import sys
 import re
 import logging
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+
+def measurements_to_canvas_coordinates(measurements: List[dict]) -> List[dict]:
+    """Convert measurement dicts (from get_all_measurements) to canvas-marker-format dicts.
+    
+    This allows previously saved results to be used as sampling coordinates
+    for resampling on the same or a different image.
+    
+    Args:
+        measurements: List of measurement dictionaries from ColorAnalysisDB.get_all_measurements()
+        
+    Returns:
+        List of canvas-marker-format dicts compatible with
+        ColorAnalyzer.analyze_image_colors_from_canvas()
+    """
+    canvas_coords = []
+    
+    for m in measurements:
+        # Skip averaged measurements (coordinate_point == 999)
+        coord_point = m.get('coordinate_point', 0)
+        if coord_point == 999 or m.get('is_averaged', False):
+            continue
+        
+        # Parse sample_size string ("WxH" format, e.g. "20x20") into numeric values
+        sample_width = 20.0  # default
+        sample_height = 20.0  # default
+        sample_size_str = m.get('sample_size', '')
+        if sample_size_str and 'x' in str(sample_size_str):
+            try:
+                parts = str(sample_size_str).split('x')
+                sample_width = float(parts[0])
+                sample_height = float(parts[1])
+            except (ValueError, IndexError):
+                pass  # keep defaults
+        elif sample_size_str:
+            # Single number = diameter/size for both dimensions
+            try:
+                sample_width = sample_height = float(sample_size_str)
+            except ValueError:
+                pass
+        
+        canvas_marker = {
+            'index': coord_point,
+            'image_pos': (m.get('x_position', 0.0), m.get('y_position', 0.0)),
+            'sample_type': m.get('sample_type', 'circle') or 'circle',
+            'sample_width': sample_width,
+            'sample_height': sample_height,
+            'anchor': m.get('sample_anchor', 'center') or 'center',
+            'is_preview': False
+        }
+        canvas_coords.append(canvas_marker)
+    
+    return canvas_coords
 
 class ColorAnalysisDB:
     """Handle database operations for color analysis data."""

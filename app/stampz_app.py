@@ -300,7 +300,7 @@ class StampZApp:
         """Open the database viewer window."""
         try:
             from gui.database_viewer import DatabaseViewer
-            DatabaseViewer(parent=self.root)
+            DatabaseViewer(parent=self.root, app=self)
         except Exception as e:
             from tkinter import messagebox
             messagebox.showerror("Error", f"Failed to open database viewer:\\n\\n{str(e)}")

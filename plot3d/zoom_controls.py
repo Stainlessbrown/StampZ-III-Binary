@@ -278,53 +278,58 @@ class ZoomControls(tk.LabelFrame):
             if self.ax:
                 self.current_xlim = self.ax.get_xlim()
                 self.current_ylim = self.ax.get_ylim()
-                self.current_zlim = self.ax.get_zlim()
                 
-                # Calculate center points based on current limits and round to 2 decimal places
                 self.center_x.set(round((self.current_xlim[0] + self.current_xlim[1]) / 2, 2))
                 self.center_y.set(round((self.current_ylim[0] + self.current_ylim[1]) / 2, 2))
-                self.center_z.set(round((self.current_zlim[0] + self.current_zlim[1]) / 2, 2))
+                
+                if not self._is_2d_axes():
+                    self.current_zlim = self.ax.get_zlim()
+                    self.center_z.set(round((self.current_zlim[0] + self.current_zlim[1]) / 2, 2))
+                else:
+                    # In 2D mode, z-limits are not applicable
+                    self.current_zlim = None
         except Exception as e:
             print(f"Warning: Could not update current limits: {e}")
     
     def set_center_to_current(self):
         """Set the center point to the current view center."""
         try:
-            # Get current limits directly from axes
             if self.ax is None:
                 messagebox.showerror("Error", "No axes available.")
                 return
-                
+            
+            is_2d = self._is_2d_axes()
             xlim = self.ax.get_xlim()
             ylim = self.ax.get_ylim()
-            zlim = self.ax.get_zlim()
             
-            # Verify limits are valid
-            if (xlim[0] >= xlim[1] or ylim[0] >= ylim[1] or zlim[0] >= zlim[1]):
+            if xlim[0] >= xlim[1] or ylim[0] >= ylim[1]:
                 messagebox.showerror("Invalid Limits", "Axis limits are invalid.")
                 return
-                
-            # Calculate center points exactly and round to 2 decimal places
+            
             x_center = round((xlim[0] + xlim[1]) / 2, 2)
             y_center = round((ylim[0] + ylim[1]) / 2, 2)
-            z_center = round((zlim[0] + zlim[1]) / 2, 2)
-            
-            # Set the center points
             self.center_x.set(x_center)
             self.center_y.set(y_center)
-            self.center_z.set(z_center)
-            
-            # Update stored limits
             self.current_xlim = xlim
             self.current_ylim = ylim
-            self.current_zlim = zlim
             
-            messagebox.showinfo("Center Updated", 
-                              f"Zoom center updated to current view center:\n"
-                              f"X={self.center_x.get():.2f}, Y={self.center_y.get():.2f}, Z={self.center_z.get():.2f}")
+            if not is_2d:
+                zlim = self.ax.get_zlim()
+                if zlim[0] >= zlim[1]:
+                    messagebox.showerror("Invalid Limits", "Z-axis limits are invalid.")
+                    return
+                z_center = round((zlim[0] + zlim[1]) / 2, 2)
+                self.center_z.set(z_center)
+                self.current_zlim = zlim
+                msg = f"X={x_center:.2f}, Y={y_center:.2f}, Z={z_center:.2f}"
+            else:
+                self.current_zlim = None
+                msg = f"X={x_center:.2f}, Y={y_center:.2f}"
+            
+            messagebox.showinfo("Center Updated", f"Zoom center updated to:\n{msg}")
         except Exception as e:
             print(f"Error setting center point: {e}")
-            self.update_current_limits()  # Fallback to standard method
+            self.update_current_limits()
     
     def apply_zoom(self, factor=None):
         """
@@ -335,6 +340,8 @@ class ZoomControls(tk.LabelFrame):
                    If None, use the value from the zoom_factor entry.
         """
         try:
+            is_2d = self._is_2d_axes()
+            
             # If no factor provided, use the one from the entry field
             if factor is None:
                 try:
@@ -347,41 +354,46 @@ class ZoomControls(tk.LabelFrame):
                     return
             
             # Make sure we have current limits
-            if not all([self.current_xlim, self.current_ylim, self.current_zlim]):
+            has_limits = self.current_xlim and self.current_ylim
+            if not is_2d:
+                has_limits = has_limits and self.current_zlim
+            if not has_limits:
                 self.update_current_limits()
             
             # Get center point with validation
             try:
                 center_x = self.center_x.get()
                 center_y = self.center_y.get()
-                center_z = self.center_z.get()
                 
-                # Validate coordinates
                 if not (self._is_valid_coordinate(center_x) and 
-                        self._is_valid_coordinate(center_y) and 
-                        self._is_valid_coordinate(center_z)):
+                        self._is_valid_coordinate(center_y)):
                     messagebox.showerror("Invalid Center", 
                                        "Zoom center coordinates must be valid numbers.")
                     return
+                
+                if not is_2d:
+                    center_z = self.center_z.get()
+                    if not self._is_valid_coordinate(center_z):
+                        messagebox.showerror("Invalid Center", 
+                                           "Zoom center coordinates must be valid numbers.")
+                        return
             except (ValueError, tk.TclError):
                 messagebox.showerror("Invalid Center", 
                                    "Zoom center coordinates must be valid numbers.")
                 return
             
-            # Calculate new limits
+            # Calculate and apply new limits
             new_xlim = self._calculate_new_limits(self.current_xlim, center_x, factor)
             new_ylim = self._calculate_new_limits(self.current_ylim, center_y, factor)
-            new_zlim = self._calculate_new_limits(self.current_zlim, center_z, factor)
-            
-            # Apply the new limits
             self.ax.set_xlim(new_xlim)
             self.ax.set_ylim(new_ylim)
-            self.ax.set_zlim(new_zlim)
-            
-            # Update current limits
             self.current_xlim = new_xlim
             self.current_ylim = new_ylim
-            self.current_zlim = new_zlim
+            
+            if not is_2d and self.current_zlim:
+                new_zlim = self._calculate_new_limits(self.current_zlim, center_z, factor)
+                self.ax.set_zlim(new_zlim)
+                self.current_zlim = new_zlim
             
             # Redraw
             self.canvas.draw_idle()
@@ -428,9 +440,13 @@ class ZoomControls(tk.LabelFrame):
             factor: Zoom factor (>1 for zoom in, <1 for zoom out)
         """
         try:
+            # In 2D mode, z-axis zoom is not applicable
+            if axis == 'z' and self._is_2d_axes():
+                print("Z-axis zoom not applicable in 2D mode")
+                return
+            
             # Make sure we have current limits
-            if not all([self.current_xlim, self.current_ylim, self.current_zlim]):
-                self.update_current_limits()
+            self.update_current_limits()
             
             # Get center point for the specified axis
             if axis == 'x':
@@ -466,20 +482,24 @@ class ZoomControls(tk.LabelFrame):
     def reset_zoom(self):
         """Reset zoom to default state (0-1 range on all axes)."""
         try:
+            is_2d = self._is_2d_axes()
+            
             # Set default limits
             self.ax.set_xlim([0.0, 1.0])
             self.ax.set_ylim([0.0, 1.0])
-            self.ax.set_zlim([0.0, 1.0])
+            if not is_2d:
+                self.ax.set_zlim([0.0, 1.0])
             
             # Update current limits
             self.current_xlim = (0.0, 1.0)
             self.current_ylim = (0.0, 1.0)
-            self.current_zlim = (0.0, 1.0)
+            self.current_zlim = (0.0, 1.0) if not is_2d else None
             
             # Update center point
             self.center_x.set(0.5)
             self.center_y.set(0.5)
-            self.center_z.set(0.5)
+            if not is_2d:
+                self.center_z.set(0.5)
             
             # Redraw
             self.canvas.draw_idle()
@@ -503,10 +523,10 @@ class ZoomControls(tk.LabelFrame):
                 return  # User cancelled
             
             # Make sure we have current limits
-            if not all([self.current_xlim, self.current_ylim, self.current_zlim]):
-                self.update_current_limits()
+            self.update_current_limits()
             
-            # Get current rotation angles from axes
+            # Get current rotation angles from axes (3D only)
+            is_2d = self._is_2d_axes()
             try:
                 elev = self.ax.elev if hasattr(self.ax, 'elev') else 30
                 azim = self.ax.azim if hasattr(self.ax, 'azim') else -60
@@ -594,12 +614,16 @@ class ZoomControls(tk.LabelFrame):
             # Important: First update internal limits
             self.current_xlim = state['xlim'] 
             self.current_ylim = state['ylim']
-            self.current_zlim = state['zlim']
             
             # Then apply the saved limits to the axes
             self.ax.set_xlim(state['xlim'])
             self.ax.set_ylim(state['ylim'])
-            self.ax.set_zlim(state['zlim'])
+            
+            if not self._is_2d_axes() and state.get('zlim'):
+                self.current_zlim = state['zlim']
+                self.ax.set_zlim(state['zlim'])
+            else:
+                self.current_zlim = None
             
             # Update center point with validation
             try:
@@ -726,6 +750,10 @@ Tips:
 """
         messagebox.showinfo("Zoom Controls Help", help_text)
         
+    def _is_2d_axes(self):
+        """Check whether the current axes is a 2D (non-3D) matplotlib axes."""
+        return self.ax is not None and not hasattr(self.ax, 'get_zlim')
+
     def update_axes_reference(self, ax):
         """Update the axes reference when the plot is recreated."""
         if ax is not self.ax:
@@ -782,7 +810,7 @@ Tips:
             if ylim:
                 self.ax.set_ylim(ylim)
                 self.current_ylim = ylim
-            if zlim:
+            if zlim and not self._is_2d_axes():
                 self.ax.set_zlim(zlim)
                 self.current_zlim = zlim
                 

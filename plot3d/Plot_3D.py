@@ -1543,6 +1543,60 @@ class Plot3DApp:
             except Exception as e:
                 print(f"Error plotting 2D cubic: {e}")
         
+        # --- Exponential curve (projected from 3D) --------------------------------
+        if self.show_exponential.get():
+            try:
+                valid_df = self.df[self.df['trendline_valid']].copy()
+                if len(valid_df) > 3:
+                    self.trendline_manager.calculate_exponential_curve(valid_df)
+                    curve_pts = self.trendline_manager.get_exponential_curve_points(
+                        valid_df, num_points=100
+                    )
+                    if curve_pts is not None:
+                        # Map 3D curve coordinates to the chosen 2D plane
+                        col_map = {'Xnorm': curve_pts['x'],
+                                   'Ynorm': curve_pts['y'],
+                                   'Znorm': curve_pts['z']}
+                        h_curve = col_map[cfg['h_col']]
+                        v_curve = col_map[cfg['v_col']]
+                        ax.plot(h_curve, v_curve,
+                                color=self.trendline_manager.get_exponential_color(),
+                                linewidth=2.0, alpha=0.9, zorder=35,
+                                label='Exponential Curve')
+                        # Equation text
+                        if self.trendline_manager.exponential_params:
+                            ctype = self.trendline_manager.exponential_params.get('type', '')
+                            if ctype == 'power_law':
+                                a = self.trendline_manager.exponential_params.get('a', 0)
+                                b = self.trendline_manager.exponential_params.get('b', 0)
+                                eq_text = f"Exp: z ≈ {a:.3f}·d^{b:.3f}"
+                            else:
+                                eq_text = f"Exp: {ctype}"
+                            ax.text(0.05, 0.71, eq_text, transform=ax.transAxes,
+                                    fontsize=9,
+                                    color=self.trendline_manager.get_exponential_color(),
+                                    bbox=dict(facecolor='white', alpha=0.7))
+            except Exception as e:
+                print(f"Error plotting 2D exponential curve: {e}")
+        
+        # --- DataID labels --------------------------------------------------------
+        if self.show_data_ids.get():
+            try:
+                for idx, row in visible_df.iterrows():
+                    data_id = row.get('DataID', '')
+                    if data_id:
+                        ax.annotate(
+                            str(data_id),
+                            (row[h_col], row[v_col]),
+                            textcoords='offset points',
+                            xytext=(4, 4),
+                            fontsize=7,
+                            alpha=0.85,
+                            zorder=50
+                        )
+            except Exception as e:
+                print(f"Error plotting DataID labels: {e}")
+        
         # --- Apply tick visibility from axis controls -----------------------------
         if hasattr(self, 'axis_controls'):
             try:
@@ -1554,6 +1608,8 @@ class Plot3DApp:
                 pass
         
         # --- Update managers ------------------------------------------------------
+        if hasattr(self, 'zoom_controls') and self.zoom_controls:
+            self.zoom_controls.update_axes_reference(ax)
         if self.highlight_manager:
             self.highlight_manager.update_references(ax, self.df, self.use_rgb)
         if hasattr(self, 'group_display_manager') and self.group_display_manager:
@@ -1590,6 +1646,9 @@ class Plot3DApp:
         self.show_polynomial = tk.BooleanVar(value=False)
         self.show_cubic = tk.BooleanVar(value=False)
         self.show_exponential = tk.BooleanVar(value=False)
+        
+        # DataID labels toggle (most useful in 2D mode)
+        self.show_data_ids = tk.BooleanVar(value=False)
         
         # Initialize color-filtered trend line variables
         self.show_red_trendline = tk.BooleanVar(value=False)
@@ -1913,6 +1972,7 @@ class Plot3DApp:
             self.canvas,
             self.df,
             self.use_rgb,
+            rotation_controls=self.rotation_controls,
         )
 
         # Create group display / K-means section in a collapsible section
@@ -1995,6 +2055,14 @@ class Plot3DApp:
             variable=self.show_exponential,
             command=self.refresh_plot
         ).grid(row=3, column=0, columnspan=2, sticky='w', padx=5, pady=5)
+
+        # Add DataID labels toggle (especially useful in 2D views)
+        ttk.Checkbutton(
+            self.trendline_frame,
+            text="Show DataID Labels",
+            variable=self.show_data_ids,
+            command=self.refresh_plot
+        ).grid(row=4, column=0, columnspan=2, sticky='w', padx=5, pady=5)
 
         # Create ΔE Analysis section in a collapsible section
         delta_e_section = CollapsibleSection(self.control_frame, "🔬 ΔE Analysis", expanded=False)

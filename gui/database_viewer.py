@@ -13,13 +13,15 @@ from datetime import datetime
 class DatabaseViewer:
     """GUI for viewing and managing color analysis database entries."""
     
-    def __init__(self, parent: tk.Tk):
-        # Store parent reference
+    def __init__(self, parent: tk.Tk, app=None):
+        # Store parent and app references
         self.parent = parent
+        self.app = app  # Reference to StampZApp for current image access
         """Initialize the database viewer window.
         
         Args:
             parent: Parent tkinter window
+            app: Optional reference to the StampZApp instance
         """
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("StampZ Database Viewer")
@@ -136,6 +138,8 @@ class DatabaseViewer:
         ttk.Button(controls_frame, text="Clear All", command=self._clear_all_data).pack(side=tk.LEFT, padx=5)
         ttk.Button(controls_frame, text="Delete Database", command=self._delete_sample_set).pack(side=tk.LEFT, padx=5)
         ttk.Button(controls_frame, text="Manage Templates", command=self._open_template_manager).pack(side=tk.LEFT, padx=5)
+        self.resample_btn = ttk.Button(controls_frame, text="Resample...", command=self._resample_measurements)
+        self.resample_btn.pack(side=tk.LEFT, padx=5)
         
         # Create treeview with scrollbars
         tree_frame = ttk.Frame(main_frame)
@@ -256,10 +260,12 @@ class DatabaseViewer:
             self.tree.heading("image_name", text="Color Name")
             self.tree.heading("measurement_date", text="")
             self.tree.heading("point", text="")
+            self.resample_btn.configure(state="disabled")
         else:
             self.tree.heading("image_name", text="Image")
             self.tree.heading("measurement_date", text="Date/Time")
             self.tree.heading("point", text="Point")
+            self.resample_btn.configure(state="normal")
     
     def _on_sample_set_changed(self, event):
         """Handle database selection change."""
@@ -1611,3 +1617,411 @@ class DatabaseViewer:
         ttk.Button(button_frame, text="Apply", command=apply_visibility).pack(side=tk.RIGHT, padx=(5, 0))
         ttk.Button(button_frame, text="Reset to Defaults", command=reset_defaults).pack(side=tk.RIGHT, padx=5)
         ttk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT, padx=5)
+    
+    def _resample_measurements(self):
+        """Resample the current sample set's coordinates on a target image.
+        
+        Reads sample points for a specific measurement set (by set_id/image),
+        converts their stored positions into sampling coordinates, and re-runs
+        color analysis at those exact positions on a user-chosen image.
+        """
+        if not self.current_sample_set:
+            messagebox.showinfo("No Database Selected", "Please select a sample set database first.")
+            return
+        
+        if self.data_source.get() != "color_analysis":
+            messagebox.showinfo("Not Supported", "Resample is only available for Color Analysis databases.")
+            return
+        
+        try:
+            from utils.color_analysis_db import ColorAnalysisDB, measurements_to_canvas_coordinates
+            import sqlite3
+            
+            # Load all measurements and group by set_id
+            db = ColorAnalysisDB(self.current_sample_set)
+            all_measurements = db.get_all_measurements()
+            
+            if not all_measurements:
+                messagebox.showinfo("No Data", "No measurements found in the selected database.")
+                return
+            
+            # Group measurements by set_id, collecting image_name for display
+            sets_by_id = {}  # set_id -> {'image_name': str, 'measurements': list}
+            for m in all_measurements:
+                sid = m.get('set_id')
+                if sid not in sets_by_id:
+                    sets_by_id[sid] = {
+                        'image_name': m.get('image_name', f'Set {sid}'),
+                        'measurements': []
+                    }
+                sets_by_id[sid]['measurements'].append(m)
+            
+            # Build list of choices: "image_name (N points)" for each set_id
+            set_choices = []  # list of (set_id, display_label, measurements)
+            for sid, info in sorted(sets_by_id.items()):
+                coords = measurements_to_canvas_coordinates(info['measurements'])
+                if coords:  # only include sets that have resample-able points
+                    label = f"{info['image_name']}  ({len(coords)} points, set {sid})"
+                    set_choices.append((sid, label, coords))
+            
+            if not set_choices:
+                messagebox.showinfo("No Sample Points",
+                    "No individual sample points found to resample.\n"
+                    "(Averaged measurements cannot be resampled.)")
+                return
+            
+            # If only one set, skip the picker
+            if len(set_choices) == 1:
+                self._show_resample_dialog(set_choices[0][2], set_choices[0][1])
+                return
+            
+            # Multiple sets: show a picker dialog first
+            self._show_set_picker_dialog(set_choices)
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to prepare resample:\n\n{str(e)}")
+    
+    def _show_set_picker_dialog(self, set_choices: list):
+        """Show a dialog to pick which measurement set (image) to resample from.
+        
+        Args:
+            set_choices: List of (set_id, display_label, canvas_coords) tuples
+        """
+        dialog = tk.Toplevel(self.dialog)
+        dialog.title("Select Measurement Set")
+        
+        import sys
+        if sys.platform != 'darwin':
+            dialog.transient(self.dialog)
+            dialog.grab_set()
+        
+        dialog.update_idletasks()
+        dialog_width = 450
+        dialog_height = 300
+        parent_x = self.dialog.winfo_x()
+        parent_y = self.dialog.winfo_y()
+        parent_w = self.dialog.winfo_width()
+        parent_h = self.dialog.winfo_height()
+        x = parent_x + (parent_w - dialog_width) // 2
+        y = parent_y + (parent_h - dialog_height) // 2
+        dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
+        dialog.resizable(False, False)
+        
+        main_frame = ttk.Frame(dialog, padding=15)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(main_frame, text="Select which measurement set to resample from:",
+                  font=("Arial", 11)).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Listbox with scrollbar
+        list_frame = ttk.Frame(main_frame)
+        list_frame.pack(fill=tk.BOTH, expand=True)
+        
+        listbox = tk.Listbox(list_frame, font=("Arial", 11), selectmode=tk.SINGLE)
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=listbox.yview)
+        listbox.configure(yscrollcommand=scrollbar.set)
+        listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        for _, label, _ in set_choices:
+            listbox.insert(tk.END, label)
+        listbox.selection_set(0)
+        
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        def on_select():
+            sel = listbox.curselection()
+            if not sel:
+                messagebox.showwarning("No Selection", "Please select a measurement set.", parent=dialog)
+                return
+            _, label, coords = set_choices[sel[0]]
+            dialog.destroy()
+            self._show_resample_dialog(coords, label)
+        
+        ttk.Button(btn_frame, text="Next", command=on_select).pack(side=tk.RIGHT, padx=(5, 0))
+        ttk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT)
+        
+        listbox.bind('<Double-1>', lambda e: on_select())
+    
+    def _show_resample_dialog(self, canvas_coords: list, source_label: str = ""):
+        """Show dialog to configure and execute resampling.
+        
+        Args:
+            canvas_coords: List of canvas-marker-format dicts
+            source_label: Display label for the source measurement set
+        """
+        from PIL import Image, ImageTk, ImageDraw, ImageFont
+        
+        dialog = tk.Toplevel(self.dialog)
+        dialog.title("Resample from Results")
+        
+        # Don't use transient on macOS to allow free movement
+        import sys
+        if sys.platform != 'darwin':
+            dialog.transient(self.dialog)
+            dialog.grab_set()
+        
+        # Center relative to database viewer
+        dialog.update_idletasks()
+        dialog_width = 900
+        dialog_height = 700
+        parent_x = self.dialog.winfo_x()
+        parent_y = self.dialog.winfo_y()
+        parent_w = self.dialog.winfo_width()
+        parent_h = self.dialog.winfo_height()
+        x = parent_x + (parent_w - dialog_width) // 2
+        y = parent_y + (parent_h - dialog_height) // 2
+        dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
+        dialog.resizable(True, True)
+        
+        main_frame = ttk.Frame(dialog, padding=15)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Title
+        ttk.Label(main_frame, text="Resample from Results",
+                  font=("Arial", 13, "bold")).pack(anchor=tk.W, pady=(0, 5))
+        
+        # Source info
+        source_text = source_label or self.current_sample_set
+        ttk.Label(main_frame,
+                  text=f"Source: {source_text}\n"
+                       f"Sample points to resample: {len(canvas_coords)}",
+                  font=("Arial", 10)).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Target image selection
+        image_frame = ttk.LabelFrame(main_frame, text="Target Image", padding=8)
+        image_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        image_choice = tk.StringVar(value="choose")
+        image_path_var = tk.StringVar()
+        
+        # Check if app has a current image loaded
+        current_image_path = None
+        if self.app and hasattr(self.app, 'current_file') and self.app.current_file:
+            current_image_path = self.app.current_file
+            image_choice.set("current")
+        
+        current_rb = ttk.Radiobutton(image_frame, text="Use current image",
+                                      variable=image_choice, value="current")
+        current_rb.pack(anchor=tk.W)
+        if current_image_path:
+            ttk.Label(image_frame, text=f"  ({os.path.basename(current_image_path)})",
+                      font=("Arial", 9), foreground="gray").pack(anchor=tk.W)
+        else:
+            current_rb.configure(state="disabled")
+            ttk.Label(image_frame, text="  (no image loaded)",
+                      font=("Arial", 9), foreground="gray").pack(anchor=tk.W)
+        
+        choose_frame = ttk.Frame(image_frame)
+        choose_frame.pack(fill=tk.X, pady=(5, 0))
+        ttk.Radiobutton(choose_frame, text="Choose image file:",
+                        variable=image_choice, value="choose").pack(side=tk.LEFT)
+        
+        path_entry = ttk.Entry(choose_frame, textvariable=image_path_var, width=30)
+        path_entry.pack(side=tk.LEFT, padx=(5, 5), fill=tk.X, expand=True)
+        
+        # Image preview area
+        preview_frame = ttk.LabelFrame(main_frame, text="Image Preview", padding=4)
+        preview_frame.pack(fill=tk.BOTH, expand=True, pady=(5, 5))
+        
+        preview_label = ttk.Label(preview_frame, text="No image selected",
+                                   anchor=tk.CENTER)
+        preview_label.pack(fill=tk.BOTH, expand=True)
+        
+        # Keep reference to prevent garbage collection
+        dialog._preview_photo = None
+        
+        def update_preview(image_path):
+            """Update the image preview with sample marker overlays."""
+            try:
+                if not image_path or not os.path.exists(image_path):
+                    preview_label.configure(image='', text="No image selected")
+                    dialog._preview_photo = None
+                    return
+                
+                img = Image.open(image_path).convert('RGB')
+                orig_w, orig_h = img.size
+                
+                # Calculate scale to fit preview area
+                max_w, max_h = 860, 380
+                scale = min(max_w / orig_w, max_h / orig_h, 1.0)
+                thumb_w = int(orig_w * scale)
+                thumb_h = int(orig_h * scale)
+                img = img.resize((thumb_w, thumb_h), Image.LANCZOS)
+                
+                # Draw markers on the thumbnail with enforced minimum sizes
+                draw = ImageDraw.Draw(img)
+                marker_color = '#CC0000'  # Red for high visibility
+                line_w = 2  # Fixed line width for clarity
+                min_marker_size = 14  # Minimum marker radius/half-size in preview pixels
+                cross_size = 10  # Fixed crosshair arm length in preview pixels
+                
+                # Load font once
+                try:
+                    font = ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 13)
+                except Exception:
+                    font = ImageFont.load_default()
+                
+                for marker in canvas_coords:
+                    mx, my = marker['image_pos']
+                    sample_type = marker.get('sample_type', 'circle')
+                    sw = marker.get('sample_width', 20)
+                    sh = marker.get('sample_height', 20)
+                    anchor = marker.get('anchor', 'center')
+                    idx = marker.get('index', '')
+                    
+                    if sample_type == 'circle':
+                        sh = sw
+                    
+                    # Convert mathematical coords (y=0 bottom) to PIL (y=0 top), then scale
+                    px = mx * scale
+                    py = (orig_h - my) * scale
+                    
+                    # Scale sample size but enforce minimum visible size
+                    psw = max(sw * scale, min_marker_size * 2)
+                    psh = max(sh * scale, min_marker_size * 2)
+                    
+                    # Calculate bounds based on anchor
+                    if anchor == 'center':
+                        x1, y1 = px - psw / 2, py - psh / 2
+                        x2, y2 = px + psw / 2, py + psh / 2
+                    elif anchor == 'top_left':
+                        x1, y1 = px, py
+                        x2, y2 = px + psw, py + psh
+                    elif anchor == 'top_right':
+                        x1, y1 = px - psw, py
+                        x2, y2 = px, py + psh
+                    elif anchor == 'bottom_left':
+                        x1, y1 = px, py - psh
+                        x2, y2 = px + psw, py
+                    else:  # bottom_right
+                        x1, y1 = px - psw, py - psh
+                        x2, y2 = px, py
+                    
+                    # Draw shape outline
+                    if sample_type == 'circle':
+                        r = psw / 2
+                        draw.ellipse([px - r, py - r, px + r, py + r],
+                                     outline=marker_color, width=line_w)
+                    else:
+                        draw.rectangle([x1, y1, x2, y2],
+                                       outline=marker_color, width=line_w)
+                    
+                    # Draw crosshair at center
+                    draw.line([px - cross_size, py, px + cross_size, py],
+                              fill=marker_color, width=line_w)
+                    draw.line([px, py - cross_size, px, py + cross_size],
+                              fill=marker_color, width=line_w)
+                    
+                    # Draw sample number
+                    draw.text((px + cross_size + 3, py - cross_size - 3), str(idx),
+                              fill=marker_color, font=font, anchor='lb')
+                
+                photo = ImageTk.PhotoImage(img)
+                dialog._preview_photo = photo
+                preview_label.configure(image=photo, text="")
+            except Exception as e:
+                preview_label.configure(image='', text=f"Cannot preview: {e}")
+                dialog._preview_photo = None
+        
+        def browse_image():
+            filepath = filedialog.askopenfilename(
+                title="Select Image for Resampling",
+                filetypes=[
+                    ('Image files', '*.png *.jpg *.jpeg *.tif *.tiff *.bmp'),
+                    ('All files', '*.*')
+                ]
+            )
+            if filepath:
+                image_path_var.set(filepath)
+                image_choice.set("choose")
+                update_preview(filepath)
+        
+        ttk.Button(choose_frame, text="Browse...", command=browse_image).pack(side=tk.LEFT)
+        
+        # Show initial preview if current image is available
+        if current_image_path:
+            update_preview(current_image_path)
+        
+        # Update preview when radio selection changes
+        def on_image_choice_changed(*args):
+            if image_choice.get() == "current" and current_image_path:
+                update_preview(current_image_path)
+            elif image_choice.get() == "choose" and image_path_var.get().strip():
+                update_preview(image_path_var.get().strip())
+        
+        image_choice.trace_add('write', on_image_choice_changed)
+        
+        # Target database name
+        db_frame = ttk.LabelFrame(main_frame, text="Save Results To", padding=8)
+        db_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        db_name_var = tk.StringVar(value=self.current_sample_set)
+        ttk.Label(db_frame, text="Database name:").pack(side=tk.LEFT)
+        ttk.Entry(db_frame, textvariable=db_name_var, width=30).pack(side=tk.LEFT, padx=(5, 0), fill=tk.X, expand=True)
+        
+        # Note about alignment
+        ttk.Label(main_frame,
+                  text="Note: Coordinates assume the same image framing and resolution\n"
+                       "as the original. Use alignment tools if images differ.",
+                  font=("Arial", 9), foreground="gray").pack(anchor=tk.W, pady=(0, 3))
+        
+        # Buttons
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.pack(fill=tk.X, pady=(3, 0))
+        
+        def do_resample():
+            # Determine target image path
+            if image_choice.get() == "current" and current_image_path:
+                target_path = current_image_path
+            elif image_choice.get() == "choose" and image_path_var.get().strip():
+                target_path = image_path_var.get().strip()
+            else:
+                messagebox.showwarning("No Image", "Please select a target image.", parent=dialog)
+                return
+            
+            if not os.path.exists(target_path):
+                messagebox.showerror("File Not Found", f"Image not found:\n{target_path}", parent=dialog)
+                return
+            
+            target_db = db_name_var.get().strip()
+            if not target_db:
+                messagebox.showwarning("No Database Name", "Please enter a database name.", parent=dialog)
+                return
+            
+            # Execute resampling
+            try:
+                from utils.color_analyzer import ColorAnalyzer
+                analyzer = ColorAnalyzer()
+                
+                results = analyzer.resample_from_measurements(
+                    image_path=target_path,
+                    canvas_coordinates=canvas_coords,
+                    target_sample_set=target_db,
+                    source_sample_set=self.current_sample_set
+                )
+                
+                if results:
+                    dialog.destroy()
+                    messagebox.showinfo(
+                        "Resample Complete",
+                        f"Successfully resampled {len(results)} points\n"
+                        f"from: {os.path.basename(target_path)}\n"
+                        f"saved to: {target_db}.db"
+                    )
+                    # Refresh if we saved to the current sample set
+                    if target_db == self.current_sample_set:
+                        self._refresh_data()
+                else:
+                    messagebox.showerror(
+                        "Resample Failed",
+                        "No measurements could be obtained. Check that the image\n"
+                        "is compatible with the stored sample positions.",
+                        parent=dialog
+                    )
+            except Exception as e:
+                messagebox.showerror("Resample Error", f"Failed to resample:\n\n{str(e)}", parent=dialog)
+        
+        ttk.Button(btn_frame, text="Resample", command=do_resample).pack(side=tk.RIGHT, padx=(5, 0))
+        ttk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT)

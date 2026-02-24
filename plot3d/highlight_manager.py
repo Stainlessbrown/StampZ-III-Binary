@@ -144,6 +144,30 @@ class HighlightManager:
             print(f"Error creating controls: {str(e)}")
             import traceback
             traceback.print_exc()
+    def _is_inplace_2d_mode(self):
+        """Check if the main plot is in the in-place 2D rendering mode.
+        
+        This is different from the orphan 2D window (self.view_2d_mode).
+        In-place 2D mode is controlled by rotation_controls.use_2d_view
+        and rotation_controls.current_plane.
+        """
+        try:
+            if (self.rotation_controls is not None and
+                self.rotation_controls.use_2d_view.get() and
+                self.rotation_controls.current_plane is not None):
+                return True
+        except Exception:
+            pass
+        return False
+
+    def _get_current_plane(self):
+        """Get the current 2D plane, checking both in-place and orphan modes."""
+        if self._is_inplace_2d_mode():
+            return self.rotation_controls.current_plane
+        if self.view_2d_mode.get() and self.current_2d_view:
+            return self.current_2d_view
+        return None
+
     def _setup_click_detection(self):
         """Set up comprehensive click detection for both 3D and 2D modes"""
         try:
@@ -178,13 +202,14 @@ class HighlightManager:
         if event.button != 1:
             return
             
+        current_plane = self._get_current_plane()
         print(f"DEBUG: Button press detected at ({event.xdata}, {event.ydata})")
-        print(f"DEBUG: Current 2D view: {self.current_2d_view}")
-        print(f"DEBUG: In 2D mode: {self.view_2d_mode.get()}")
+        print(f"DEBUG: Current plane: {current_plane}")
+        print(f"DEBUG: In-place 2D: {self._is_inplace_2d_mode()}, Orphan 2D: {self.view_2d_mode.get()}")
         
         try:
-            # If we're in 2D view mode, try direct coordinate-based selection
-            if self.view_2d_mode.get() and self.current_2d_view:
+            # If we're in any 2D view mode, try direct coordinate-based selection
+            if current_plane is not None:
                 closest_idx = self._find_closest_point_2d(event)
                 if closest_idx is not None:
                     print(f"DEBUG: Found closest point via direct click: {closest_idx}")
@@ -200,8 +225,12 @@ class HighlightManager:
             traceback.print_exc()
     
     def _find_closest_point_2d(self, event):
-        """Find closest point in 2D view using matplotlib's 3D-to-2D projection"""
-        if not self.current_2d_view or event.xdata is None or event.ydata is None:
+        """Find closest point in 2D view using direct coordinate comparison.
+        
+        Works with both the orphan 2D window and the in-place 2D rendering.
+        """
+        current_plane = self._get_current_plane()
+        if not current_plane or event.xdata is None or event.ydata is None:
             return None
         
         try:
@@ -229,69 +258,57 @@ class HighlightManager:
             
             print(f"DEBUG: First few 3D points: {points_3d[:3]}")
             
-            # Project 3D points to 2D screen coordinates using matplotlib's transform
+            # Use direct coordinate comparison based on current plane
+            if current_plane == 'xy':
+                data_x = valid_data['Xnorm'].values
+                data_y = valid_data['Ynorm'].values
+            elif current_plane == 'xz':
+                data_x = valid_data['Xnorm'].values
+                data_y = valid_data['Znorm'].values
+            elif current_plane == 'yz':
+                data_x = valid_data['Ynorm'].values
+                data_y = valid_data['Znorm'].values
+            else:
+                return None
+            
+            print(f"DEBUG: Comparing click ({click_x:.4f}, {click_y:.4f}) against {len(data_x)} points")
+            
+            # First try screen-space distance for accuracy
             try:
-                # Use the axes' 3D projection to convert to 2D screen coords
-                points_2d = self.ax.transData.transform(points_3d)
+                # Transform data points and click to display (pixel) coordinates
+                pts_display = self.ax.transData.transform(
+                    np.column_stack([data_x, data_y])
+                )
+                click_display = self.ax.transData.transform([[click_x, click_y]])[0]
+                distances = np.sqrt(np.sum((pts_display - click_display) ** 2, axis=1))
                 
-                # Get click position in screen coordinates
-                click_screen = self.ax.transData.transform([(click_x, click_y, 0)])[0][:2]
-                
-                print(f"DEBUG: Click screen coords: {click_screen}")
-                print(f"DEBUG: First few projected points: {points_2d[:3, :2]}")
-                
-                # Calculate distances in screen space (pixels)
-                distances = np.sqrt(np.sum((points_2d[:, :2] - click_screen) ** 2, axis=1))
-                
-                # Find closest point within pixel tolerance
-                pixel_tolerance = 20  # pixels
+                pixel_tolerance = 20
                 min_idx = np.argmin(distances)
                 min_distance = distances[min_idx]
                 
-                print(f"DEBUG: Closest point distance: {min_distance:.2f} pixels (tolerance: {pixel_tolerance})")
+                print(f"DEBUG: Screen-space closest: {min_distance:.1f} px (tol {pixel_tolerance})")
                 
                 if min_distance <= pixel_tolerance:
-                    # Get the original DataFrame index
                     df_idx = valid_data.index[min_idx]
                     data_id = valid_data.iloc[min_idx].get('DataID', f'Point_{df_idx + 1}')
-                    print(f"DEBUG: Found point {data_id} at distance {min_distance:.2f} pixels")
+                    print(f"DEBUG: Found point {data_id}")
                     return df_idx
-                
-            except Exception as proj_error:
-                print(f"DEBUG: 3D projection failed: {proj_error}")
-                
-                # Fallback: Use data coordinates directly based on current view
-                print("DEBUG: Falling back to direct coordinate comparison")
-                
-                if self.current_2d_view == 'xy':  # L*a* or R/G view (top view)
-                    data_x = valid_data['Xnorm'].values  # L* or R
-                    data_y = valid_data['Ynorm'].values  # a* or G
-                elif self.current_2d_view == 'xz':  # L*b* or R/B view (front view)
-                    data_x = valid_data['Xnorm'].values  # L* or R
-                    data_y = valid_data['Znorm'].values  # b* or B
-                elif self.current_2d_view == 'yz':  # a*b* or G/B view (side view)
-                    data_x = valid_data['Ynorm'].values  # a* or G
-                    data_y = valid_data['Znorm'].values  # b* or B
-                else:
-                    return None
-                
-                print(f"DEBUG: First few data coords: X={data_x[:3]}, Y={data_y[:3]}")
-                
-                # Calculate 2D distances in data space
-                distances = np.sqrt((data_x - click_x) ** 2 + (data_y - click_y) ** 2)
-                
-                # Find closest point within tolerance
-                tolerance = 0.05  # Larger tolerance for data coordinates
-                min_idx = np.argmin(distances)
-                min_distance = distances[min_idx]
-                
-                print(f"DEBUG: Fallback - Closest point distance: {min_distance:.4f} (tolerance: {tolerance})")
-                
-                if min_distance <= tolerance:
-                    df_idx = valid_data.index[min_idx]
-                    data_id = valid_data.iloc[min_idx].get('DataID', f'Point_{df_idx + 1}')
-                    print(f"DEBUG: Fallback - Found point {data_id} at distance {min_distance:.4f}")
-                    return df_idx
+            except Exception as screen_err:
+                print(f"DEBUG: Screen-space transform failed: {screen_err}")
+            
+            # Fallback: data-space distance
+            distances = np.sqrt((data_x - click_x) ** 2 + (data_y - click_y) ** 2)
+            tolerance = 0.05
+            min_idx = np.argmin(distances)
+            min_distance = distances[min_idx]
+            
+            print(f"DEBUG: Data-space closest: {min_distance:.4f} (tol {tolerance})")
+            
+            if min_distance <= tolerance:
+                df_idx = valid_data.index[min_idx]
+                data_id = valid_data.iloc[min_idx].get('DataID', f'Point_{df_idx + 1}')
+                print(f"DEBUG: Found point {data_id}")
+                return df_idx
             
             return None
             
@@ -310,7 +327,8 @@ class HighlightManager:
             self._clear_highlight(keep_info=False)
             
             # Highlight the point based on current mode
-            if self.view_2d_mode.get() and self.current_2d_view and hasattr(self, 'ax_2d'):
+            current_plane = self._get_current_plane()
+            if current_plane is not None:
                 self._highlight_point_2d(df_idx)
             else:
                 self._highlight_point_by_index(df_idx)
@@ -325,17 +343,23 @@ class HighlightManager:
             traceback.print_exc()
     
     def _highlight_point_2d(self, df_idx):
-        """Highlight a point in the 2D view"""
+        """Highlight a point in the 2D view (in-place or orphan window)"""
         try:
             point = self.data_df.loc[df_idx]
             data_id = point.get('DataID', f'Point_{df_idx + 1}')
             
+            # Determine which plane and which axes object to use
+            current_plane = self._get_current_plane()
+            target_ax = getattr(self, 'ax_2d', None) if not self._is_inplace_2d_mode() else self.ax
+            if target_ax is None:
+                target_ax = self.ax  # fallback
+            
             # Get coordinates based on current view
-            if self.current_2d_view == 'xy':
+            if current_plane == 'xy':
                 x, y = point['Xnorm'], point['Ynorm']
-            elif self.current_2d_view == 'xz':
+            elif current_plane == 'xz':
                 x, y = point['Xnorm'], point['Znorm']
-            elif self.current_2d_view == 'yz':
+            elif current_plane == 'yz':
                 x, y = point['Ynorm'], point['Znorm']
             else:
                 return
@@ -348,11 +372,11 @@ class HighlightManager:
                 fill=False, edgecolor='red', linewidth=3,
                 zorder=1000
             )
-            self.ax_2d.add_patch(highlight_circle)
+            target_ax.add_patch(highlight_circle)
             
             # Add DataID label with smart positioning to avoid edges
-            xlim = self.ax_2d.get_xlim()
-            ylim = self.ax_2d.get_ylim()
+            xlim = target_ax.get_xlim()
+            ylim = target_ax.get_ylim()
             
             # Smart label positioning to keep it within plot bounds
             margin = 0.05  # 5% margin from edges
@@ -372,7 +396,7 @@ class HighlightManager:
             
             text_x, text_y = x + text_offset_x, y + text_offset_y
             
-            highlight_text = self.ax_2d.text(
+            highlight_text = target_ax.text(
                 text_x, text_y, f'{data_id}',
                 color='red', fontsize=9, fontweight='bold',
                 bbox=dict(boxstyle="round,pad=0.2", facecolor='yellow', alpha=0.9),
@@ -694,18 +718,19 @@ class HighlightManager:
             return
             
         try:
-            # Determine if we're in true 2D view mode
-            in_2d_mode = self.view_2d_mode.get() and self.current_2d_view is not None
+            # Determine if we're in any 2D view mode (in-place or orphan)
+            current_plane = self._get_current_plane()
+            in_2d_mode = current_plane is not None
             
-            print(f"DEBUG: Pick event detected! 2D mode: {in_2d_mode}")
+            print(f"DEBUG: Pick event detected! 2D mode: {in_2d_mode}, plane: {current_plane}")
             print(f"DEBUG: Artist type: {type(event.artist)}")
             print(f"DEBUG: Indices: {event.ind}")
             
             df_idx = None
             
-            if in_2d_mode and hasattr(self, 'ax_2d'):
-                # In true 2D mode, the artist should have the DataFrame index stored
-                print(f"DEBUG: Using true 2D view picking in {self.current_2d_view} view")
+            if in_2d_mode:
+                # In 2D mode, the artist should have the DataFrame index stored
+                print(f"DEBUG: Using 2D view picking in {current_plane} view")
                 
                 if hasattr(event.artist, '_df_index'):
                     df_idx = event.artist._df_index
@@ -752,7 +777,7 @@ class HighlightManager:
                         'xy': 'L*a*' if not self.use_rgb else 'R/G',
                         'xz': 'L*b*' if not self.use_rgb else 'R/B',
                         'yz': 'a*b*' if not self.use_rgb else 'G/B'
-                    }.get(self.current_2d_view, '2D')
+                    }.get(current_plane, '2D')
                     
                     self.info_label.config(
                         text=f"✅ Selected in {view_name} 2D view: {data_id}",
@@ -768,7 +793,7 @@ class HighlightManager:
                 print(f"DEBUG: Could not identify clicked point")
                 error_msg = "⚠️ Point picked but could not identify"
                 if in_2d_mode:
-                    error_msg += f" in {self.current_2d_view} 2D view"
+                    error_msg += f" in {current_plane} 2D view"
                 error_msg += " - try another point"
                 
                 self.info_label.config(
@@ -782,8 +807,8 @@ class HighlightManager:
             traceback.print_exc()
             
             error_msg = "❌ Error picking point"
-            if self.view_2d_mode.get() and self.current_2d_view:
-                error_msg += f" in {self.current_2d_view} view"
+            if current_plane:
+                error_msg += f" in {current_plane} view"
             error_msg += " - see console"
             
             self.info_label.config(
@@ -801,13 +826,14 @@ class HighlightManager:
             info_parts = [f"Point: {data_id}"]
             
             # Add coordinate information based on current view
-            if self.current_2d_view == 'xy':  # L*a* or R/G view
+            current_plane = self._get_current_plane()
+            if current_plane == 'xy':
                 coord_labels = ('L*', 'a*') if not self.use_rgb else ('R', 'G')
                 info_parts.append(f"{coord_labels[0]}: {x:.4f}, {coord_labels[1]}: {y:.4f}")
-            elif self.current_2d_view == 'xz':  # L*b* or R/B view
+            elif current_plane == 'xz':
                 coord_labels = ('L*', 'b*') if not self.use_rgb else ('R', 'B')
                 info_parts.append(f"{coord_labels[0]}: {x:.4f}, {coord_labels[1]}: {z:.4f}")
-            elif self.current_2d_view == 'yz':  # a*b* or G/B view
+            elif current_plane == 'yz':
                 coord_labels = ('a*', 'b*') if not self.use_rgb else ('G', 'B')
                 info_parts.append(f"{coord_labels[0]}: {y:.4f}, {coord_labels[1]}: {z:.4f}")
             else:
@@ -1539,22 +1565,18 @@ class HighlightManager:
         try:
             print("DEBUG: Clearing all highlights")
             
-            # Remove all highlight scatters
+            # Remove all highlight scatters (may be PathCollections or Circle patches)
             for scatter in self.highlight_scatters:
                 try:
-                    if scatter in self.ax.collections:
-                        scatter.remove()
-                    print("DEBUG: Removed highlight scatter")
+                    scatter.remove()
                 except Exception as e:
-                    print(f"DEBUG: Could not remove scatter: {e}")
+                    print(f"DEBUG: Could not remove scatter/patch: {e}")
             self.highlight_scatters = []
                 
             # Remove all highlight texts
             for text in self.highlight_texts:
                 try:
-                    if text in self.ax.texts:
-                        text.remove()
-                    print("DEBUG: Removed highlight text")
+                    text.remove()
                 except Exception as e:
                     print(f"DEBUG: Could not remove text: {e}")
             self.highlight_texts = []
@@ -1562,9 +1584,7 @@ class HighlightManager:
             # Remove all highlight lines
             for line in self.highlight_lines:
                 try:
-                    if line in self.ax.lines:
-                        line.remove()
-                    print("DEBUG: Removed highlight line")
+                    line.remove()
                 except Exception as e:
                     print(f"DEBUG: Could not remove line: {e}")
             self.highlight_lines = []

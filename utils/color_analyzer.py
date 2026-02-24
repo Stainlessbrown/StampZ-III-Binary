@@ -1008,6 +1008,38 @@ class ColorAnalyzer:
             print(f"Error saving averaged measurement: {e}")
             return False
     
+    def resample_from_measurements(
+        self,
+        image_path: str,
+        canvas_coordinates: List[dict],
+        target_sample_set: str,
+        source_sample_set: str = None
+    ) -> Optional[List[ColorMeasurement]]:
+        """Resample an image at exact positions from previous results.
+        
+        Uses coordinates extracted from a previous measurement set to sample
+        colors from a (potentially different) image at the same locations.
+        
+        Args:
+            image_path: Path to the target image to sample from
+            canvas_coordinates: List of canvas-marker-format dicts
+                (as returned by measurements_to_canvas_coordinates())
+            target_sample_set: Name of the sample set database to save results into
+            source_sample_set: Name of the source sample set (for description/notes)
+            
+        Returns:
+            List of ColorMeasurement objects, or None if failed
+        """
+        source_desc = f" from {source_sample_set}" if source_sample_set else ""
+        description = f"Resampled{source_desc} at {len(canvas_coordinates)} positions"
+        
+        return self.analyze_image_colors_from_canvas(
+            image_path=image_path,
+            coordinate_set_name=target_sample_set,
+            canvas_coordinates=canvas_coordinates,
+            description=description
+        )
+    
     def get_color_measurements(self, coordinate_set_name: str) -> List[ColorMeasurement]:
         """Retrieve color measurements for a coordinate set.
         
