@@ -62,6 +62,22 @@ class SettingsManager:
                 f"Failed to open preferences:\\n\\n{str(e)}"
             )
 
+    def open_scanner_calibration(self):
+        """Open the scanner calibration dialog."""
+        try:
+            from gui.scanner_calibration_dialog import show_scanner_calibration_dialog
+            show_scanner_calibration_dialog(parent=self.root)
+        except ImportError as e:
+            messagebox.showerror(
+                "Missing Component",
+                f"Scanner calibration dialog not available:\n\n{str(e)}"
+            )
+        except Exception as e:
+            messagebox.showerror(
+                "Error",
+                f"Failed to open scanner calibration:\n\n{str(e)}"
+            )
+
     def check_dependencies(self):
         """Check optional dependencies and show guidance if needed."""
         try:

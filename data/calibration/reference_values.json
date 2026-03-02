@@ -1,0 +1,449 @@
+{
+  "version": "1.0",
+  "target_type": "StampZ Scanner Calibration Target",
+  "paper": "28# White",
+  "scan_count": 3,
+  "scan_dpi": 800,
+  "patches": {
+    "Black": {
+      "grid_position": [
+        0,
+        0
+      ],
+      "digital_rgb": [
+        23,
+        22,
+        21
+      ],
+      "scanned_rgb": [
+        4.83,
+        2.55,
+        12.67
+      ],
+      "scanned_std": [
+        0.31,
+        0.15,
+        0.48
+      ],
+      "max_spread": 1.35
+    },
+    "Dark Gray": {
+      "grid_position": [
+        0,
+        1
+      ],
+      "digital_rgb": [
+        98,
+        98,
+        97
+      ],
+      "scanned_rgb": [
+        42.52,
+        31.0,
+        58.63
+      ],
+      "scanned_std": [
+        1.72,
+        1.13,
+        1.98
+      ],
+      "max_spread": 6.55
+    },
+    "Medium Gray": {
+      "grid_position": [
+        0,
+        2
+      ],
+      "digital_rgb": [
+        156,
+        156,
+        155
+      ],
+      "scanned_rgb": [
+        121.02,
+        101.17,
+        136.13
+      ],
+      "scanned_std": [
+        1.95,
+        2.13,
+        1.42
+      ],
+      "max_spread": 7.33
+    },
+    "Light Gray": {
+      "grid_position": [
+        0,
+        3
+      ],
+      "digital_rgb": [
+        208,
+        207,
+        207
+      ],
+      "scanned_rgb": [
+        222.15,
+        201.04,
+        221.87
+      ],
+      "scanned_std": [
+        3.2,
+        3.06,
+        2.64
+      ],
+      "max_spread": 11.58
+    },
+    "White": {
+      "grid_position": [
+        1,
+        0
+      ],
+      "digital_rgb": [
+        255,
+        255,
+        255
+      ],
+      "scanned_rgb": [
+        254.84,
+        254.71,
+        254.76
+      ],
+      "scanned_std": [
+        0.03,
+        0.06,
+        0.02
+      ],
+      "max_spread": 0.16
+    },
+    "Rose": {
+      "grid_position": [
+        1,
+        1
+      ],
+      "digital_rgb": [
+        255,
+        0,
+        127
+      ],
+      "scanned_rgb": [
+        217.45,
+        0.01,
+        72.38
+      ],
+      "scanned_std": [
+        0.86,
+        0.0,
+        1.87
+      ],
+      "max_spread": 4.47
+    },
+    "Buff": {
+      "grid_position": [
+        1,
+        2
+      ],
+      "digital_rgb": [
+        255,
+        232,
+        203
+      ],
+      "scanned_rgb": [
+        253.14,
+        226.56,
+        212.47
+      ],
+      "scanned_std": [
+        0.2,
+        1.14,
+        2.07
+      ],
+      "max_spread": 5.65
+    },
+    "Prussian Blue": {
+      "grid_position": [
+        1,
+        3
+      ],
+      "digital_rgb": [
+        0,
+        90,
+        150
+      ],
+      "scanned_rgb": [
+        15.68,
+        27.67,
+        132.65
+      ],
+      "scanned_std": [
+        0.97,
+        1.21,
+        1.45
+      ],
+      "max_spread": 4.17
+    },
+    "Green": {
+      "grid_position": [
+        2,
+        0
+      ],
+      "digital_rgb": [
+        0,
+        255,
+        0
+      ],
+      "scanned_rgb": [
+        80.61,
+        163.46,
+        34.8
+      ],
+      "scanned_std": [
+        1.82,
+        0.9,
+        0.74
+      ],
+      "max_spread": 5.09
+    },
+    "Yellow": {
+      "grid_position": [
+        2,
+        1
+      ],
+      "digital_rgb": [
+        255,
+        237,
+        0
+      ],
+      "scanned_rgb": [
+        251.11,
+        232.77,
+        28.55
+      ],
+      "scanned_std": [
+        0.36,
+        0.83,
+        1.65
+      ],
+      "max_spread": 3.86
+    },
+    "Violet": {
+      "grid_position": [
+        2,
+        2
+      ],
+      "digital_rgb": [
+        191,
+        127,
+        255
+      ],
+      "scanned_rgb": [
+        113.15,
+        37.98,
+        146.9
+      ],
+      "scanned_std": [
+        0.55,
+        0.8,
+        1.11
+      ],
+      "max_spread": 3.53
+    },
+    "Vermillion": {
+      "grid_position": [
+        2,
+        3
+      ],
+      "digital_rgb": [
+        227,
+        66,
+        52
+      ],
+      "scanned_rgb": [
+        215.47,
+        0.11,
+        32.29
+      ],
+      "scanned_std": [
+        1.28,
+        0.04,
+        1.19
+      ],
+      "max_spread": 4.0
+    },
+    "Blue": {
+      "grid_position": [
+        3,
+        0
+      ],
+      "digital_rgb": [
+        0,
+        0,
+        255
+      ],
+      "scanned_rgb": [
+        15.06,
+        10.56,
+        111.92
+      ],
+      "scanned_std": [
+        0.26,
+        0.49,
+        0.99
+      ],
+      "max_spread": 2.6
+    },
+    "Magenta": {
+      "grid_position": [
+        3,
+        1
+      ],
+      "digital_rgb": [
+        229,
+        0,
+        124
+      ],
+      "scanned_rgb": [
+        214.06,
+        0.0,
+        78.32
+      ],
+      "scanned_std": [
+        0.45,
+        0.0,
+        0.26
+      ],
+      "max_spread": 1.26
+    },
+    "Lavender": {
+      "grid_position": [
+        3,
+        2
+      ],
+      "digital_rgb": [
+        228,
+        175,
+        243
+      ],
+      "scanned_rgb": [
+        210.49,
+        93.9,
+        189.54
+      ],
+      "scanned_std": [
+        0.67,
+        2.05,
+        0.99
+      ],
+      "max_spread": 5.22
+    },
+    "Brown": {
+      "grid_position": [
+        3,
+        3
+      ],
+      "digital_rgb": [
+        150,
+        75,
+        0
+      ],
+      "scanned_rgb": [
+        106.31,
+        10.78,
+        18.63
+      ],
+      "scanned_std": [
+        1.83,
+        0.58,
+        0.73
+      ],
+      "max_spread": 4.56
+    },
+    "Red": {
+      "grid_position": [
+        4,
+        0
+      ],
+      "digital_rgb": [
+        255,
+        0,
+        0
+      ],
+      "scanned_rgb": [
+        208.65,
+        0.0,
+        30.15
+      ],
+      "scanned_std": [
+        0.76,
+        0.0,
+        0.42
+      ],
+      "max_spread": 2.01
+    },
+    "Cyan": {
+      "grid_position": [
+        4,
+        1
+      ],
+      "digital_rgb": [
+        0,
+        158,
+        227
+      ],
+      "scanned_rgb": [
+        33.94,
+        93.01,
+        211.22
+      ],
+      "scanned_std": [
+        1.83,
+        0.81,
+        0.7
+      ],
+      "max_spread": 4.5
+    },
+    "Dark Green": {
+      "grid_position": [
+        4,
+        2
+      ],
+      "digital_rgb": [
+        0,
+        99,
+        0
+      ],
+      "scanned_rgb": [
+        5.63,
+        42.16,
+        17.76
+      ],
+      "scanned_std": [
+        0.45,
+        0.73,
+        0.1
+      ],
+      "max_spread": 1.9
+    },
+    "Khaki": {
+      "grid_position": [
+        4,
+        3
+      ],
+      "digital_rgb": [
+        133,
+        109,
+        77
+      ],
+      "scanned_rgb": [
+        84.73,
+        38.86,
+        37.62
+      ],
+      "scanned_std": [
+        2.65,
+        1.17,
+        0.41
+      ],
+      "max_spread": 6.97
+    }
+  }
+}

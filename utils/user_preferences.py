@@ -96,6 +96,13 @@ class WorkspacePreferences:
             self.workspaces = {}
 
 
+@dataclass
+class CalibrationPreferences:
+    """Preferences for scanner calibration."""
+    active_profile_path: str = ""  # Path to active calibration profile (empty = none)
+    calibration_enabled: bool = False  # Master toggle for calibration
+
+
 # InterfacePreferences class removed - complexity levels no longer used
 @dataclass 
 class UserPreferences:
@@ -107,6 +114,7 @@ class UserPreferences:
     compare_mode_prefs: CompareModePreferences
     measurement_prefs: MeasurementPreferences
     workspace_prefs: WorkspacePreferences
+    calibration_prefs: CalibrationPreferences
     # interface_prefs removed - complexity levels no longer used
     
     def __init__(self):
@@ -117,6 +125,7 @@ class UserPreferences:
         self.compare_mode_prefs = CompareModePreferences()
         self.measurement_prefs = MeasurementPreferences()
         self.workspace_prefs = WorkspacePreferences()
+        self.calibration_prefs = CalibrationPreferences()
         # self.interface_prefs removed - complexity levels no longer used
 
 

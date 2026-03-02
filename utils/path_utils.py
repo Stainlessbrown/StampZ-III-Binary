@@ -64,6 +64,24 @@ def get_templates_dir() -> str:
     """
     return os.path.join(get_base_data_dir(), "templates", "plot3d")
 
+def get_calibration_dir() -> str:
+    """
+    Get the scanner calibration directory.
+    
+    Returns:
+        str: Path to the calibration directory
+    """
+    return os.path.join(get_base_data_dir(), "calibration")
+
+def get_calibration_profiles_dir() -> str:
+    """
+    Get the scanner calibration profiles directory.
+    
+    Returns:
+        str: Path to the calibration profiles directory
+    """
+    return os.path.join(get_calibration_dir(), "profiles")
+
 def ensure_data_directories() -> None:
     """
     Ensure all required data directories exist.
@@ -72,7 +90,9 @@ def ensure_data_directories() -> None:
         get_base_data_dir(),
         get_color_analysis_dir(),
         get_color_libraries_dir(),
-        get_templates_dir()
+        get_templates_dir(),
+        get_calibration_dir(),
+        get_calibration_profiles_dir()
     ]
     
     for directory in directories:

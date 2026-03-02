@@ -69,8 +69,32 @@ class StampZApp:
         self._setup_ui_connections()
         self._apply_default_settings()
         
+        # Load scanner calibration profile if active
+        self._load_startup_calibration()
+        
         # Check optional dependencies at startup
         self.settings_manager.check_dependencies()
+
+    def _load_startup_calibration(self):
+        """Load the active scanner calibration profile on startup."""
+        try:
+            from utils.user_preferences import get_preferences_manager
+            prefs = get_preferences_manager()
+            cal_prefs = prefs.preferences.calibration_prefs
+            
+            if cal_prefs.calibration_enabled and cal_prefs.active_profile_path:
+                if os.path.exists(cal_prefs.active_profile_path):
+                    from utils.scanner_calibration import ScannerCalibration, set_active_calibration
+                    cal = ScannerCalibration()
+                    if cal.load_profile(cal_prefs.active_profile_path):
+                        set_active_calibration(cal)
+                        logger.info(f"Loaded scanner calibration: {cal.profile_name}")
+                    else:
+                        logger.warning("Failed to load saved calibration profile")
+                else:
+                    logger.warning(f"Calibration profile not found: {cal_prefs.active_profile_path}")
+        except Exception as e:
+            logger.warning(f"Could not load startup calibration: {e}")
 
     def _set_application_name(self):
         """Set the application name for the system."""
@@ -228,6 +252,10 @@ class StampZApp:
     def open_preferences(self):
         """Delegate to settings manager."""
         return self.settings_manager.open_preferences()
+    
+    def open_scanner_calibration(self):
+        """Delegate to settings manager."""
+        return self.settings_manager.open_scanner_calibration()
         
     def open_black_ink_extractor(self):
         """Delegate to analysis manager."""

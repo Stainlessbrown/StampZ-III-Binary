@@ -638,7 +638,8 @@ class ColorAnalyzer:
             pixels: List of RGB tuples
             
         Returns:
-            Average RGB as tuple of floats (preserves decimal precision)
+            Average RGB as tuple of floats (preserves decimal precision).
+            If scanner calibration is active, the returned values are corrected.
         """
         if not pixels:
             print("Warning: No pixels to average, using gray fallback")
@@ -654,7 +655,20 @@ class ColorAnalyzer:
         avg_g = total_g / num_pixels
         avg_b = total_b / num_pixels
         
-        # Return the raw RGB values without any correction
+        print(f"Raw average RGB values: R={avg_r:.2f}, G={avg_g:.2f}, B={avg_b:.2f}")
+        
+        # Apply scanner calibration correction if active
+        try:
+            from .scanner_calibration import get_active_calibration
+            calibration = get_active_calibration()
+            if calibration and calibration.is_valid:
+                corrected = calibration.apply_correction((avg_r, avg_g, avg_b))
+                if corrected:
+                    avg_r, avg_g, avg_b = corrected
+                    print(f"Calibration-corrected RGB: R={avg_r:.2f}, G={avg_g:.2f}, B={avg_b:.2f}")
+        except Exception as e:
+            print(f"Warning: Scanner calibration correction skipped: {e}")
+        
         print(f"Final average RGB values: R={avg_r:.2f}, G={avg_g:.2f}, B={avg_b:.2f}")
         
         return (avg_r, avg_g, avg_b)

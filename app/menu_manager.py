@@ -220,3 +220,7 @@ class MenuManager:
             label="Preferences...", 
             command=self.app.open_preferences
         )
+        self.help_menu.add_command(
+            label="Scanner Calibration...",
+            command=self.app.open_scanner_calibration
+        )
