@@ -260,10 +260,13 @@ class ScannerCalibrationDialog:
             self.root.config(cursor="")
             
             # Update quality display
+            used = self.quality.get('patches_used', len(self.calibration.patch_results))
+            excluded = self.quality.get('patches_excluded', 0)
             self.quality_label.config(
                 text=f"Avg ΔE: {self.quality['avg_delta_e_before']:.1f} → "
                      f"{self.quality['avg_delta_e_after']:.1f}  "
-                     f"({self.quality['improvement_percent']:.0f}% improvement)",
+                     f"({self.quality['improvement_percent']:.0f}% improvement, "
+                     f"{used} patches used, {excluded} out-of-gamut)",
                 foreground='#006600'
             )
             
@@ -291,12 +294,21 @@ class ScannerCalibrationDialog:
         if not self.calibration or not self.calibration.patch_results:
             return
         
+        from utils.scanner_calibration import ScannerCalibration
+        threshold = ScannerCalibration.GAMUT_THRESHOLD
+        
         for row_idx, patch in enumerate(self.calibration.patch_results, start=1):
+            # Determine if patch was used in fit or excluded
+            is_excluded = patch.delta_e_before > threshold
+            name_text = f"{patch.name}  (out of gamut)" if is_excluded else patch.name
+            name_color = '#999999' if is_excluded else 'black'
+            
             # Patch name
             ttk.Label(
                 self.results_inner,
-                text=patch.name,
+                text=name_text,
                 font=("Arial", 9),
+                foreground=name_color,
                 anchor='w'
             ).grid(row=row_idx, column=0, padx=5, pady=1, sticky='w')
             

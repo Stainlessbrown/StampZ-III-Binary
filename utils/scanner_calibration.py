@@ -210,11 +210,21 @@ class ScannerCalibration:
             logger.error(f"Failed to detect patches: {e}")
             raise
     
+    # Maximum pre-correction ΔE for a patch to be included in the fit.
+    # Patches above this threshold are outside the printer's reproducible gamut
+    # and would skew the correction model. They are still detected and displayed
+    # but do not influence the correction coefficients.
+    GAMUT_THRESHOLD = 50.0
+    
     def compute_correction(self) -> Dict[str, Any]:
-        """Compute per-channel polynomial correction from detected patches.
+        """Compute per-channel linear correction from detected patches.
         
-        Uses 2nd-order polynomial per channel: corrected = a*x² + b*x + c
+        Uses 1st-order (linear) fit per channel: corrected = a*x + b
         where x is the scanned value and corrected maps to the digital reference.
+        
+        Patches with pre-correction ΔE above GAMUT_THRESHOLD are excluded from
+        the fit — they represent printer gamut limitations, not scanner error.
+        All patches still receive corrected values for display purposes.
         
         Returns:
             Dict with correction quality metrics
@@ -222,9 +232,26 @@ class ScannerCalibration:
         if not self.patch_results:
             raise ValueError("No patches detected. Run detect_patches() first.")
         
-        # Build paired data arrays for each channel
-        scanned = np.array([p.scanned_rgb for p in self.patch_results])
-        reference = np.array([p.digital_rgb for p in self.patch_results])
+        # Filter to patches within printer gamut for the fit
+        fit_patches = [p for p in self.patch_results
+                       if p.delta_e_before <= self.GAMUT_THRESHOLD]
+        excluded_patches = [p for p in self.patch_results
+                           if p.delta_e_before > self.GAMUT_THRESHOLD]
+        
+        if len(fit_patches) < 3:
+            raise ValueError(
+                f"Only {len(fit_patches)} patches within gamut threshold "
+                f"(ΔE ≤ {self.GAMUT_THRESHOLD}). Need at least 3 for a fit."
+            )
+        
+        logger.info(
+            f"Using {len(fit_patches)} of {len(self.patch_results)} patches for fit "
+            f"({len(excluded_patches)} excluded, ΔE > {self.GAMUT_THRESHOLD})"
+        )
+        
+        # Build paired data arrays from in-gamut patches only
+        scanned = np.array([p.scanned_rgb for p in fit_patches])
+        reference = np.array([p.digital_rgb for p in fit_patches])
         
         coefficients = {}
         channel_names = ['R', 'G', 'B']
@@ -233,18 +260,24 @@ class ScannerCalibration:
             x = scanned[:, ch_idx]
             y = reference[:, ch_idx]
             
-            # Fit 2nd-order polynomial: y = a*x² + b*x + c
-            coeffs = np.polyfit(x, y, 2)
+            # Fit 1st-order (linear): y = a*x + b
+            coeffs = np.polyfit(x, y, 1)
             coefficients[ch_name] = coeffs.tolist()
         
         self.correction_coefficients = coefficients
+        self.correction_order = 1
         self.is_valid = True
         self.created_date = datetime.now().isoformat()
         
-        # Calculate corrected values and post-correction ΔE for all patches
+        # Calculate corrected values and post-correction ΔE for ALL patches
+        # (including excluded ones, for display purposes)
         total_delta_e_before = 0
         total_delta_e_after = 0
         max_delta_e_after = 0
+        fit_delta_e_before = 0
+        fit_delta_e_after = 0
+        
+        fit_names = {p.name for p in fit_patches}
         
         for patch in self.patch_results:
             patch.corrected_rgb = self.apply_correction(patch.scanned_rgb)
@@ -254,28 +287,38 @@ class ScannerCalibration:
             total_delta_e_before += patch.delta_e_before
             total_delta_e_after += patch.delta_e_after
             max_delta_e_after = max(max_delta_e_after, patch.delta_e_after)
+            if patch.name in fit_names:
+                fit_delta_e_before += patch.delta_e_before
+                fit_delta_e_after += patch.delta_e_after
         
-        n = len(self.patch_results)
+        n_fit = len(fit_patches)
+        n_all = len(self.patch_results)
         quality = {
-            'avg_delta_e_before': total_delta_e_before / n,
-            'avg_delta_e_after': total_delta_e_after / n,
+            'avg_delta_e_before': fit_delta_e_before / n_fit,
+            'avg_delta_e_after': fit_delta_e_after / n_fit,
             'max_delta_e_after': max_delta_e_after,
-            'patch_count': n,
+            'patch_count': n_all,
+            'patches_used': n_fit,
+            'patches_excluded': len(excluded_patches),
             'improvement_percent': (
-                (1 - total_delta_e_after / total_delta_e_before) * 100
-                if total_delta_e_before > 0 else 0
+                (1 - fit_delta_e_after / fit_delta_e_before) * 100
+                if fit_delta_e_before > 0 else 0
             ),
         }
         
         logger.info(
             f"Calibration computed: avg ΔE {quality['avg_delta_e_before']:.1f} → "
-            f"{quality['avg_delta_e_after']:.1f} ({quality['improvement_percent']:.0f}% improvement)"
+            f"{quality['avg_delta_e_after']:.1f} ({quality['improvement_percent']:.0f}% improvement, "
+            f"{n_fit} patches used)"
         )
         
         return quality
     
     def apply_correction(self, rgb: Tuple[float, float, float]) -> Tuple[float, float, float]:
-        """Apply polynomial correction to an RGB tuple.
+        """Apply correction to an RGB tuple.
+        
+        Supports both linear (2 coefficients) and quadratic (3 coefficients)
+        profiles for backward compatibility.
         
         Args:
             rgb: RGB values as (r, g, b) floats 0-255
@@ -292,8 +335,12 @@ class ScannerCalibration:
         for ch_idx, ch_name in enumerate(channel_names):
             coeffs = self.correction_coefficients[ch_name]
             x = float(rgb[ch_idx])
-            # Evaluate polynomial: a*x² + b*x + c
-            y = coeffs[0] * x * x + coeffs[1] * x + coeffs[2]
+            if len(coeffs) == 3:
+                # Quadratic: a*x² + b*x + c (legacy profiles)
+                y = coeffs[0] * x * x + coeffs[1] * x + coeffs[2]
+            else:
+                # Linear: a*x + b
+                y = coeffs[0] * x + coeffs[1]
             # Clamp to valid range
             y = max(0.0, min(255.0, y))
             corrected.append(y)
@@ -319,8 +366,9 @@ class ScannerCalibration:
         self.scanner_info = scanner_info
         
         profile = {
-            'version': '1.0',
+            'version': '1.1',
             'type': 'StampZ Scanner Calibration Profile',
+            'correction_order': getattr(self, 'correction_order', 2),
             'profile_name': self.profile_name,
             'scanner_info': self.scanner_info,
             'created_date': self.created_date,
