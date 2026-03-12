@@ -34,7 +34,7 @@ jobs:
     - uses: actions/checkout@v5
     
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: ${{ matrix.python-version }}
     
@@ -192,14 +192,14 @@ jobs:
     
     - name: Upload macOS app bundle
       if: startsWith(matrix.os, 'macos')
-      uses: actions/upload-artifact@v5
+      uses: actions/upload-artifact@v6
       with:
         name: StampZ-III_${{ matrix.name }}
         path: dist/StampZ-III_${{ matrix.name }}.zip
         
     - name: Upload Windows/Linux executable
       if: "!startsWith(matrix.os, 'macos')"
-      uses: actions/upload-artifact@v5
+      uses: actions/upload-artifact@v6
       with:
         name: StampZ-III_${{ matrix.name }}
         path: dist/StampZ-III_${{ matrix.name }}${{ matrix.ext }}
