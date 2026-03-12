@@ -11,6 +11,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
 import os
 import sys
+import shutil
+import subprocess
 import logging
 from typing import Optional
 
@@ -24,6 +26,7 @@ class ScannerCalibrationDialog:
         self.parent = parent
         self.calibration = None
         self.quality = None
+        self.active_profile_path: Optional[str] = None
         
         # Create window
         self.root = tk.Toplevel(parent) if parent else tk.Tk()
@@ -37,6 +40,18 @@ class ScannerCalibrationDialog:
         
         self._create_ui()
         self._update_status()
+        
+        # Restore active profile path from preferences so Export/Reveal
+        # work even if the user just opened the dialog (no fresh calibration).
+        try:
+            from utils.user_preferences import get_preferences_manager
+            prefs = get_preferences_manager()
+            saved_path = prefs.preferences.calibration_prefs.active_profile_path
+            if saved_path and os.path.isfile(saved_path):
+                self.active_profile_path = saved_path
+                self._update_sharing_buttons()
+        except Exception:
+            pass
     
     def _create_ui(self):
         """Create the dialog UI."""
@@ -170,6 +185,22 @@ class ScannerCalibrationDialog:
             command=self.root.destroy
         ).pack(side=tk.RIGHT, padx=5)
         
+        self.export_button = ttk.Button(
+            bottom_frame,
+            text="Export Profile...",
+            command=self._export_profile,
+            state='disabled'
+        )
+        self.export_button.pack(side=tk.LEFT, padx=5)
+        
+        self.reveal_button = ttk.Button(
+            bottom_frame,
+            text="Show in Finder" if sys.platform == 'darwin' else "Show in Explorer",
+            command=self._reveal_profile,
+            state='disabled'
+        )
+        self.reveal_button.pack(side=tk.LEFT, padx=5)
+        
         # Instructions
         ttk.Label(
             main,
@@ -227,9 +258,20 @@ class ScannerCalibrationDialog:
             ("All files", "*.*")
         ]
         
+        # Start in the user's last image directory, or Desktop
+        initial_dir = None
+        try:
+            from utils.user_preferences import get_preferences_manager
+            initial_dir = get_preferences_manager().get_last_image_directory()
+        except Exception:
+            pass
+        if not initial_dir:
+            initial_dir = os.path.join(os.path.expanduser('~'), 'Desktop')
+        
         filepath = filedialog.askopenfilename(
             parent=self.root,
             title="Select Scanned Target Image",
+            initialdir=initial_dir,
             filetypes=filetypes
         )
         
@@ -395,6 +437,8 @@ class ScannerCalibrationDialog:
             )
             return
         
+        self.active_profile_path = profile_path
+        
         # Activate the calibration
         from utils.scanner_calibration import set_active_calibration
         set_active_calibration(self.calibration)
@@ -410,11 +454,13 @@ class ScannerCalibrationDialog:
             logger.warning(f"Could not save calibration preference: {e}")
         
         self._update_status()
+        self._update_sharing_buttons()
         
         messagebox.showinfo(
             "Calibration Saved",
             f"Scanner calibration profile '{name}' has been saved and activated.\n\n"
-            f"All future color measurements will be corrected using this profile.",
+            f"All future color measurements will be corrected using this profile.\n\n"
+            f"Use 'Export Profile...' to save a copy you can share with other users.",
             parent=self.root
         )
     
@@ -464,6 +510,7 @@ class ScannerCalibrationDialog:
         cal = ScannerCalibration()
         if cal.load_profile(filepath):
             self.calibration = cal
+            self.active_profile_path = filepath
             set_active_calibration(cal)
             
             # Update preferences
@@ -477,6 +524,7 @@ class ScannerCalibrationDialog:
                 logger.warning(f"Could not save calibration preference: {e}")
             
             self._update_status()
+            self._update_sharing_buttons()
             self._populate_results()
             
             messagebox.showinfo(
@@ -488,6 +536,82 @@ class ScannerCalibrationDialog:
             messagebox.showerror(
                 "Load Error",
                 "Failed to load calibration profile.",
+                parent=self.root
+            )
+
+    def _update_sharing_buttons(self):
+        """Enable or disable the Export / Reveal buttons."""
+        has_profile = (self.active_profile_path
+                       and os.path.isfile(self.active_profile_path))
+        state = 'normal' if has_profile else 'disabled'
+        self.export_button.config(state=state)
+        self.reveal_button.config(state=state)
+    
+    def _export_profile(self):
+        """Export (copy) the active calibration profile to a user-chosen location."""
+        if not self.active_profile_path or not os.path.isfile(self.active_profile_path):
+            messagebox.showwarning(
+                "No Profile",
+                "No active calibration profile to export.",
+                parent=self.root
+            )
+            return
+        
+        # Suggest the same filename, default to Desktop
+        suggested_name = os.path.basename(self.active_profile_path)
+        desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
+        
+        dest = filedialog.asksaveasfilename(
+            parent=self.root,
+            title="Export Calibration Profile",
+            initialdir=desktop,
+            initialfile=suggested_name,
+            defaultextension=".json",
+            filetypes=[
+                ("JSON profiles", "*.json"),
+                ("All files", "*.*")
+            ]
+        )
+        
+        if not dest:
+            return
+        
+        try:
+            shutil.copy2(self.active_profile_path, dest)
+            messagebox.showinfo(
+                "Profile Exported",
+                f"Calibration profile saved to:\n{dest}\n\n"
+                f"Send this file along with your scanned image so another\n"
+                f"StampZ user can load it with 'Load Existing Profile...'.",
+                parent=self.root
+            )
+        except Exception as e:
+            messagebox.showerror(
+                "Export Error",
+                f"Failed to export profile:\n{e}",
+                parent=self.root
+            )
+    
+    def _reveal_profile(self):
+        """Open the OS file manager with the active profile selected."""
+        if not self.active_profile_path or not os.path.isfile(self.active_profile_path):
+            return
+        
+        try:
+            if sys.platform == 'darwin':
+                subprocess.Popen(['open', '-R', self.active_profile_path])
+            elif sys.platform == 'win32':
+                subprocess.Popen(['explorer', '/select,',
+                                  os.path.normpath(self.active_profile_path)])
+            else:
+                # Linux — open the containing folder
+                subprocess.Popen(['xdg-open',
+                                  os.path.dirname(self.active_profile_path)])
+        except Exception as e:
+            logger.warning(f"Could not reveal profile in file manager: {e}")
+            messagebox.showinfo(
+                "Profile Location",
+                f"Profile is saved at:\n{self.active_profile_path}",
                 parent=self.root
             )
 

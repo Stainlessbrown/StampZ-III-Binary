@@ -1134,6 +1134,14 @@ class PreferencesManager:
                         active_workspace=workspace_data.get('active_workspace', '')
                     )
                 
+                # Load calibration preferences
+                if 'calibration_prefs' in data:
+                    cal_data = data['calibration_prefs']
+                    self.preferences.calibration_prefs = CalibrationPreferences(
+                        active_profile_path=cal_data.get('active_profile_path', ''),
+                        calibration_enabled=cal_data.get('calibration_enabled', False)
+                    )
+                
                 # Interface preferences removed - complexity levels no longer used
                 
                 print(f"Loaded preferences from {self.prefs_file}")
@@ -1170,6 +1178,7 @@ class PreferencesManager:
                 'compare_mode_prefs': asdict(self.preferences.compare_mode_prefs),
                 'measurement_prefs': asdict(self.preferences.measurement_prefs),
                 'workspace_prefs': asdict(self.preferences.workspace_prefs),
+                'calibration_prefs': asdict(self.preferences.calibration_prefs),
                 # 'interface_prefs': removed - complexity levels no longer used
             })
             

@@ -4,6 +4,7 @@ Database utilities for storing and retrieving coordinate sample locations.
 """
 
 import sqlite3
+import json
 from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, Tuple
@@ -296,6 +297,96 @@ class CoordinateDB:
                 return [row[0] for row in cursor]
         except sqlite3.Error:
             return []
+    
+    def export_template_to_json(self, name: str, dest_path: str) -> bool:
+        """Export a template (coordinate set) to a shareable JSON file.
+        
+        Args:
+            name: Name of the coordinate set to export
+            dest_path: Destination file path for the JSON
+            
+        Returns:
+            True if exported successfully
+        """
+        coords = self.load_coordinate_set(name)
+        if not coords:
+            return False
+        
+        template_data = {
+            'type': 'StampZ Sample Template',
+            'version': '1.0',
+            'name': name,
+            'exported_at': datetime.now().isoformat(),
+            'coordinates': [
+                {
+                    'point_order': i,
+                    'x': c.x,
+                    'y': c.y,
+                    'sample_type': c.sample_type.value,
+                    'sample_width': c.sample_size[0],
+                    'sample_height': c.sample_size[1],
+                    'anchor_position': c.anchor_position,
+                }
+                for i, c in enumerate(coords)
+            ],
+        }
+        
+        try:
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+            with open(dest_path, 'w') as f:
+                json.dump(template_data, f, indent=2)
+            return True
+        except Exception as e:
+            print(f"Failed to export template: {e}")
+            return False
+    
+    def import_template_from_json(self, json_path: str,
+                                  image_path: str = "") -> Tuple[bool, str]:
+        """Import a template from a JSON file into the database.
+        
+        Args:
+            json_path: Path to the JSON template file
+            image_path: Image path to associate (uses a placeholder if empty)
+            
+        Returns:
+            Tuple of (success, template_name or error message)
+        """
+        try:
+            with open(json_path, 'r') as f:
+                data = json.load(f)
+            
+            if data.get('type') != 'StampZ Sample Template':
+                return False, "File is not a StampZ sample template."
+            
+            name = data.get('name', '')
+            if not name:
+                return False, "Template file has no name."
+            
+            coords = []
+            for entry in data.get('coordinates', []):
+                coord = CoordinatePoint(
+                    x=entry['x'],
+                    y=entry['y'],
+                    sample_type=SampleAreaType(entry['sample_type']),
+                    sample_size=(entry['sample_width'], entry['sample_height']),
+                    anchor_position=entry.get('anchor_position', 'center'),
+                )
+                coords.append(coord)
+            
+            if not coords:
+                return False, "Template file contains no coordinates."
+            
+            if not image_path:
+                image_path = f"imported:{os.path.basename(json_path)}"
+            
+            return self.save_coordinate_set(name, image_path, coords)
+        
+        except json.JSONDecodeError:
+            return False, "Invalid JSON file."
+        except KeyError as e:
+            return False, f"Missing required field: {e}"
+        except Exception as e:
+            return False, f"Import error: {e}"
     
     def save_manual_mode_coordinates(
         self,

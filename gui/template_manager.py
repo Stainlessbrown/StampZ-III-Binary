@@ -2,8 +2,9 @@
 """Template manager for StampZ templates stored in coordinates.db."""
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 import os
+import sys
 import sqlite3
 from typing import Optional, List, Dict
 from datetime import datetime
@@ -56,6 +57,15 @@ class TemplateManager:
         # Refresh and Delete buttons
         ttk.Button(controls_frame, text="Refresh", command=self._refresh_data).pack(side=tk.LEFT, padx=5)
         ttk.Button(controls_frame, text="Delete Selected", command=self._delete_selected).pack(side=tk.LEFT, padx=5)
+        
+        # Separator
+        ttk.Separator(controls_frame, orient='vertical').pack(side=tk.LEFT, fill=tk.Y, padx=8, pady=2)
+        
+        # Export / Import for sharing
+        ttk.Button(controls_frame, text="Export Selected...",
+                   command=self._export_selected).pack(side=tk.LEFT, padx=5)
+        ttk.Button(controls_frame, text="Import Template...",
+                   command=self._import_template).pack(side=tk.LEFT, padx=5)
         
         # Create template list view
         list_frame = ttk.Frame(main_frame)
@@ -210,6 +220,86 @@ class TemplateManager:
         
         except Exception as e:
             messagebox.showerror("Error", f"Failed to delete templates: {str(e)}")
+    
+    def _export_selected(self):
+        """Export the selected template to a JSON file for sharing."""
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showinfo("No Selection",
+                                "Please select a template to export.",
+                                parent=self.dialog)
+            return
+        
+        # Use the first selected item
+        item = selected[0]
+        values = self.tree.item(item)['values']
+        template_name = values[1]  # 'name' column
+        
+        desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
+        safe_name = "".join(c for c in template_name if c.isalnum() or c in ' _-').strip()
+        
+        dest = filedialog.asksaveasfilename(
+            parent=self.dialog,
+            title="Export Template",
+            initialdir=desktop,
+            initialfile=f"{safe_name}.json",
+            defaultextension=".json",
+            filetypes=[
+                ("JSON templates", "*.json"),
+                ("All files", "*.*")
+            ]
+        )
+        if not dest:
+            return
+        
+        from utils.coordinate_db import CoordinateDB
+        db = CoordinateDB()
+        if db.export_template_to_json(template_name, dest):
+            messagebox.showinfo(
+                "Template Exported",
+                f"Template '{template_name}' saved to:\n{dest}\n\n"
+                f"Send this file along with your stamp image and calibration\n"
+                f"profile so another StampZ user can replicate your analysis.",
+                parent=self.dialog
+            )
+        else:
+            messagebox.showerror(
+                "Export Error",
+                f"Failed to export template '{template_name}'.",
+                parent=self.dialog
+            )
+    
+    def _import_template(self):
+        """Import a template from a shared JSON file."""
+        filepath = filedialog.askopenfilename(
+            parent=self.dialog,
+            title="Import Template",
+            filetypes=[
+                ("JSON templates", "*.json"),
+                ("All files", "*.*")
+            ]
+        )
+        if not filepath:
+            return
+        
+        from utils.coordinate_db import CoordinateDB
+        db = CoordinateDB()
+        success, result = db.import_template_from_json(filepath)
+        
+        if success:
+            self._refresh_data()
+            messagebox.showinfo(
+                "Template Imported",
+                f"Template '{result}' has been imported.\n\n"
+                f"You can now load it from the Sample Tool.",
+                parent=self.dialog
+            )
+        else:
+            messagebox.showerror(
+                "Import Error",
+                f"Failed to import template:\n{result}",
+                parent=self.dialog
+            )
     
     def _show_template_details(self, event):
         """Show details for the selected template."""

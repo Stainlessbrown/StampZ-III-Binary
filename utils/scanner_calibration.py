@@ -2,11 +2,14 @@
 """
 Scanner Calibration Module for StampZ
 
-Provides scanner normalization using the StampZ printed color target (20 patches).
+Provides scanner normalization using the StampZ printed color target.
+The target is a 3×4 grid of 12 patches (11 unique colors + 1 duplicate White)
+selected for accurate reproduction by photo-lab printers.
+
 Maps scanner RGB output to a standard reference color space so that color libraries
 and measurements are comparable across different scanners.
 
-Correction model: per-channel 2nd-order polynomial fit from 20 paired data points
+Correction model: per-channel linear fit from in-gamut patches
 (scanned values → digital reference values).
 """
 
@@ -55,30 +58,23 @@ def apply_calibration_to_rgb(rgb: Tuple[float, float, float]) -> Tuple[float, fl
     return rgb
 
 
-# Patch layout for the StampZ calibration target
+# Patch layout for the StampZ calibration target (v1.1 — 3×4 grid)
 # Maps grid position (row, col) in the scanned image to (name, digital_rgb)
 # Target is oriented with Black at top-left when scanned
+# 12 cells: 11 unique colors selected for photo-lab gamut + 1 duplicate White
 PATCH_MAP = {
     (0, 0): ("Black",         (0x17, 0x16, 0x15)),
-    (0, 1): ("Dark Gray",     (0x62, 0x62, 0x61)),
-    (0, 2): ("Medium Gray",   (0x9C, 0x9C, 0x9B)),
-    (0, 3): ("Light Gray",    (0xD0, 0xCF, 0xCF)),
-    (1, 0): ("White",         (0xFF, 0xFF, 0xFF)),
-    (1, 1): ("Rose",          (0xFF, 0x00, 0x7F)),
-    (1, 2): ("Buff",          (0xFF, 0xE8, 0xCB)),
-    (1, 3): ("Prussian Blue", (0x00, 0x5A, 0x96)),
-    (2, 0): ("Green",         (0x00, 0xFF, 0x00)),
-    (2, 1): ("Yellow",        (0xFF, 0xED, 0x00)),
-    (2, 2): ("Violet",        (0xBF, 0x7F, 0xFF)),
-    (2, 3): ("Vermillion",    (0xE3, 0x42, 0x34)),
-    (3, 0): ("Blue",          (0x00, 0x00, 0xFF)),
+    (0, 1): ("Rose",          (0xFF, 0x00, 0x7F)),
+    (0, 2): ("Light Gray",    (0xD0, 0xCF, 0xCF)),
+    (1, 0): ("Buff",          (0xFF, 0xE8, 0xCB)),
+    (1, 1): ("White",         (0xFF, 0xFF, 0xFF)),
+    (1, 2): ("Violet",        (0xBF, 0x7F, 0xFF)),
+    (2, 0): ("Brown",         (0x96, 0x4B, 0x00)),
+    (2, 1): ("White 2",       (0xFF, 0xFF, 0xFF)),
+    (2, 2): ("Lavender",      (0xE4, 0xAF, 0xF3)),
+    (3, 0): ("Red",           (0xFF, 0x00, 0x00)),
     (3, 1): ("Magenta",       (0xE5, 0x00, 0x7C)),
-    (3, 2): ("Lavender",      (0xE4, 0xAF, 0xF3)),
-    (3, 3): ("Brown",         (0x96, 0x4B, 0x00)),
-    (4, 0): ("Red",           (0xFF, 0x00, 0x00)),
-    (4, 1): ("Cyan",          (0x00, 0x9E, 0xE3)),
-    (4, 2): ("Dark Green",    (0x00, 0x63, 0x00)),
-    (4, 3): ("Khaki",         (0x85, 0x6D, 0x4D)),
+    (3, 2): ("Dark Green",    (0x00, 0x63, 0x00)),
 }
 
 # Ordered list of patch names for consistent iteration
@@ -135,8 +131,12 @@ class ScannerCalibration:
             logger.error(f"Failed to load reference data: {e}")
             return False
     
+    # Expected grid dimensions
+    GRID_COLS = 3
+    GRID_ROWS = 4
+    
     def detect_patches(self, image_path: str) -> List[PatchResult]:
-        """Auto-detect the 20 color patches from a scanned target image.
+        """Auto-detect the color patches from a scanned target image.
         
         Args:
             image_path: Path to the scanned target TIFF/image
@@ -165,9 +165,26 @@ class ScannerCalibration:
                 np.mean(gray[:, w // 4:3 * w // 4], axis=1)
             )
             
-            if len(col_ranges) != 4 or len(row_ranges) != 5:
+            # Fallback: very light patches (especially white) can blend with
+            # white paper and disappear from threshold-based detection.
+            # If we detect outer ranges but miss interior ones, infer a
+            # regular grid from the first/last detected centers.
+            if len(col_ranges) != self.GRID_COLS and len(col_ranges) >= 2:
+                inferred_cols = self._interpolate_grid_ranges(
+                    col_ranges, self.GRID_COLS, axis_size=w
+                )
+                if len(inferred_cols) == self.GRID_COLS:
+                    col_ranges = inferred_cols
+            if len(row_ranges) != self.GRID_ROWS and len(row_ranges) >= 2:
+                inferred_rows = self._interpolate_grid_ranges(
+                    row_ranges, self.GRID_ROWS, axis_size=h
+                )
+                if len(inferred_rows) == self.GRID_ROWS:
+                    row_ranges = inferred_rows
+            
+            if len(col_ranges) != self.GRID_COLS or len(row_ranges) != self.GRID_ROWS:
                 raise ValueError(
-                    f"Expected 4 columns × 5 rows of patches, "
+                    f"Expected {self.GRID_COLS} columns × {self.GRID_ROWS} rows of patches, "
                     f"found {len(col_ranges)} × {len(row_ranges)}. "
                     f"Check that the target is properly cropped and oriented "
                     f"(Black patch top-left)."
@@ -498,6 +515,62 @@ class ScannerCalibration:
         
         # Filter out tiny ranges (< 100 pixels) — noise/borders
         return [(s, e) for s, e in merged if e - s > 100]
+    
+    @staticmethod
+    def _interpolate_grid_ranges(
+        detected: List[Tuple[int, int]],
+        expected: int,
+        axis_size: Optional[int] = None
+    ) -> List[Tuple[int, int]]:
+        """Infer a full regular grid from a partial set of detected ranges.
+        
+        This is used when one or more interior patches are too close in
+        brightness to the background (e.g. white patch on white paper).
+        
+        Args:
+            detected: Existing detected ranges (must be sorted)
+            expected: Expected number of ranges in this axis
+            axis_size: Optional axis length for bounds clipping
+        
+        Returns:
+            Reconstructed list of ranges, or original ranges if interpolation
+            is not feasible.
+        """
+        if len(detected) < 2 or len(detected) >= expected:
+            return detected
+        
+        widths = [e - s for s, e in detected if e > s]
+        if not widths:
+            return detected
+        avg_width = int(round(float(np.mean(widths))))
+        
+        first_center = (detected[0][0] + detected[0][1]) / 2.0
+        last_center = (detected[-1][0] + detected[-1][1]) / 2.0
+        if expected <= 1:
+            return detected
+        
+        spacing = (last_center - first_center) / (expected - 1)
+        half = avg_width // 2
+        
+        interpolated = []
+        for i in range(expected):
+            center = int(round(first_center + i * spacing))
+            start = center - half
+            end = center + half
+            
+            if axis_size is not None:
+                start = max(0, start)
+                end = min(axis_size, end)
+            
+            if end <= start:
+                return detected
+            interpolated.append((start, end))
+        
+        logger.info(
+            f"Interpolated {expected} ranges from {len(detected)} detected "
+            f"(width={avg_width}, spacing={spacing:.1f})"
+        )
+        return interpolated
     
     @staticmethod
     def _delta_e_rgb(rgb1: Tuple[float, float, float],

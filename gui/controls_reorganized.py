@@ -437,6 +437,10 @@ class ReorganizedControlPanel(ttk.Frame):
         self.load_sample_button = ttk.Button(template_frame, text="Load", command=self._load_sample_set, width=5)
         self.load_sample_button.pack(side=tk.LEFT, padx=1)
         
+        # Export current template for sharing
+        ttk.Button(template_frame, text="Export", command=self._export_current_template, width=6
+        ).pack(side=tk.LEFT, padx=1)
+        
         # Analysis name
         analysis_frame = ttk.Frame(self.sample_frame)
         analysis_frame.pack(fill=tk.X, padx=5, pady=1)
@@ -1510,6 +1514,48 @@ class ReorganizedControlPanel(ttk.Frame):
             print("DEBUG: main_app not found or not set")
             messagebox.showinfo("Info", "Load sample set - connect to main app implementation")
             
+    
+    def _export_current_template(self):
+        """Export the currently loaded template to a JSON file for sharing."""
+        template_name = self.sample_set_name.get().strip()
+        if not template_name or template_name == "MAN_MODE":
+            messagebox.showwarning(
+                "No Template",
+                "Please load a template first before exporting.",
+            )
+            return
+        
+        from tkinter import filedialog
+        desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
+        safe_name = "".join(c for c in template_name if c.isalnum() or c in ' _-').strip()
+        
+        dest = filedialog.asksaveasfilename(
+            title="Export Template",
+            initialdir=desktop,
+            initialfile=f"{safe_name}.json",
+            defaultextension=".json",
+            filetypes=[
+                ("JSON templates", "*.json"),
+                ("All files", "*.*")
+            ]
+        )
+        if not dest:
+            return
+        
+        from utils.coordinate_db import CoordinateDB
+        db = CoordinateDB()
+        if db.export_template_to_json(template_name, dest):
+            messagebox.showinfo(
+                "Template Exported",
+                f"Template '{template_name}' saved to:\n{dest}\n\n"
+                f"Send this file along with your stamp image and calibration\n"
+                f"profile so another StampZ user can replicate your analysis."
+            )
+        else:
+            messagebox.showerror(
+                "Export Error",
+                f"Failed to export template '{template_name}'."
+            )
     
     def _clear_samples(self):
         """Clear all sample areas."""
