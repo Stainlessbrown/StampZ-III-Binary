@@ -1037,6 +1037,91 @@ CREATE TABLE IF NOT EXISTS library_colors (
             print(f"Error importing library: {e}")
             return 0
     
+    def merge_from_library(self, source_library_name: str, delta_e_threshold: float = 1.0,
+                           progress_callback: Optional[Callable[[int, int], None]] = None) -> Dict[str, int]:
+        """Merge all colors from a source library into this library, skipping perceptual duplicates.
+
+        Duplicate detection is based on L*a*b* color values using Delta E comparison.
+        Colors with a Delta E ≤ threshold to any existing color in this library are
+        considered duplicates and skipped. Name collisions are resolved by auto-incrementing.
+
+        Args:
+            source_library_name: Name of the library to merge from
+            delta_e_threshold: Maximum Delta E for two colors to be considered duplicates
+                              (default 1.0 = imperceptible difference)
+            progress_callback: Optional callback(current, total) for progress updates
+
+        Returns:
+            Dict with merge statistics:
+                total_source: number of colors in source library
+                added: number of colors added to this library
+                skipped_duplicate: number of colors skipped as duplicates
+                skipped_error: number of colors that failed to add
+        """
+        stats = {'total_source': 0, 'added': 0, 'skipped_duplicate': 0, 'skipped_error': 0}
+
+        try:
+            # Load source library
+            source_library = ColorLibrary(source_library_name)
+            source_colors = source_library.get_all_colors()
+            stats['total_source'] = len(source_colors)
+
+            if not source_colors:
+                print(f"Merge: Source library '{source_library_name}' is empty.")
+                return stats
+
+            # Cache destination colors for duplicate checking
+            dest_colors = self.get_all_colors()
+            dest_lab_values = [c.lab for c in dest_colors]
+
+            print(f"Merge: {len(source_colors)} source colors, {len(dest_colors)} destination colors, "
+                  f"threshold ΔE ≤ {delta_e_threshold}")
+
+            for i, src_color in enumerate(source_colors):
+                if progress_callback:
+                    progress_callback(i + 1, len(source_colors))
+
+                # Check for perceptual duplicate against all destination colors
+                is_duplicate = False
+                for dest_lab in dest_lab_values:
+                    delta_e = self.calculate_delta_e_2000(src_color.lab, dest_lab)
+                    if delta_e <= delta_e_threshold:
+                        is_duplicate = True
+                        break
+
+                if is_duplicate:
+                    stats['skipped_duplicate'] += 1
+                    continue
+
+                # Not a duplicate — add to this library
+                try:
+                    success = self.add_color(
+                        name=src_color.name,
+                        lab=src_color.lab,
+                        description=src_color.description,
+                        category=src_color.category,
+                        source=src_color.source,
+                        notes=src_color.notes
+                    )
+                    if success:
+                        stats['added'] += 1
+                        # Add to cached destination Lab values so subsequent
+                        # source colors are checked against newly added ones too
+                        dest_lab_values.append(src_color.lab)
+                    else:
+                        stats['skipped_error'] += 1
+                except Exception as e:
+                    print(f"Merge: Error adding '{src_color.name}': {e}")
+                    stats['skipped_error'] += 1
+
+            print(f"Merge complete: {stats['added']} added, {stats['skipped_duplicate']} duplicates skipped, "
+                  f"{stats['skipped_error']} errors")
+
+        except Exception as e:
+            print(f"Error during merge: {e}")
+
+        return stats
+
     def _row_to_color(self, row) -> LibraryColor:
         """Convert database row to LibraryColor object."""
         return LibraryColor(

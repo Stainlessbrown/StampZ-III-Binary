@@ -332,6 +332,17 @@ class ColorLibraryManager:
         
         # Library creation is handled through the New Library button
         
+        # Merge
+        merge_frame = ttk.LabelFrame(self.settings_frame, text="Merge Libraries")
+        merge_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        merge_buttons = ttk.Frame(merge_frame)
+        merge_buttons.pack(padx=10, pady=10)
+        
+        ttk.Button(merge_buttons, text="Merge Library...", command=self._merge_library_dialog).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(merge_buttons, text="Combine another library into the current one, removing duplicates",
+                 font=("Arial", 9), foreground="gray").pack(side=tk.LEFT, padx=(10, 0))
+        
         # Import/Export
         io_frame = ttk.LabelFrame(self.settings_frame, text="Import/Export")
         io_frame.pack(fill=tk.X)
@@ -1387,6 +1398,174 @@ class ColorLibraryManager:
         button_frame.pack(fill=tk.X, padx=20, pady=15)
         
         ttk.Button(button_frame, text="Copy", command=copy_color).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+    
+    def _merge_library_dialog(self):
+        """Show dialog to merge another library into the current one."""
+        if not self.library:
+            messagebox.showerror("Error", "Please load a library first")
+            return
+        
+        # Get available libraries (excluding current)
+        from utils.path_utils import get_color_libraries_dir
+        library_dir = get_color_libraries_dir()
+        try:
+            library_files = [f for f in os.listdir(library_dir) if f.endswith("_library.db")]
+        except OSError:
+            messagebox.showerror("Error", "Could not read library directory.")
+            return
+        
+        other_libraries = []
+        for f in library_files:
+            base_name = f[:-11]  # Remove "_library.db"
+            if base_name != self.current_library_name:
+                if '_' in base_name:
+                    display = " ".join(word.capitalize() for word in base_name.split('_'))
+                else:
+                    display = base_name.capitalize()
+                other_libraries.append((display, base_name))
+        
+        other_libraries.sort(key=lambda x: x[0])
+        
+        if not other_libraries:
+            messagebox.showinfo("No Other Libraries",
+                              "No other libraries available to merge from.\nCreate or import a library first.")
+            return
+        
+        # Create dialog
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Merge Library")
+        dialog.geometry("480x380")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Center dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - 240
+        y = (dialog.winfo_screenheight() // 2) - 190
+        dialog.geometry(f"+{x}+{y}")
+        
+        # Current library info
+        current_display = self.file_to_display_map.get(self.current_library_name, self.current_library_name)
+        dest_count = self.library.get_color_count()
+        
+        ttk.Label(dialog, text="Merge Library Into Current",
+                 font=("Arial", 13, "bold")).pack(pady=(15, 5))
+        ttk.Label(dialog, text=f"Destination: {current_display} ({dest_count} colors)",
+                 font=("Arial", 10)).pack(pady=(0, 10))
+        
+        # Source library selection
+        select_frame = ttk.Frame(dialog)
+        select_frame.pack(fill=tk.X, padx=25, pady=5)
+        
+        ttk.Label(select_frame, text="Merge from:").pack(anchor="w")
+        source_var = tk.StringVar(value=other_libraries[0][0])
+        source_combo = ttk.Combobox(select_frame, textvariable=source_var,
+                                    values=[d for d, _ in other_libraries],
+                                    state="readonly", width=35)
+        source_combo.pack(fill=tk.X, pady=3)
+        
+        # Source preview label
+        source_info_var = tk.StringVar()
+        source_info_label = ttk.Label(select_frame, textvariable=source_info_var,
+                                     font=("Arial", 9), foreground="gray")
+        source_info_label.pack(anchor="w")
+        
+        # Map display names to file names for lookup
+        display_to_file = {d: f for d, f in other_libraries}
+        
+        def update_source_info(*_args):
+            display_name = source_var.get()
+            file_name = display_to_file.get(display_name, "")
+            if file_name:
+                from utils.color_library import ColorLibrary as CL
+                src = CL(file_name)
+                source_info_var.set(f"Source has {src.get_color_count()} colors")
+        
+        source_combo.bind("<<ComboboxSelected>>", update_source_info)
+        update_source_info()  # Initial
+        
+        # Delta E threshold
+        threshold_frame = ttk.Frame(dialog)
+        threshold_frame.pack(fill=tk.X, padx=25, pady=(15, 5))
+        
+        ttk.Label(threshold_frame, text="Duplicate detection threshold (Delta E):").pack(anchor="w")
+        
+        threshold_row = ttk.Frame(threshold_frame)
+        threshold_row.pack(fill=tk.X, pady=3)
+        
+        threshold_var = tk.DoubleVar(value=1.0)
+        threshold_spin = ttk.Spinbox(threshold_row, from_=0.0, to=5.0, increment=0.5,
+                                     textvariable=threshold_var, width=6)
+        threshold_spin.pack(side=tk.LEFT, padx=(0, 10))
+        
+        ttk.Label(threshold_row,
+                 text="(0 = exact match only, 1 = imperceptible, 2.5 = barely noticeable)",
+                 font=("Arial", 8), foreground="gray").pack(side=tk.LEFT)
+        
+        # Status / progress area
+        status_var = tk.StringVar(value="")
+        status_label = ttk.Label(dialog, textvariable=status_var, font=("Arial", 9),
+                                foreground="#555555", wraplength=420)
+        status_label.pack(padx=25, pady=(15, 5))
+        
+        progress_var = tk.DoubleVar(value=0)
+        progress_bar = ttk.Progressbar(dialog, variable=progress_var, maximum=100)
+        progress_bar.pack(fill=tk.X, padx=25, pady=(0, 10))
+        
+        def do_merge():
+            display_name = source_var.get()
+            file_name = display_to_file.get(display_name, "")
+            if not file_name:
+                messagebox.showerror("Error", "Please select a source library.")
+                return
+            
+            threshold = threshold_var.get()
+            status_var.set(f"Merging from {display_name}...")
+            merge_btn.configure(state='disabled')
+            dialog.update_idletasks()
+            
+            def on_progress(current, total):
+                if total > 0:
+                    progress_var.set((current / total) * 100)
+                    if current % 10 == 0 or current == total:
+                        status_var.set(f"Processing color {current} of {total}...")
+                        dialog.update_idletasks()
+            
+            stats = self.library.merge_from_library(
+                source_library_name=file_name,
+                delta_e_threshold=threshold,
+                progress_callback=on_progress
+            )
+            
+            progress_var.set(100)
+            dialog.update_idletasks()
+            
+            # Show results
+            summary = (
+                f"Merge Complete\n\n"
+                f"Source: {display_name} ({stats['total_source']} colors)\n"
+                f"Added: {stats['added']} new colors\n"
+                f"Duplicates skipped: {stats['skipped_duplicate']}\n"
+            )
+            if stats['skipped_error'] > 0:
+                summary += f"Errors: {stats['skipped_error']}\n"
+            
+            dialog.destroy()
+            
+            # Refresh displays
+            self._update_category_list()
+            self._update_colors_display()
+            self._update_stats()
+            
+            messagebox.showinfo("Merge Complete", summary)
+        
+        # Buttons
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(pady=15)
+        
+        merge_btn = ttk.Button(button_frame, text="Merge", command=do_merge)
+        merge_btn.pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
     
     def _delete_color(self, color: LibraryColor):
