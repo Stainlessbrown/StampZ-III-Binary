@@ -372,7 +372,14 @@ def quick_philatelic_analysis(
         Analysis result
     """
     if libraries is None:
-        libraries = ['philatelic_colors', 'basic_colors']
+        # Use whatever libraries exist on disk
+        import os as _os
+        from .path_utils import get_color_libraries_dir
+        _lib_dir = get_color_libraries_dir()
+        if _os.path.isdir(_lib_dir):
+            libraries = sorted(f[:-11] for f in _os.listdir(_lib_dir) if f.endswith('_library.db'))
+        else:
+            libraries = []
     
     integration = ColorLibraryIntegration(libraries)
     return integration.analyze_sample_against_libraries(sample_lab)

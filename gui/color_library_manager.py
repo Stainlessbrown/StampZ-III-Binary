@@ -21,6 +21,22 @@ from gui.color_display import ColorDisplay
 
 __all__ = ['ColorLibraryManager']
 
+
+def _find_first_library_on_disk():
+    """Return the file-name (without _library.db) of the first library that
+    actually exists on disk, or None if no libraries exist."""
+    try:
+        from utils.path_utils import get_color_libraries_dir
+        library_dir = get_color_libraries_dir()
+        if os.path.isdir(library_dir):
+            db_files = sorted(f for f in os.listdir(library_dir) if f.endswith("_library.db"))
+            if db_files:
+                return db_files[0][:-11]  # strip "_library.db"
+    except Exception as e:
+        print(f"Error scanning for libraries: {e}")
+    return None
+
+
 class ColorLibraryManager:
     """Color library management interface."""
     
@@ -34,14 +50,14 @@ class ColorLibraryManager:
         # Store this instance as the current one
         ColorLibraryManager._current_instance = self
         
-        # Get default library from preferences
+        # Get default library from preferences, falling back to first on disk
         try:
             from utils.user_preferences import get_preferences_manager
             prefs_manager = get_preferences_manager()
             self.current_library_name = prefs_manager.get_default_color_library()
         except Exception as e:
             print(f"Error loading default library preference: {e}")
-            self.current_library_name = "basic_colors"
+            self.current_library_name = _find_first_library_on_disk() or ""
         
         # Create main window
         if parent is None:
@@ -92,8 +108,16 @@ class ColorLibraryManager:
         self.notebook.add(self.compare_frame, text="Compare")
         self.notebook.add(self.settings_frame, text="Settings")
         
-        # Ensure we have a library
-        if not self.library:
+        # Ensure the preferred library actually exists on disk;
+        # if not, fall back to the first available library.
+        if self.current_library_name:
+            from utils.path_utils import get_color_libraries_dir
+            db_path = os.path.join(get_color_libraries_dir(),
+                                   f"{self.current_library_name}_library.db")
+            if not os.path.exists(db_path):
+                self.current_library_name = _find_first_library_on_disk() or ""
+        
+        if self.current_library_name:
             self.library = ColorLibrary(self.current_library_name)
         
         # Create tab contents
@@ -102,8 +126,11 @@ class ColorLibraryManager:
         self._create_compare_tab()
         self._create_settings_tab()
         
-        # Load initial library
-        self._load_library(self.current_library_name)
+        # Load initial library (or show empty state)
+        if self.current_library_name:
+            self._load_library(self.current_library_name)
+        else:
+            self._update_library_list()
         
         # Bind tab change event to sync data between Results and Compare
         self.notebook.bind('<<NotebookTabChanged>>', self._on_tab_changed)
@@ -128,6 +155,7 @@ class ColorLibraryManager:
         self.library_combo = ttk.Combobox(library_row, textvariable=self.library_var, width=20)
         self.library_combo.pack(side=tk.LEFT, padx=(0, 10))
         self.library_combo.bind("<<ComboboxSelected>>", self._on_library_changed)
+        self.library_combo.bind("<Button-1>", lambda e: self._update_library_list())  # Refresh on open
         
         ttk.Button(library_row, text="New Library", command=self._create_new_library).pack(side=tk.LEFT, padx=(0, 5))
         
@@ -330,7 +358,9 @@ class ColorLibraryManager:
         buttons_frame = ttk.Frame(mgmt_frame)
         buttons_frame.pack(padx=10, pady=10)
         
-        # Library creation is handled through the New Library button
+        ttk.Button(buttons_frame, text="Delete Current Library...", command=self._delete_library).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(buttons_frame, text="Permanently removes the current library database",
+                 font=("Arial", 9), foreground="gray").pack(side=tk.LEFT, padx=(10, 0))
         
         # Merge
         merge_frame = ttk.LabelFrame(self.settings_frame, text="Merge Libraries")
@@ -357,9 +387,13 @@ class ColorLibraryManager:
         """Load a color library."""
         try:
             print(f"Loading library: {library_name}")
-            # Default to basic_colors if no name provided
             if not library_name:
-                library_name = "basic_colors"
+                library_name = _find_first_library_on_disk() or ""
+            if not library_name:
+                print("No libraries available on disk.")
+                self.library = None
+                self._update_library_list()
+                return
             
             # Create the library object
             self.library = ColorLibrary(library_name)
@@ -375,17 +409,21 @@ class ColorLibraryManager:
             
         except Exception as e:
             print(f"Error loading library: {e}")
-            # Fall back to basic_colors on error
-            try:
-                print("Falling back to basic_colors library")
-                self.library = ColorLibrary("basic_colors")
-                self.current_library_name = "basic_colors"
-                self._update_library_list()
-                self._update_category_list()
-                self._update_colors_display()
-                self._update_stats()
-            except Exception as fallback_error:
-                print(f"Critical error: Failed to load basic_colors library: {fallback_error}")
+            # Fall back to first available library on disk
+            fallback = _find_first_library_on_disk()
+            if fallback and fallback != library_name:
+                try:
+                    print(f"Falling back to '{fallback}' library")
+                    self.library = ColorLibrary(fallback)
+                    self.current_library_name = fallback
+                    self._update_library_list()
+                    self._update_category_list()
+                    self._update_colors_display()
+                    self._update_stats()
+                except Exception as fallback_error:
+                    print(f"Critical error: Failed to load fallback library: {fallback_error}")
+                    messagebox.showerror("Error", f"Failed to load library: {str(e)}")
+            else:
                 messagebox.showerror("Error", f"Failed to load library: {str(e)}")
     
     def _update_library_list(self):
@@ -398,12 +436,8 @@ class ColorLibraryManager:
             # Ensure library directory exists
             os.makedirs(library_dir, exist_ok=True)
             
-            # Get all library files
+            # Get all library files that actually exist on disk
             library_files = [f for f in os.listdir(library_dir) if f.endswith("_library.db")]
-            
-            # Always include basic_colors in the list
-            if "basic_colors_library.db" not in library_files:
-                library_files.append("basic_colors_library.db")
             
             # Process library names
             library_names = []
@@ -441,10 +475,13 @@ class ColorLibraryManager:
             # Set current selection
             if self.current_library_name in self.file_to_display_map:
                 display_name = self.file_to_display_map[self.current_library_name]
+            elif library_names:
+                # Current library not found — select the first available
+                display_name = library_names[0]
+                self.current_library_name = file_to_display.get(display_name, "")
             else:
-                # Default to basic_colors
-                self.current_library_name = "basic_colors"
-                display_name = "Basic Colors"
+                display_name = ""
+                self.current_library_name = ""
             
             self.library_var.set(display_name)
             
@@ -453,12 +490,10 @@ class ColorLibraryManager:
             
         except Exception as e:
             print(f"Error updating library list: {e}")
-            # Fall back to basic_colors
-            self.library_combo['values'] = ["Basic Colors"]
-            self.current_library_name = "basic_colors"
-            self.library_var.set("Basic Colors")
-            self.display_to_file_map = {"Basic Colors": "basic_colors"}
-            self.file_to_display_map = {"basic_colors": "Basic Colors"}
+            self.library_combo['values'] = []
+            self.library_var.set("")
+            self.display_to_file_map = {}
+            self.file_to_display_map = {}
     
     def _update_category_list(self):
         """Update the category list."""
@@ -930,7 +965,66 @@ class ColorLibraryManager:
         if display_name in self.display_to_file_map:
             file_name = self.display_to_file_map[display_name]
             if file_name != self.current_library_name:
+                # Verify the database file still exists before loading
+                from utils.path_utils import get_color_libraries_dir
+                db_path = os.path.join(get_color_libraries_dir(), f"{file_name}_library.db")
+                if not os.path.exists(db_path):
+                    messagebox.showwarning("Library Not Found",
+                                          f"The library '{display_name}' no longer exists on disk.\n"
+                                          "It may have been deleted externally.")
+                    self._update_library_list()
+                    return
                 self._load_library(file_name)
+    
+    def _delete_library(self):
+        """Delete the currently loaded library."""
+        if not self.library:
+            messagebox.showerror("Error", "No library loaded.")
+            return
+        
+        current_display = self.file_to_display_map.get(self.current_library_name, self.current_library_name)
+        color_count = self.library.get_color_count()
+        
+        if not messagebox.askyesno(
+            "Confirm Delete Library",
+            f"Permanently delete the library '{current_display}'?\n\n"
+            f"This will remove {color_count} colors.\n"
+            f"Colors previously merged from this library into other\n"
+            f"libraries will NOT be affected.\n\n"
+            f"This cannot be undone."
+        ):
+            return
+        
+        deleted_name = self.current_library_name
+        
+        try:
+            # Get the database file path
+            from utils.path_utils import get_color_libraries_dir
+            db_path = os.path.join(get_color_libraries_dir(),
+                                   f"{self.current_library_name}_library.db")
+            
+            # Close any connections by releasing the library object
+            self.library = None
+            
+            # Delete the file
+            if os.path.exists(db_path):
+                os.remove(db_path)
+            
+            messagebox.showinfo("Deleted", f"Library '{current_display}' has been deleted.")
+            
+            # Switch to first remaining library (or empty state)
+            fallback = _find_first_library_on_disk()
+            if fallback:
+                self._load_library(fallback)
+            else:
+                self.current_library_name = ""
+                self._update_library_list()
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to delete library: {str(e)}")
+            fallback = _find_first_library_on_disk()
+            if fallback:
+                self._load_library(fallback)
     
     def _on_category_changed(self, event=None):
         """Handle category filter change."""
@@ -1779,7 +1873,9 @@ class ColorLibraryManager:
         
         # Ensure we have a library
         if not self.library:
-            self.library = ColorLibrary('basic_colors')
+            first_lib = _find_first_library_on_disk()
+            if first_lib:
+                self.library = ColorLibrary(first_lib)
         
         # Create comparison tab if it doesn't exist
         if not hasattr(self, 'comparison_manager'):

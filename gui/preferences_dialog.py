@@ -1234,9 +1234,9 @@ class PreferencesDialog:
         except Exception as e:
             print(f"Error loading color library preferences: {e}")
             # Fallback
-            self.library_combo['values'] = ['Basic Colors']
-            self.default_library_var.set('Basic Colors')
-            self._library_mapping = {'Basic Colors': 'basic_colors'}
+            self.library_combo['values'] = []
+            self.default_library_var.set('')
+            self._library_mapping = {}
     
     def _load_template_preferences(self):
         """Load template preferences from coordinates.db."""

@@ -1095,13 +1095,20 @@ CREATE TABLE IF NOT EXISTS library_colors (
 
                 # Not a duplicate — add to this library
                 try:
+                    # Append source library origin to notes for traceability
+                    origin_tag = f"Merged from: {source_library_name}"
+                    if src_color.notes:
+                        merged_notes = f"{src_color.notes} | {origin_tag}"
+                    else:
+                        merged_notes = origin_tag
+
                     success = self.add_color(
                         name=src_color.name,
                         lab=src_color.lab,
                         description=src_color.description,
                         category=src_color.category,
                         source=src_color.source,
-                        notes=src_color.notes
+                        notes=merged_notes
                     )
                     if success:
                         stats['added'] += 1

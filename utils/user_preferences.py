@@ -406,17 +406,13 @@ class PreferencesManager:
             # Get all library files
             library_files = [f for f in os.listdir(library_dir) if f.endswith("_library.db")]
             
-            # Always include basic_colors if not found
-            if "basic_colors_library.db" not in library_files:
-                library_files.append("basic_colors_library.db")
-            
             # Convert to library names (remove "_library.db" suffix)
             library_names = [f[:-11] for f in library_files]
             
             return sorted(library_names)
         except Exception as e:
             print(f"Error getting available color libraries: {e}")
-            return ["basic_colors"]
+            return []
     
     # Interface mode methods removed - complexity levels no longer used
     

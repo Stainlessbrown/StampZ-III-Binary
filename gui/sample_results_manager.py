@@ -705,18 +705,15 @@ class SampleResultsManager(tk.Frame):
             
             library_dir = get_color_libraries_dir()
             if not os.path.exists(library_dir):
-                return ['basic_colors']
+                return []
                 
             library_files = [f for f in os.listdir(library_dir) if f.endswith("_library.db")]
             library_names = [f[:-11] for f in library_files]  # Remove '_library.db' suffix
-            
-            if not library_names:
-                library_names = ['basic_colors']
                 
             return sorted(library_names)
         except Exception as e:
             print(f"Error getting libraries: {e}")
-            return ['basic_colors']
+            return []
     
     def _get_existing_databases(self):
         """Get list of existing non-library databases."""

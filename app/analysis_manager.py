@@ -3417,7 +3417,12 @@ class AnalysisManager:
             try:
                 library_manager = ColorLibraryManager(parent=self.root)
                 if not library_manager.library:
-                    library_manager.library = ColorLibrary('basic_colors')
+                    # Use first available library on disk
+                    from utils.path_utils import get_color_libraries_dir
+                    lib_dir = get_color_libraries_dir()
+                    db_files = sorted(f for f in os.listdir(lib_dir) if f.endswith('_library.db')) if os.path.isdir(lib_dir) else []
+                    if db_files:
+                        library_manager.library = ColorLibrary(db_files[0][:-11])
                 
                 # Send data to both Results and Compare tabs
                 library_manager.results_manager.set_analyzed_data(
@@ -3534,7 +3539,11 @@ class AnalysisManager:
                     )
                     return
 
-            integration = ColorLibraryIntegration(['philatelic_colors', 'basic_colors'])
+            # Use whatever libraries actually exist on disk
+            from utils.path_utils import get_color_libraries_dir
+            lib_dir = get_color_libraries_dir()
+            available_libs = sorted(f[:-11] for f in os.listdir(lib_dir) if f.endswith('_library.db')) if os.path.isdir(lib_dir) else []
+            integration = ColorLibraryIntegration(available_libs if available_libs else [])
 
             default_filename = f"{sample_set_name}_with_library_matches_{datetime.now().strftime('%Y%m%d')}.ods"
             filepath = filedialog.asksaveasfilename(
