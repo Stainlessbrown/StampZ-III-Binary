@@ -10,6 +10,7 @@ This module creates a dedicated window for 2D views that allows users to:
 import tkinter as tk
 from tkinter import ttk
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import pandas as pd
 import numpy as np
@@ -175,12 +176,19 @@ class View2DWindow:
             self.highlight_elements.clear()
             
             # Filter valid data points
+            print(f"DEBUG 2D-WINDOW: data_df has {len(self.data_df)} total rows")
+            print(f"DEBUG 2D-WINDOW: columns = {list(self.data_df.columns)}")
+            xnorm_count = self.data_df['Xnorm'].notna().sum()
+            ynorm_count = self.data_df['Ynorm'].notna().sum()
+            znorm_count = self.data_df['Znorm'].notna().sum()
+            print(f"DEBUG 2D-WINDOW: non-NaN counts  Xnorm={xnorm_count}  Ynorm={ynorm_count}  Znorm={znorm_count}")
+            
             valid_mask = (self.data_df['Xnorm'].notna() & 
                          self.data_df['Ynorm'].notna() & 
                          self.data_df['Znorm'].notna())
             valid_data = self.data_df[valid_mask]
             
-            print(f"DEBUG: Plotting {len(valid_data)} points in 2D window {view_type} view")
+            print(f"DEBUG 2D-WINDOW: Plotting {len(valid_data)} valid points in {view_type} view")
             
             # Get coordinates and labels based on view type
             if view_type == 'xy':  # L*a* or R/G view
@@ -214,7 +222,8 @@ class View2DWindow:
                 )
                 # Store the DataFrame index for point identification
                 scatter._df_index = idx
-                scatter._data_id = row.get('DataID', f'Point_{idx + 1}')
+                raw_id = row.get('DataID')
+                scatter._data_id = str(raw_id) if pd.notna(raw_id) else f'Point_{idx + 1}'
             
             # Style the plot
             self.ax.set_xlabel(x_label, fontsize=14, fontweight='bold')
@@ -236,6 +245,15 @@ class View2DWindow:
             # Add distinctive background color for the orphan window
             self.ax.set_facecolor('#f0fff0')  # Very light green background (honeydew)
             
+            # Finalize layout BEFORE adding sphere circles so tight_layout
+            # calculates based on scatter data only.
+            self.fig.tight_layout()
+            
+            # Now freeze axis limits and add sphere circles on top.
+            # This prevents the circle patches from altering the view.
+            self.ax.set_autoscale_on(False)
+            self._render_sphere_circles(view_type)
+            
             # Update view button states
             for view, btn in self.view_buttons.items():
                 if view == view_type:
@@ -244,7 +262,6 @@ class View2DWindow:
                     btn.configure(style='TButton')
             
             # Draw the plot
-            self.fig.tight_layout()
             self.canvas.draw()
             
             print(f"DEBUG: Successfully switched to {view_type} view in 2D window")
@@ -253,6 +270,76 @@ class View2DWindow:
             print(f"Error switching to {view_type} view: {e}")
             import traceback
             traceback.print_exc()
+    
+    def _render_sphere_circles(self, view_type):
+        """Render sphere circles on the 2D view using the same radius as 3D spheres.
+        
+        Reads Centroid_X/Y/Z and Radius from the data to draw translucent circles,
+        matching the 3D sphere representation projected onto the chosen plane.
+        """
+        try:
+            DEFAULT_RADIUS = 0.02
+            SPHERE_ALPHA = 0.30  # Slightly more opaque than 3D for visibility
+            
+            # Need centroid columns to exist
+            required = ['Centroid_X', 'Centroid_Y', 'Centroid_Z']
+            if not all(col in self.data_df.columns for col in required):
+                return
+            
+            valid_mask = (
+                self.data_df['Centroid_X'].notna() &
+                self.data_df['Centroid_Y'].notna() &
+                self.data_df['Centroid_Z'].notna()
+            )
+            centroid_data = self.data_df[valid_mask]
+            
+            if len(centroid_data) == 0:
+                return
+            
+            # Map view type to centroid coordinate columns
+            coord_map = {
+                'xy': ('Centroid_X', 'Centroid_Y'),
+                'xz': ('Centroid_X', 'Centroid_Z'),
+                'yz': ('Centroid_Y', 'Centroid_Z'),
+            }
+            col_h, col_v = coord_map[view_type]
+            
+            circle_count = 0
+            for idx, row in centroid_data.iterrows():
+                try:
+                    # Resolve colour (same logic as SphereManager)
+                    color_name = row.get('Sphere')
+                    color = str(color_name) if pd.notna(color_name) else 'gray'
+                    
+                    # Use the same Radius column / default as 3D
+                    radius = row.get('Radius', DEFAULT_RADIUS)
+                    try:
+                        radius = float(radius)
+                        if not (radius > 0):
+                            radius = DEFAULT_RADIUS
+                    except (ValueError, TypeError):
+                        radius = DEFAULT_RADIUS
+                    
+                    cx = float(row[col_h])
+                    cy = float(row[col_v])
+                    
+                    circle = mpatches.Circle(
+                        (cx, cy), radius,
+                        facecolor=color,
+                        edgecolor=color,
+                        alpha=SPHERE_ALPHA,
+                        linewidth=1.0,
+                        zorder=5
+                    )
+                    self.ax.add_patch(circle)
+                    circle_count += 1
+                except Exception:
+                    continue
+            
+            if circle_count:
+                print(f"DEBUG: Rendered {circle_count} sphere circles in 2D window ({view_type})")
+        except Exception as e:
+            print(f"Error rendering sphere circles in 2D window: {e}")
     
     def _on_pick(self, event):
         """Handle point picking in the 2D window"""
@@ -265,7 +352,8 @@ class View2DWindow:
             
             if hasattr(event.artist, '_df_index'):
                 df_idx = event.artist._df_index
-                data_id = getattr(event.artist, '_data_id', f'Point_{df_idx + 1}')
+                raw_id = getattr(event.artist, '_data_id', None)
+                data_id = str(raw_id) if pd.notna(raw_id) else f'Point_{df_idx + 1}'
                 print(f"DEBUG: Picked point {data_id} (DataFrame index: {df_idx})")
             
             if df_idx is not None:
@@ -307,7 +395,8 @@ class View2DWindow:
         """Add highlight to a point in the 2D window"""
         try:
             point = self.data_df.loc[df_idx]
-            data_id = point.get('DataID', f'Point_{df_idx + 1}')
+            raw_id = point.get('DataID')
+            data_id = str(raw_id) if pd.notna(raw_id) else f'Point_{df_idx + 1}'
             
             # Get coordinates based on current view
             if self.current_view == 'xy':

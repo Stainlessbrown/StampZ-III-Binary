@@ -7,7 +7,7 @@ import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
-from matplotlib.patches import Rectangle
+from matplotlib.patches import Rectangle, Circle
 
 from utils.data_file_manager import get_data_file_manager, DataFormat
 
@@ -412,9 +412,13 @@ class TernaryPlotWindow:
                 b_values = pd.to_numeric(df['b*'], errors='coerce')
                 
                 # Verify the values are in reasonable L*a*b* ranges
-                l_reasonable = l_values.between(0, 100).sum() > len(l_values) * 0.8
-                a_reasonable = a_values.between(-128, 127).sum() > len(a_values) * 0.8  
-                b_reasonable = b_values.between(-128, 127).sum() > len(b_values) * 0.8
+                # Only check non-NaN rows so centroid/blank rows don't skew the result
+                l_valid = l_values.dropna()
+                a_valid = a_values.dropna()
+                b_valid = b_values.dropna()
+                l_reasonable = len(l_valid) > 0 and l_valid.between(0, 100).sum() > len(l_valid) * 0.8
+                a_reasonable = len(a_valid) > 0 and a_valid.between(-128, 127).sum() > len(a_valid) * 0.8
+                b_reasonable = len(b_valid) > 0 and b_valid.between(-128, 127).sum() > len(b_valid) * 0.8
                 
                 if l_reasonable and a_reasonable and b_reasonable:
                     print(f"DEBUG: L*a*b* values are in reasonable ranges, using as-is")
@@ -427,6 +431,18 @@ class TernaryPlotWindow:
                     df['L*'] = l_values * 100.0
                     df['a*'] = a_values * 255.0 - 128.0
                     df['b*'] = b_values * 255.0 - 128.0
+                
+                # Fill rows that still have NaN L*a*b* from Xnorm/Ynorm/Znorm
+                if has_normalized_columns:
+                    nan_mask = df['L*'].isna() | df['a*'].isna() | df['b*'].isna()
+                    if nan_mask.any():
+                        xn = pd.to_numeric(df.loc[nan_mask, 'Xnorm'], errors='coerce')
+                        yn = pd.to_numeric(df.loc[nan_mask, 'Ynorm'], errors='coerce')
+                        zn = pd.to_numeric(df.loc[nan_mask, 'Znorm'], errors='coerce')
+                        df.loc[nan_mask, 'L*'] = df.loc[nan_mask, 'L*'].fillna(xn * 100.0)
+                        df.loc[nan_mask, 'a*'] = df.loc[nan_mask, 'a*'].fillna(yn * 255.0 - 128.0)
+                        df.loc[nan_mask, 'b*'] = df.loc[nan_mask, 'b*'].fillna(zn * 255.0 - 128.0)
+                        print(f"DEBUG: Filled {nan_mask.sum()} NaN L*a*b* rows from Xnorm/Ynorm/Znorm")
                     
             elif has_normalized_columns:
                 # File has Plot_3D normalized format - convert to L*a*b*
@@ -473,7 +489,12 @@ class TernaryPlotWindow:
             if 'DataID' not in df.columns:
                 df['DataID'] = [f"Point_{i+1}" for i in range(len(df))]
 
-            self.df = df[['L*', 'a*', 'b*', 'DataID', 'Marker', 'Color']].copy()
+            # Keep core columns plus any centroid/sphere columns present
+            keep_cols = ['L*', 'a*', 'b*', 'DataID', 'Marker', 'Color']
+            for extra in ['Centroid_X', 'Centroid_Y', 'Centroid_Z', 'Sphere', 'Radius']:
+                if extra in df.columns:
+                    keep_cols.append(extra)
+            self.df = df[keep_cols].copy()
             
             # Debug output
             print(f"DEBUG: Final L*a*b* ranges after import:")
@@ -542,7 +563,11 @@ class TernaryPlotWindow:
             if 'DataID' not in df.columns:
                 df['DataID'] = [f"Point_{i+1}" for i in range(len(df))]
             
-            self.df = df[['L*', 'a*', 'b*', 'DataID', 'Marker', 'Color']].copy()
+            keep_cols = ['L*', 'a*', 'b*', 'DataID', 'Marker', 'Color']
+            for extra in ['Centroid_X', 'Centroid_Y', 'Centroid_Z', 'Sphere', 'Radius']:
+                if extra in df.columns:
+                    keep_cols.append(extra)
+            self.df = df[keep_cols].copy()
             self._render()
             
         except Exception as e:
@@ -1120,6 +1145,13 @@ class TernaryPlotWindow:
         markers = df.get('Marker', pd.Series(['.'] * len(df))).fillna('.')
         colors = df.get('Color', pd.Series(['blue'] * len(df))).fillna('blue')
         
+        # Diagnostic: how many points, sample positions
+        print(f"DEBUG TERNARY: {len(df)} total rows to plot")
+        print(f"DEBUG TERNARY: x range [{min(x):.4f} .. {max(x):.4f}], y range [{min(y):.4f} .. {max(y):.4f}]")
+        for i in range(min(5, len(df))):
+            has_centroid = pd.notna(df.iloc[i].get('Centroid_X')) if 'Centroid_X' in df.columns else False
+            print(f"  row {i}: x={x[i]:.4f} y={y[i]:.4f} marker='{markers.iloc[i]}' color='{colors.iloc[i]}' centroid={has_centroid}")
+        
         # Clear previous point data for click detection
         self.plot_points = []
         
@@ -1170,6 +1202,9 @@ class TernaryPlotWindow:
                           c=c if str(c) else 'blue', 
                           edgecolors=edge_color, linewidths=edge_width, alpha=0.9)
 
+        # Sphere circles – draw circles at centroid positions using the 3D radius
+        self._render_sphere_circles(df, x, y)
+        
         # Convex hull
         if self.show_hull.get() and len(x) >= 3:
             hull_idx = self._convex_hull_2d(np.stack([x, y], axis=1))
@@ -1194,6 +1229,63 @@ class TernaryPlotWindow:
         
         self.canvas.draw_idle()
 
+    def _render_sphere_circles(self, df, x, y):
+        """Draw translucent circles at centroid positions on the ternary plot.
+        
+        Identifies rows that have valid Centroid_X/Y/Z (i.e. sphere rows)
+        and draws a circle at the corresponding ternary (x, y) position
+        using the Radius value from the data.
+        """
+        try:
+            required = ['Centroid_X', 'Centroid_Y', 'Centroid_Z']
+            if not all(col in df.columns for col in required):
+                return
+            
+            DEFAULT_RADIUS = 0.02
+            SPHERE_ALPHA = 0.30
+            
+            centroid_mask = (
+                df['Centroid_X'].notna() &
+                df['Centroid_Y'].notna() &
+                df['Centroid_Z'].notna()
+            )
+            
+            if not centroid_mask.any():
+                return
+            
+            circle_count = 0
+            for i in range(len(df)):
+                if not centroid_mask.iloc[i]:
+                    continue
+                
+                row = df.iloc[i]
+                color_name = row.get('Sphere')
+                color = str(color_name) if pd.notna(color_name) and str(color_name).strip() else 'gray'
+                
+                radius = row.get('Radius', DEFAULT_RADIUS)
+                try:
+                    radius = float(radius)
+                    if not (radius > 0):
+                        radius = DEFAULT_RADIUS
+                except (ValueError, TypeError):
+                    radius = DEFAULT_RADIUS
+                
+                circle = Circle(
+                    (x[i], y[i]), radius,
+                    facecolor=color,
+                    edgecolor=color,
+                    alpha=SPHERE_ALPHA,
+                    linewidth=1.0,
+                    zorder=5
+                )
+                self.ax.add_patch(circle)
+                circle_count += 1
+            
+            if circle_count:
+                print(f"DEBUG: Rendered {circle_count} sphere circles on ternary plot")
+        except Exception as e:
+            print(f"Error rendering sphere circles on ternary plot: {e}")
+    
     def _draw_ternary_axes(self):
         # Equilateral triangle vertices
         h = math.sqrt(3) / 2.0

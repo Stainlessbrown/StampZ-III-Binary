@@ -43,6 +43,7 @@ from .highlight_manager import HighlightManager
 from .k_means_manager import KmeansManager
 from .trendline_manager import TrendlineManager
 from .delta_e_manager import DeltaEManager
+from .pairwise_delta_e import PairwiseDeltaEManager
 from .sphere_manager import SphereManager
 from .reference_point_calculator import ReferencePointCalculator
 from .group_display_manager import GroupDisplayManager
@@ -274,6 +275,11 @@ class Plot3DApp:
                 print("DEBUG: Updating Delta E manager with new centroid data")
                 self.delta_e_manager.load_data(updated_df)
             
+            # Update Pairwise ΔE manager too
+            if hasattr(self, 'pairwise_delta_e_manager') and self.pairwise_delta_e_manager:
+                self.pairwise_delta_e_manager.load_data(updated_df)
+                self.pairwise_delta_e_manager._refresh_cluster_list()
+            
             self.refresh_plot()
             
             # Also update the parent worksheet if callback is provided
@@ -314,6 +320,15 @@ class Plot3DApp:
             if sheet_name:
                 self.delta_e_manager.set_sheet_name(sheet_name)
         self.delta_e_manager.load_data(self.df)
+        
+        # Initialize Pairwise ΔE manager with same settings
+        self.pairwise_delta_e_manager = PairwiseDeltaEManager(color_space=self.label_type)
+        if self.file_path:
+            self.pairwise_delta_e_manager.set_file_path(self.file_path)
+            sheet_name = getattr(self, 'sheet_name', None)
+            if sheet_name:
+                self.pairwise_delta_e_manager.set_sheet_name(sheet_name)
+        self.pairwise_delta_e_manager.load_data(self.df)
         
         # Initialize logger for custom delta E calculator
         logger = getLogger(__name__)
@@ -2082,6 +2097,21 @@ class Plot3DApp:
         else:
             print("Warning: ΔE Manager not available")
         
+        # Create Pairwise ΔE section as its own collapsible section
+        pairwise_section = CollapsibleSection(self.control_frame, "🔬 Pairwise ΔE", expanded=False)
+        pairwise_section.grid(row=8, column=0, sticky='ew', padx=5, pady=5)
+        
+        if hasattr(self, 'pairwise_delta_e_manager') and self.pairwise_delta_e_manager:
+            try:
+                pairwise_frame = self.pairwise_delta_e_manager.create_gui(pairwise_section.content_frame)
+                if pairwise_frame:
+                    pairwise_frame.pack(fill=tk.BOTH, expand=True)
+                    print("Pairwise ΔE GUI created successfully")
+                else:
+                    print("Warning: Failed to create Pairwise ΔE GUI")
+            except Exception as e:
+                print(f"Warning: Error creating Pairwise ΔE GUI: {e}")
+        
         # Create K-Means clustering GUI inside kmeans_section
         if hasattr(self, 'kmeans_manager') and self.kmeans_manager:
             kmeans_frame = self.kmeans_manager.create_gui(kmeans_section.content_frame)
@@ -2095,7 +2125,7 @@ class Plot3DApp:
         
         # Create sphere visibility section in a collapsible section
         sphere_section = CollapsibleSection(self.control_frame, "🚪 Sphere Visibility", expanded=False)
-        sphere_section.grid(row=8, column=0, sticky='ew', padx=5, pady=5)
+        sphere_section.grid(row=9, column=0, sticky='ew', padx=5, pady=5)
         
         # Create sphere visibility frame inside the section with grid layout for canvas + scrollbar
         sphere_frame = ttk.Frame(sphere_section.content_frame)
