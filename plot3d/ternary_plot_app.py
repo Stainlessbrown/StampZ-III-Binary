@@ -20,6 +20,7 @@ class TernaryPlotWindow:
         # Create as a child window so it stays owned by the app
         self.root = tk.Toplevel(parent) if isinstance(parent, (tk.Tk, tk.Toplevel)) else tk.Toplevel()
         self.root.title("Ternary Plot")
+        self._window_base_title = "Ternary Plot"  # Updated when sheet is loaded
         self.root.geometry("1400x900")
         try:
             self.root.attributes('-topmost', False)
@@ -508,6 +509,13 @@ class TernaryPlotWindow:
             self.current_database.set(f"{filename} ({len(self.df)} points)")
             self.current_database_name = path  # Store full path for external files
             
+            # Update window title with sheet name
+            if sheet_name:
+                self._window_base_title = f"Ternary Plot — {sheet_name}"
+            else:
+                self._window_base_title = f"Ternary Plot — {filename}"
+            self.root.title(self._window_base_title)
+            
             self._render()
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open file:\\n\\n{e}")
@@ -654,6 +662,10 @@ class TernaryPlotWindow:
             # Update database indicator
             self.current_database.set(f"{selected_db} ({len(measurements)} points)")
             self.current_database_name = selected_db  # Store database name for viewer
+            
+            # Update window title with database name
+            self._window_base_title = f"Ternary Plot — {selected_db}"
+            self.root.title(self._window_base_title)
             
             # Store raw measurements for re-normalization when toggle changes
             self.database_measurements = measurements
@@ -1213,12 +1225,13 @@ class TernaryPlotWindow:
             self.ax.plot(hx, hy, '-', color='darkred', lw=1.2, alpha=0.9, label='Convex Hull')
             self.ax.legend(loc='upper right')
 
-        # Update title to show highlighted point info
+        # Update title to show highlighted point info (include sheet/file name)
+        base = getattr(self, '_window_base_title', 'Ternary Plot')
         if self.highlighted_point is not None and self.plot_points:
             highlighted_data = self.plot_points[self.highlighted_point]
-            title = f"Ternary Plot - Selected: {highlighted_data['data_id']}"
+            title = f"{base} - Selected: {highlighted_data['data_id']}"
         else:
-            title = "Ternary Plot"
+            title = base
         
         self.ax.set_title(title, fontsize=12)
         

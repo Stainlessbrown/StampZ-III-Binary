@@ -199,15 +199,24 @@ class Plot3DApp:
             print("Using DataFrame mode - no file to open")
     
         # Create main window - either standalone or as child window
+        # Build descriptive window title including sheet name when available
+        sheet_label = getattr(self, 'sheet_name', None)
+        if sheet_label:
+            standalone_title = f"Plot 3D App — {sheet_label}"
+            embedded_title = f"3D Color Space Analysis — {sheet_label}"
+        else:
+            standalone_title = "Plot 3D App"
+            embedded_title = "3D Color Space Analysis"
+        
         if parent is None:
             # Standalone mode - create root window
             self.root = tk.Tk()
-            self.root.title("Plot 3D App")
+            self.root.title(standalone_title)
             self.is_embedded = False
         else:
             # Embedded mode - create child window
             self.root = tk.Toplevel(parent)
-            self.root.title("3D Color Space Analysis")
+            self.root.title(embedded_title)
             # NOTE: On macOS, transient() can cause window disappearing issues when moved
             # Use a more stable approach for window management
             if platform.system() == 'Darwin':
@@ -1425,8 +1434,13 @@ class Plot3DApp:
         # Axis labels with consistent styling
         ax.set_xlabel(cfg['h_label'], fontsize=16, fontweight='bold')
         ax.set_ylabel(cfg['v_label'], fontsize=16, fontweight='bold')
-        ax.set_title(f"{cfg['h_label']} / {cfg['v_label']}  (2D View)",
-                     fontsize=14, fontweight='bold', pad=12)
+        sheet_label = getattr(self, 'sheet_name', None)
+        if sheet_label:
+            ax.set_title(f"{cfg['h_label']} / {cfg['v_label']}  (2D View) — {sheet_label}",
+                         fontsize=14, fontweight='bold', pad=12)
+        else:
+            ax.set_title(f"{cfg['h_label']} / {cfg['v_label']}  (2D View)",
+                         fontsize=14, fontweight='bold', pad=12)
         
         # --- Visibility mask ------------------------------------------------------
         visible_mask = pd.Series(True, index=self.df.index)
