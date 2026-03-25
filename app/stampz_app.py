@@ -129,8 +129,10 @@ class StampZApp:
         
         self.root.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
         
-        # Set minimum size to ensure all UI elements can be visible, but smaller for small monitors
-        self.root.minsize(900, 780)  # Reduced to fit on 1366x768 and smaller screens
+        # Set minimum size to ensure all UI elements can be visible, but adapt for small monitors
+        min_height = min(780, int(screen_height * 0.7))  # Never exceed 70% of screen height
+        min_width = min(900, int(screen_width * 0.8))
+        self.root.minsize(min_width, min_height)
         self.root.protocol("WM_DELETE_WINDOW", self.file_manager.quit_app)
         self.root.resizable(True, True)
         
