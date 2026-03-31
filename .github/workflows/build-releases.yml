@@ -57,7 +57,8 @@ jobs:
     
     - name: Build installer with Inno Setup
       run: |
-        & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" stampz_installer.iss
+        # Use ISCC from PATH (Chocolatey adds it regardless of install version)
+        ISCC stampz_installer.iss
         $installer = Get-Item "dist\StampZ-III-*-Setup.exe"
         Write-Host "Installer created: $($installer.Name) ($([math]::Round($installer.Length / 1MB, 1)) MB)"
     
@@ -132,48 +133,13 @@ jobs:
     
     - name: Create macOS bundle
       run: |
-        pyinstaller --onedir --windowed \
-          --add-data "data:data" \
-          --add-data "templates:templates" \
-          --collect-all="matplotlib" \
-          --collect-all="pandas" \
-          --collect-all="numpy" \
-          --collect-all="PIL" \
-          --hidden-import="matplotlib.backends.backend_tkagg" \
-          --hidden-import="pandas._libs.tslibs.base" \
-          --exclude-module="IPython" \
-          --exclude-module="jupyter" \
-          --name="StampZ" \
-          main.py
-    
-    - name: Create macOS documentation
-      run: |
-        cat > dist/StampZ/README.txt << 'EOF'
-        # StampZ for macOS
-
-        ## Quick Start
-        1. Extract this archive
-        2. Drag StampZ.app to Applications folder (optional)
-        3. Right-click StampZ.app → Open (first time only)
-        4. Click "Open" in the security dialog
-
-        ## Security Note
-        macOS will show a security warning the first time you run StampZ.
-        This is normal for unsigned applications. Click "Open" to proceed.
-
-        ## Features
-        - Complete stamp analysis toolkit
-        - Ternary plot visualization
-        - Spectral analysis tools
-        - Self-contained - no additional installations needed
-
-        Built for macOS 10.14+ (Intel and Apple Silicon)
-        EOF
+        python -m PyInstaller --clean --noconfirm stampz.spec
     
     - name: Create macOS archive
       run: |
         cd dist
-        zip -r "StampZ-macOS-Universal.zip" "StampZ" -x "*.DS_Store"
+        # stampz.spec produces StampZ-III.app on macOS
+        zip -r "StampZ-macOS-Universal.zip" "StampZ-III.app" -x "*.DS_Store"
     
     - name: Upload macOS bundle
       uses: actions/upload-artifact@v6

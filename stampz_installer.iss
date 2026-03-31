@@ -23,8 +23,7 @@ AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
-; No license prompt - just install
-DisableLicensePage=yes
+; No license prompt - just install (DisableLicensePage removed in Inno Setup 6.4+; omitting LicenseFile achieves the same)
 DisableProgramGroupPage=yes
 ; Output installer details
 OutputDir=dist
