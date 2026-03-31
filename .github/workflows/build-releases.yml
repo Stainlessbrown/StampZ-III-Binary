@@ -32,120 +32,40 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install pyinstaller
-        pip list  # Show what's installed
     
-    - name: Create self-contained Windows bundle
+    - name: Build with PyInstaller (onedir)
       run: |
-        # Use the existing spec file we already created
-        if (Test-Path "build_windows_complete.spec") {
-          pyinstaller --clean --noconfirm build_windows_complete.spec
-        } else {
-          # Fallback: enhanced PyInstaller command
-          pyinstaller --onedir --windowed `
-            --add-data "data;data" `
-            --add-data "templates;templates" `
-            --collect-all="matplotlib" `
-            --collect-all="pandas" `
-            --collect-all="numpy" `
-            --collect-all="PIL" `
-            --collect-all="sklearn" `
-            --hidden-import="matplotlib.backends.backend_tkagg" `
-            --hidden-import="pandas._libs.tslibs.base" `
-            --hidden-import="numpy.random.common" `
-            --hidden-import="PIL._tkinter_finder" `
-            --exclude-module="IPython" `
-            --exclude-module="jupyter" `
-            --exclude-module="notebook" `
-            --exclude-module="pytest" `
-            --noupx `
-            --name="StampZ" `
-            main.py
-        }
+        python -m PyInstaller --clean --noconfirm stampz.spec
+        Write-Host "Build completed. Checking dist directory:"
+        Get-ChildItem dist\StampZ-III
     
     - name: Download VC++ Redistributable
       run: |
-        # Create vcredist folder in the dist directory
-        New-Item -Path "dist\StampZ\vcredist" -ItemType Directory -Force
-        
-        # Download VC++ Redistributable
+        New-Item -Path "dist\StampZ-III\vcredist" -ItemType Directory -Force
         $url = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
-        $output = "dist\StampZ\vcredist\vc_redist.x64.exe"
-        
+        $output = "dist\StampZ-III\vcredist\vc_redist.x64.exe"
         try {
             Invoke-WebRequest -Uri $url -OutFile $output
-            Write-Host "✅ Downloaded VC++ Redistributable"
+            Write-Host "Downloaded VC++ Redistributable"
         } catch {
-            Write-Host "⚠️ Could not download VC++ Redistributable: $_"
+            Write-Host "Could not download VC++ Redistributable: $_"
         }
     
-    - name: Create user-friendly launcher and documentation
+    - name: Install Inno Setup
       run: |
-        # Create simple launcher batch file
-        echo '@echo off' > "dist\StampZ\Launch StampZ.bat"
-        echo 'title StampZ - Stamp Analysis Tool' >> "dist\StampZ\Launch StampZ.bat"
-        echo 'echo Starting StampZ...' >> "dist\StampZ\Launch StampZ.bat"
-        echo 'StampZ.exe' >> "dist\StampZ\Launch StampZ.bat"
-        echo 'if %ERRORLEVEL% NEQ 0 (' >> "dist\StampZ\Launch StampZ.bat"
-        echo '  echo.' >> "dist\StampZ\Launch StampZ.bat"
-        echo '  echo StampZ failed to start. Try installing vcredist/vc_redist.x64.exe' >> "dist\StampZ\Launch StampZ.bat"
-        echo '  pause' >> "dist\StampZ\Launch StampZ.bat"
-        echo ')' >> "dist\StampZ\Launch StampZ.bat"
-        
-        # Create simple README file
-        echo '# StampZ v3.0.4 - Complete Windows Bundle' > "dist\StampZ\README.txt"
-        echo '' >> "dist\StampZ\README.txt"
-        echo 'Quick Start:' >> "dist\StampZ\README.txt"
-        echo '1. Extract this ZIP file' >> "dist\StampZ\README.txt"
-        echo '2. Run "Launch StampZ.bat"' >> "dist\StampZ\README.txt"
-        echo '3. Done!' >> "dist\StampZ\README.txt"
-        echo '' >> "dist\StampZ\README.txt"
-        echo 'If StampZ won''t start:' >> "dist\StampZ\README.txt"
-        echo '- Install vcredist/vc_redist.x64.exe' >> "dist\StampZ\README.txt"
-        echo '- Run as Administrator' >> "dist\StampZ\README.txt"
-        echo '- Check Windows Defender isn''t blocking files' >> "dist\StampZ\README.txt"
-        
-        # Create simple vcredist installer
-        echo '@echo off' > "dist\StampZ\vcredist\install_vcredist.bat"
-        echo 'echo Installing Visual C++ Redistributable for StampZ...' >> "dist\StampZ\vcredist\install_vcredist.bat"
-        echo 'vc_redist.x64.exe /quiet /norestart' >> "dist\StampZ\vcredist\install_vcredist.bat"
-        echo 'echo Installation complete. Try running StampZ again.' >> "dist\StampZ\vcredist\install_vcredist.bat"
-        echo 'pause' >> "dist\StampZ\vcredist\install_vcredist.bat"
+        choco install innosetup -y --no-progress
     
-    - name: Test the bundle
+    - name: Build installer with Inno Setup
       run: |
-        echo "🧪 Testing the Windows bundle..."
-        cd dist\StampZ
-        dir
-        echo "Files in bundle:"
-        Get-ChildItem -Recurse | Select-Object Name, Length | Format-Table
-        
-        # Quick test of the executable (with timeout)
-        echo "Testing StampZ.exe startup..."
-        $proc = Start-Process -FilePath ".\StampZ.exe" -ArgumentList "--version" -PassThru -NoNewWindow
-        $finished = $proc.WaitForExit(10000)  # 10 second timeout
-        if ($finished) {
-            echo "✅ StampZ.exe responds to --version flag"
-        } else {
-            $proc.Kill()
-            echo "⚠️ StampZ.exe test timed out (this might be normal for GUI apps)"
-        }
+        & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" stampz_installer.iss
+        $installer = Get-Item "dist\StampZ-III-*-Setup.exe"
+        Write-Host "Installer created: $($installer.Name) ($([math]::Round($installer.Length / 1MB, 1)) MB)"
     
-    - name: Create release archive
-      run: |
-        cd dist
-        Compress-Archive -Path "StampZ" -DestinationPath "StampZ-Windows-x64-Complete.zip" -CompressionLevel Optimal
-        
-        # Show final archive info
-        $archive = Get-Item "StampZ-Windows-x64-Complete.zip"
-        echo "📦 Created release archive:"
-        echo "   File: $($archive.Name)"
-        echo "   Size: $([math]::Round($archive.Length / 1MB, 2)) MB"
-    
-    - name: Upload Windows bundle
+    - name: Upload Windows installer
       uses: actions/upload-artifact@v6
       with:
-        name: StampZ-Windows-x64-Complete
-        path: dist/StampZ-Windows-x64-Complete.zip
+        name: StampZ-Windows-x64-Setup
+        path: dist/StampZ-III-*-Setup.exe
         retention-days: 90
 
   build-macos:
@@ -224,10 +144,10 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Download Windows bundle
+    - name: Download Windows installer
       uses: actions/download-artifact@v7
       with:
-        name: StampZ-Windows-x64-Complete
+        name: StampZ-Windows-x64-Setup
     
     - name: Download macOS bundle  
       uses: actions/download-artifact@v7
@@ -240,38 +160,28 @@ jobs:
         tag_name: ${{ github.event.inputs.version || github.ref_name }}
         name: StampZ ${{ github.event.inputs.version || github.ref_name }}
         body: |
-          ## StampZ ${{ github.event.inputs.version || github.ref_name }} - Complete Release
+          ## StampZ ${{ github.event.inputs.version || github.ref_name }}
           
-          **Ready-to-run bundles with all dependencies included!**
+          **Ready-to-run — no Python or other dependencies required!**
           
-          ### 🪟 Windows Users
-          - Download: `StampZ-Windows-x64-Complete.zip`
-          - Extract and run `Launch StampZ.bat`
-          - Includes automatic VC++ Redistributable installer
+          ### Windows
+          - Download `StampZ-III-*-Setup.exe`
+          - Run the installer (you may need to click "More info" → "Run anyway" on the SmartScreen prompt)
+          - Launch StampZ from the Start Menu or Desktop shortcut
+          - The installer handles VC++ Runtime if needed
           - Works on Windows 10/11 (64-bit)
           
-          ### 🍎 macOS Users  
-          - Download: `StampZ-macOS-Universal.zip`
-          - Extract and run `StampZ.app`
-          - Right-click → Open (first time only)
+          ### macOS
+          - Download `StampZ-macOS-Universal.zip`
+          - Extract and run `StampZ-III.app`
+          - Right-click → Open (first time only to bypass Gatekeeper)
           - Works on macOS 10.14+ (Intel & Apple Silicon)
           
-          ### ✨ What's New
-          - Self-contained bundles (no manual dependency installation!)
-          - Enhanced Ternary Plot analysis
-          - Improved Spectral Analysis tools
-          - Better Windows compatibility
-          - Smart launcher with automatic problem resolution
-          
-          ### 📋 Instructions
-          1. **Download** the bundle for your operating system
-          2. **Extract** the ZIP file
-          3. **Run** the launcher (Windows) or app (macOS)
-          4. **Done!** - Everything is included
-          
-          No separate installations, no dependency hunting, no technical setup required!
+          ### Upgrading
+          - **Windows**: Just run the new installer — it upgrades in place automatically
+          - **macOS**: Replace the old .app with the new one
         files: |
-          StampZ-Windows-x64-Complete.zip
+          StampZ-III-*-Setup.exe
           StampZ-macOS-Universal.zip
         draft: false
         prerelease: false

@@ -188,9 +188,9 @@ if sys.platform == 'darwin':
     icon_path = 'resources/StampZ.ico' if os.path.exists('resources/StampZ.ico') else None
     onefile = False  # Use --onedir for app bundles
 elif sys.platform == 'win32':
-    # Windows - use original StampZ icon
+    # Windows - use onedir mode; Inno Setup installer handles packaging
     icon_path = 'resources/StampZ.ico' if os.path.exists('resources/StampZ.ico') else None
-    onefile = True
+    onefile = False
 else:
     # Linux
     icon_path = None

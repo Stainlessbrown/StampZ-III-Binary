@@ -104,14 +104,13 @@ jobs:
       if: matrix.os == 'windows-latest'
       shell: pwsh
       run: |
-        # Windows: Use stampz.spec for consistent builds with template files included
-        # Note: spec file will create onefile build on Windows platform
+        # Windows: Use stampz.spec (onedir mode - for Inno Setup installer packaging)
         python -m PyInstaller --clean stampz.spec
-        # Rename the output to match expected name (Windows creates .exe automatically)
-        if (Test-Path "dist/StampZ-III.exe") {
-          Rename-Item "dist/StampZ-III.exe" "StampZ-III_${{ matrix.name }}.exe"
+        # Rename the onedir output folder to match expected naming
+        if (Test-Path "dist/StampZ-III") {
+          Rename-Item "dist/StampZ-III" "StampZ-III_${{ matrix.name }}"
         } else {
-          Write-Host "ERROR: StampZ-III.exe not found! Checking dist directory:"
+          Write-Host "ERROR: dist/StampZ-III not found! Checking dist directory:"
           Get-ChildItem dist
           exit 1
         }
@@ -166,8 +165,10 @@ jobs:
         cd dist
         echo "Current dist contents:"
         dir
-        echo "Files already correctly named:"
-        dir StampZ-III_${{ matrix.name }}.exe
+        # Zip the onedir folder for CI artifact
+        Compress-Archive -Path "StampZ-III_${{ matrix.name }}" -DestinationPath "StampZ-III_${{ matrix.name }}.zip"
+        echo "Created zip:"
+        dir StampZ-III_${{ matrix.name }}.zip
         
     - name: Package Linux output
       if: matrix.os == 'ubuntu-22.04'
@@ -197,12 +198,19 @@ jobs:
         name: StampZ-III_${{ matrix.name }}
         path: dist/StampZ-III_${{ matrix.name }}.zip
         
-    - name: Upload Windows/Linux executable
-      if: "!startsWith(matrix.os, 'macos')"
+    - name: Upload Windows artifact
+      if: matrix.os == 'windows-latest'
       uses: actions/upload-artifact@v6
       with:
         name: StampZ-III_${{ matrix.name }}
-        path: dist/StampZ-III_${{ matrix.name }}${{ matrix.ext }}
+        path: dist/StampZ-III_${{ matrix.name }}.zip
+
+    - name: Upload Linux executable
+      if: matrix.os == 'ubuntu-22.04'
+      uses: actions/upload-artifact@v6
+      with:
+        name: StampZ-III_${{ matrix.name }}
+        path: dist/StampZ-III_${{ matrix.name }}
 
   cleanup:
     needs: build
