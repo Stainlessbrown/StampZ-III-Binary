@@ -157,17 +157,17 @@ jobs:
     
     steps:
     - name: Download Windows installer
-      uses: actions/download-artifact@v7
+      uses: actions/download-artifact@v6
       with:
         name: StampZ-Windows-x64-Setup
     
     - name: Download macOS bundle  
-      uses: actions/download-artifact@v7
+      uses: actions/download-artifact@v6
       with:
         name: StampZ-macOS-Universal
     
     - name: Download Linux bundle
-      uses: actions/download-artifact@v7
+      uses: actions/download-artifact@v6
       with:
         name: StampZ-Linux-x64
     
