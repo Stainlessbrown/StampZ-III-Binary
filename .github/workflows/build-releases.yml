@@ -63,7 +63,7 @@ jobs:
         Write-Host "Installer created: $($installer.Name) ($([math]::Round($installer.Length / 1MB, 1)) MB)"
     
     - name: Upload Windows installer
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v4
       with:
         name: StampZ-Windows-x64-Setup
         path: dist/StampZ-III-*-Setup.exe
@@ -109,7 +109,7 @@ jobs:
         fi
     
     - name: Upload Linux bundle
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v4
       with:
         name: StampZ-Linux-x64
         path: dist/StampZ-Linux-x64.tar.gz
@@ -131,7 +131,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pyinstaller
+        pip install pyinstaller tifffile
     
     - name: Create macOS bundle
       run: |
@@ -144,7 +144,7 @@ jobs:
         zip -r "StampZ-macOS-Universal.zip" "StampZ-III.app" -x "*.DS_Store"
     
     - name: Upload macOS bundle
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v4
       with:
         name: StampZ-macOS-Universal
         path: dist/StampZ-macOS-Universal.zip
@@ -157,17 +157,17 @@ jobs:
     
     steps:
     - name: Download Windows installer
-      uses: actions/download-artifact@v6
+      uses: actions/download-artifact@v4
       with:
         name: StampZ-Windows-x64-Setup
     
     - name: Download macOS bundle  
-      uses: actions/download-artifact@v6
+      uses: actions/download-artifact@v4
       with:
         name: StampZ-macOS-Universal
     
     - name: Download Linux bundle
-      uses: actions/download-artifact@v6
+      uses: actions/download-artifact@v4
       with:
         name: StampZ-Linux-x64
     
