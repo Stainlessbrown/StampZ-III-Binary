@@ -96,15 +96,17 @@ jobs:
     - name: Create Linux archive
       run: |
         cd dist
-        if [ -d "StampZ-III" ]; then
+        echo "dist contents:"
+        ls -la
+        if [ -e "StampZ-III" ]; then
           tar -czf "StampZ-Linux-x64.tar.gz" "StampZ-III"
+          echo "Archive created:"
+          ls -lh StampZ-Linux-x64.tar.gz
         else
           echo "ERROR: dist/StampZ-III not found!"
           ls -la
           exit 1
         fi
-        echo "Archive created:"
-        ls -lh StampZ-Linux-x64.tar.gz
     
     - name: Upload Linux bundle
       uses: actions/upload-artifact@v6
