@@ -68,6 +68,50 @@ jobs:
         path: dist/StampZ-III-*-Setup.exe
         retention-days: 90
 
+  build-linux:
+    runs-on: ubuntu-22.04
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+    
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller tifffile
+    
+    - name: Build with PyInstaller
+      run: |
+        python -m PyInstaller --clean stampz.spec
+        echo "Linux build completed. Checking dist directory:"
+        ls -la dist/
+    
+    - name: Create Linux archive
+      run: |
+        cd dist
+        if [ -d "StampZ-III" ]; then
+          tar -czf "StampZ-Linux-x64.tar.gz" "StampZ-III"
+        else
+          echo "ERROR: dist/StampZ-III not found!"
+          ls -la
+          exit 1
+        fi
+        echo "Archive created:"
+        ls -lh StampZ-Linux-x64.tar.gz
+    
+    - name: Upload Linux bundle
+      uses: actions/upload-artifact@v6
+      with:
+        name: StampZ-Linux-x64
+        path: dist/StampZ-Linux-x64.tar.gz
+        retention-days: 90
+
   build-macos:
     runs-on: macos-latest
     
@@ -140,7 +184,7 @@ jobs:
 
   create-release:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    needs: [build-windows, build-macos]
+    needs: [build-windows, build-macos, build-linux]
     runs-on: ubuntu-latest
     
     steps:
@@ -153,6 +197,11 @@ jobs:
       uses: actions/download-artifact@v7
       with:
         name: StampZ-macOS-Universal
+    
+    - name: Download Linux bundle
+      uses: actions/download-artifact@v7
+      with:
+        name: StampZ-Linux-x64
     
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v1
@@ -177,12 +226,20 @@ jobs:
           - Right-click → Open (first time only to bypass Gatekeeper)
           - Works on macOS 10.14+ (Intel & Apple Silicon)
           
+          ### Linux
+          - Download `StampZ-Linux-x64.tar.gz`
+          - Extract: `tar -xzf StampZ-Linux-x64.tar.gz`
+          - Run: `./StampZ-III/StampZ-III`
+          - Works on Ubuntu 22.04+, Linux Mint 22, and similar distributions
+          
           ### Upgrading
           - **Windows**: Just run the new installer — it upgrades in place automatically
           - **macOS**: Replace the old .app with the new one
+          - **Linux**: Replace the old folder with the new one
         files: |
           StampZ-III-*-Setup.exe
           StampZ-macOS-Universal.zip
+          StampZ-Linux-x64.tar.gz
         draft: false
         prerelease: false
       env:
