@@ -3,42 +3,89 @@ name: Build Release Bundles
 on:
   push:
     tags:
-      - 'v*'  # Trigger on version tags like v1.0.0
-  workflow_dispatch:  # Allow manual triggering
+      - 'v*'
+  workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g., v3.0.4)'
+        description: 'Release version (e.g., v3.1.7)'
         required: true
-        default: 'v3.0.4'
-
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+        default: 'v3.1.7'
 
 jobs:
+  setup-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.get-tag.outputs.tag }}
+    steps:
+    - name: Determine tag
+      id: get-tag
+      run: echo "tag=${{ github.event.inputs.version || github.ref_name }}" >> $GITHUB_OUTPUT
+
+    - name: Create draft release
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        TAG="${{ github.event.inputs.version || github.ref_name }}"
+        # Remove any existing release for this tag (handles re-runs)
+        gh release delete "$TAG" --repo ${{ github.repository }} --yes 2>/dev/null || true
+        gh release create "$TAG" \
+          --repo ${{ github.repository }} \
+          --draft \
+          --title "StampZ $TAG" \
+          --notes "## StampZ $TAG
+
+**Ready-to-run — no Python or other dependencies required!**
+
+### Windows
+- Download the \`StampZ-III-*-Setup.exe\` installer
+- Run it (click \"More info\" → \"Run anyway\" if SmartScreen appears)
+- Launch from the Start Menu or Desktop shortcut
+- Works on Windows 10/11 (64-bit)
+
+### macOS (Apple Silicon)
+- Download \`StampZ-macOS-Universal.zip\`
+- Extract and run \`StampZ-III.app\`
+- Right-click → Open (first time only, to bypass Gatekeeper)
+
+### Linux
+- Download \`StampZ-Linux-x64.tar.gz\`
+- Extract: \`tar -xzf StampZ-Linux-x64.tar.gz\`
+- Run: \`./StampZ-III/StampZ-III\`
+- Works on Ubuntu 22.04+, Linux Mint 22, and similar
+
+### Upgrading
+- **Windows**: Run the new installer — upgrades in place
+- **macOS/Linux**: Replace the old app/folder with the new one"
+
   build-windows:
+    needs: setup-release
     runs-on: windows-latest
-    
+    permissions:
+      contents: write
+
     steps:
     - name: Checkout code
-      uses: actions/checkout@v5
-    
+      uses: actions/checkout@v4
+
     - name: Set up Python 3.11
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
-    
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pyinstaller
-    
+        pip install pyinstaller tifffile
+
     - name: Build with PyInstaller (onedir)
       run: |
         python -m PyInstaller --clean --noconfirm stampz.spec
         Write-Host "Build completed. Checking dist directory:"
         Get-ChildItem dist\StampZ-III
-    
+
     - name: Download VC++ Redistributable
       run: |
         New-Item -Path "dist\StampZ-III\vcredist" -ItemType Directory -Force
@@ -50,49 +97,51 @@ jobs:
         } catch {
             Write-Host "Could not download VC++ Redistributable: $_"
         }
-    
+
     - name: Install Inno Setup
-      run: |
-        choco install innosetup -y --no-progress
-    
+      run: choco install innosetup -y --no-progress
+
     - name: Build installer with Inno Setup
       run: |
-        # Use ISCC from PATH (Chocolatey adds it regardless of install version)
         ISCC stampz_installer.iss
         $installer = Get-Item "dist\StampZ-III-*-Setup.exe"
         Write-Host "Installer created: $($installer.Name) ($([math]::Round($installer.Length / 1MB, 1)) MB)"
-    
-    - name: Upload Windows installer
-      uses: actions/upload-artifact@v4
-      with:
-        name: StampZ-Windows-x64-Setup
-        path: dist/StampZ-III-*-Setup.exe
-        retention-days: 90
+
+    - name: Upload installer to release
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        $installer = (Get-Item "dist\StampZ-III-*-Setup.exe").FullName
+        gh release upload "${{ needs.setup-release.outputs.tag }}" "$installer" --repo ${{ github.repository }}
+        Write-Host "Uploaded: $installer"
 
   build-linux:
+    needs: setup-release
     runs-on: ubuntu-22.04
-    
+    permissions:
+      contents: write
+
     steps:
     - name: Checkout code
-      uses: actions/checkout@v5
-    
+      uses: actions/checkout@v4
+
     - name: Set up Python 3.11
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
-    
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install pyinstaller tifffile
-    
+
     - name: Build with PyInstaller
       run: |
         python -m PyInstaller --clean stampz.spec
         echo "Linux build completed. Checking dist directory:"
         ls -la dist/
-    
+
     - name: Create Linux archive
       run: |
         cd dist
@@ -107,110 +156,69 @@ jobs:
           ls -la
           exit 1
         fi
-    
-    - name: Upload Linux bundle
-      uses: actions/upload-artifact@v4
-      with:
-        name: StampZ-Linux-x64
-        path: dist/StampZ-Linux-x64.tar.gz
-        retention-days: 90
+
+    - name: Upload to release
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh release upload "${{ needs.setup-release.outputs.tag }}" dist/StampZ-Linux-x64.tar.gz --repo ${{ github.repository }}
+        echo "Uploaded dist/StampZ-Linux-x64.tar.gz"
 
   build-macos:
+    needs: setup-release
     runs-on: macos-latest
-    
+    permissions:
+      contents: write
+
     steps:
     - name: Checkout code
-      uses: actions/checkout@v5
-    
+      uses: actions/checkout@v4
+
     - name: Set up Python 3.11
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
-    
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install pyinstaller tifffile
-    
-    - name: Create macOS bundle
-      run: |
-        python -m PyInstaller --clean --noconfirm stampz.spec
-    
+
+    - name: Build macOS bundle
+      run: python -m PyInstaller --clean --noconfirm stampz.spec
+
     - name: Create macOS archive
       run: |
         cd dist
-        # stampz.spec produces StampZ-III.app on macOS
-        zip -r "StampZ-macOS-Universal.zip" "StampZ-III.app" -x "*.DS_Store"
-    
-    - name: Upload macOS bundle
-      uses: actions/upload-artifact@v4
-      with:
-        name: StampZ-macOS-Universal
-        path: dist/StampZ-macOS-Universal.zip
-        retention-days: 90
+        echo "dist contents:"
+        ls -la
+        if [ -d "StampZ-III.app" ]; then
+          zip -r "StampZ-macOS-Universal.zip" "StampZ-III.app" -x "*.DS_Store"
+          echo "Archive created:"
+          ls -lh StampZ-macOS-Universal.zip
+        else
+          echo "ERROR: StampZ-III.app not found!"
+          ls -la
+          exit 1
+        fi
 
-  create-release:
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    needs: [build-windows, build-macos, build-linux]
+    - name: Upload to release
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh release upload "${{ needs.setup-release.outputs.tag }}" dist/StampZ-macOS-Universal.zip --repo ${{ github.repository }}
+        echo "Uploaded dist/StampZ-macOS-Universal.zip"
+
+  finalize-release:
+    needs: [setup-release, build-windows, build-macos, build-linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    
     steps:
-    - name: Download Windows installer
-      uses: actions/download-artifact@v4
-      with:
-        name: StampZ-Windows-x64-Setup
-    
-    - name: Download macOS bundle  
-      uses: actions/download-artifact@v4
-      with:
-        name: StampZ-macOS-Universal
-    
-    - name: Download Linux bundle
-      uses: actions/download-artifact@v4
-      with:
-        name: StampZ-Linux-x64
-    
-    - name: Create GitHub Release
-      uses: softprops/action-gh-release@v1
-      with:
-        tag_name: ${{ github.event.inputs.version || github.ref_name }}
-        name: StampZ ${{ github.event.inputs.version || github.ref_name }}
-        body: |
-          ## StampZ ${{ github.event.inputs.version || github.ref_name }}
-          
-          **Ready-to-run — no Python or other dependencies required!**
-          
-          ### Windows
-          - Download `StampZ-III-*-Setup.exe`
-          - Run the installer (you may need to click "More info" → "Run anyway" on the SmartScreen prompt)
-          - Launch StampZ from the Start Menu or Desktop shortcut
-          - The installer handles VC++ Runtime if needed
-          - Works on Windows 10/11 (64-bit)
-          
-          ### macOS
-          - Download `StampZ-macOS-Universal.zip`
-          - Extract and run `StampZ-III.app`
-          - Right-click → Open (first time only to bypass Gatekeeper)
-          - Works on macOS 10.14+ (Intel & Apple Silicon)
-          
-          ### Linux
-          - Download `StampZ-Linux-x64.tar.gz`
-          - Extract: `tar -xzf StampZ-Linux-x64.tar.gz`
-          - Run: `./StampZ-III/StampZ-III`
-          - Works on Ubuntu 22.04+, Linux Mint 22, and similar distributions
-          
-          ### Upgrading
-          - **Windows**: Just run the new installer — it upgrades in place automatically
-          - **macOS**: Replace the old .app with the new one
-          - **Linux**: Replace the old folder with the new one
-        files: |
-          StampZ-III-*-Setup.exe
-          StampZ-macOS-Universal.zip
-          StampZ-Linux-x64.tar.gz
-        draft: false
-        prerelease: false
+    - name: Publish release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh release edit "${{ needs.setup-release.outputs.tag }}" --draft=false --repo ${{ github.repository }}
+        echo "Release published: https://github.com/${{ github.repository }}/releases/tag/${{ needs.setup-release.outputs.tag }}"
