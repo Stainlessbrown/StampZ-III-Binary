@@ -28,36 +28,12 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         TAG="${{ github.event.inputs.version || github.ref_name }}"
-        # Remove any existing release for this tag (handles re-runs)
         gh release delete "$TAG" --repo ${{ github.repository }} --yes 2>/dev/null || true
         gh release create "$TAG" \
           --repo ${{ github.repository }} \
           --draft \
           --title "StampZ $TAG" \
-          --notes "## StampZ $TAG
-
-**Ready-to-run — no Python or other dependencies required!**
-
-### Windows
-- Download the \`StampZ-III-*-Setup.exe\` installer
-- Run it (click \"More info\" → \"Run anyway\" if SmartScreen appears)
-- Launch from the Start Menu or Desktop shortcut
-- Works on Windows 10/11 (64-bit)
-
-### macOS (Apple Silicon)
-- Download \`StampZ-macOS-Universal.zip\`
-- Extract and run \`StampZ-III.app\`
-- Right-click → Open (first time only, to bypass Gatekeeper)
-
-### Linux
-- Download \`StampZ-Linux-x64.tar.gz\`
-- Extract: \`tar -xzf StampZ-Linux-x64.tar.gz\`
-- Run: \`./StampZ-III/StampZ-III\`
-- Works on Ubuntu 22.04+, Linux Mint 22, and similar
-
-### Upgrading
-- **Windows**: Run the new installer — upgrades in place
-- **macOS/Linux**: Replace the old app/folder with the new one"
+          --notes "Ready-to-run builds for Windows, macOS (Apple Silicon), and Linux. See README for installation instructions."
 
   build-windows:
     needs: setup-release
