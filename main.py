@@ -9,15 +9,28 @@ A image analysis application optimized for philatelic images
 import sys
 import os
 from pathlib import Path
-try:
-    _log_path = Path.home() / "Desktop" / "StampZ_Debug_Log.txt"
-    with open(_log_path, 'w', encoding='utf-8') as _f:
-        _f.write(f"StampZ-III starting...\n")
-        _f.write(f"Python: {sys.version}\n")
-        _f.write(f"Platform: {sys.platform}\n")
-        _f.write(f"Frozen: {getattr(sys, 'frozen', False)}\n")
-except Exception as _e:
-    pass  # Can't do anything if even this fails
+
+# Try multiple Desktop locations (handles OneDrive Desktop redirection on Windows)
+_log_path = None
+_candidate_paths = [
+    Path.home() / "Desktop" / "StampZ_Debug_Log.txt",
+    Path.home() / "OneDrive" / "Desktop" / "StampZ_Debug_Log.txt",
+    Path.home() / "OneDrive - Personal" / "Desktop" / "StampZ_Debug_Log.txt",
+    Path(os.environ.get('APPDATA', Path.home())) / "StampZ-III" / "StampZ_Debug_Log.txt",
+]
+for _p in _candidate_paths:
+    try:
+        _p.parent.mkdir(parents=True, exist_ok=True)
+        with open(_p, 'w', encoding='utf-8') as _f:
+            _f.write(f"StampZ-III starting...\n")
+            _f.write(f"Python: {sys.version}\n")
+            _f.write(f"Platform: {sys.platform}\n")
+            _f.write(f"Frozen: {getattr(sys, 'frozen', False)}\n")
+            _f.write(f"Log location: {_p}\n")
+        _log_path = _p
+        break
+    except Exception:
+        continue
 # === END EARLY CRASH LOGGING ===
 
 # For bundled PyInstaller apps, ensure current directory is in Python path
@@ -69,9 +82,8 @@ def launch_full_stampz():
     import logging.handlers
     from pathlib import Path
     
-    # Create log file on Desktop for easy access
-    desktop_path = Path.home() / "Desktop"
-    log_file = desktop_path / "StampZ_Debug_Log.txt"
+    # Use the same log path established during early startup logging
+    log_file = _log_path if _log_path else Path.home() / "Desktop" / "StampZ_Debug_Log.txt"
     
     # Configure logging with both file and console handlers
     file_handler = logging.FileHandler(log_file, mode='w', encoding='utf-8')
