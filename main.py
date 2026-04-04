@@ -4,20 +4,51 @@
 A image analysis application optimized for philatelic images
 """
 
-# Import initialize_env first to set up data preservation system
-# Handle module loading for both development and bundled PyInstaller environments
+# === EARLY CRASH LOGGING ===
+# This runs before anything else so even very early failures are captured.
 import sys
 import os
+from pathlib import Path
+try:
+    _log_path = Path.home() / "Desktop" / "StampZ_Debug_Log.txt"
+    with open(_log_path, 'w', encoding='utf-8') as _f:
+        _f.write(f"StampZ-III starting...\n")
+        _f.write(f"Python: {sys.version}\n")
+        _f.write(f"Platform: {sys.platform}\n")
+        _f.write(f"Frozen: {getattr(sys, 'frozen', False)}\n")
+except Exception as _e:
+    pass  # Can't do anything if even this fails
+# === END EARLY CRASH LOGGING ===
 
 # For bundled PyInstaller apps, ensure current directory is in Python path
 if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-    # Running in a PyInstaller bundle
     if '.' not in sys.path:
         sys.path.insert(0, '.')
 
-import initialize_env
+try:
+    import initialize_env
+except Exception as _init_err:
+    import traceback
+    try:
+        with open(_log_path, 'a', encoding='utf-8') as _f:
+            _f.write(f"FATAL: initialize_env failed: {_init_err}\n")
+            _f.write(traceback.format_exc())
+    except Exception:
+        pass
+    sys.exit(1)
 
-import tkinter as tk
+try:
+    import tkinter as tk
+except Exception as _tk_err:
+    import traceback
+    try:
+        with open(_log_path, 'a', encoding='utf-8') as _f:
+            _f.write(f"FATAL: tkinter failed to import: {_tk_err}\n")
+            _f.write(traceback.format_exc())
+    except Exception:
+        pass
+    sys.exit(1)
+
 import logging
 import time
 
