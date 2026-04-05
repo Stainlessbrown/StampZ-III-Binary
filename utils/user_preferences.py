@@ -1048,6 +1048,8 @@ class PreferencesManager:
     def load_preferences(self) -> bool:
         """Load preferences from file."""
         try:
+            # Ensure the directory exists before trying to read
+            self.prefs_file.parent.mkdir(parents=True, exist_ok=True)
             if self.prefs_file.exists():
                 with open(self.prefs_file, 'r') as f:
                     data = json.load(f)
