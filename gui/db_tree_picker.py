@@ -70,11 +70,19 @@ class DBTreePickerDialog:
         self.tree.bind("<Return>", self._on_enter)
         self.tree.bind("<Button-2>", self._on_right_click)   # macOS
         self.tree.bind("<Button-3>", self._on_right_click)   # Windows/Linux
+        self.tree.bind("<<TreeviewSelect>>", self._on_tree_select)
 
-        # Hint label
+        # Selected item feedback
+        self._selected_label_var = tk.StringVar(value="Nothing selected")
         ttk.Label(
             self.dialog,
-            text="Double-click to select a database",
+            textvariable=self._selected_label_var,
+            foreground="darkblue",
+            font=("Arial", 9, "italic")
+        ).pack(pady=(0, 2))
+        ttk.Label(
+            self.dialog,
+            text="Single-click to select  •  Double-click to open  •  Expand folder first",
             foreground="gray"
         ).pack(pady=(0, 4))
 
@@ -121,12 +129,24 @@ class DBTreePickerDialog:
 
     # ── Selection Handling ─────────────────────────────────────────────────
 
+    def _on_tree_select(self, event):
+        """Update the selected label when tree selection changes."""
+        db = self._get_selected_db()
+        if db:
+            self._selected_label_var.set(f"Selected: {db}")
+        else:
+            self._selected_label_var.set("Nothing selected (expand a folder and click a database)")
+
     def _get_selected_db(self):
+        """Return the selected database name, or None if a group folder is selected."""
+        # Try tree selection first, then focused item
         sel = self.tree.selection()
-        if not sel:
+        item = sel[0] if sel else self.tree.focus()
+        if not item:
             return None
-        item = sel[0]
-        if "db" in self.tree.item(item, "tags"):
+        # DB items have a parent group node; group nodes have no parent
+        parent = self.tree.parent(item)
+        if parent:  # has parent = it's a DB item, not a group folder
             return self.tree.item(item, "text")
         return None
 
