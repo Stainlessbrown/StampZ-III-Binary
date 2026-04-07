@@ -5,7 +5,7 @@
 ; (ISCC.exe is in the Inno Setup installation directory)
 
 #define MyAppName "StampZ-III"
-#define MyAppVersion "3.1.8"
+#define MyAppVersion "3.1.9"
 #define MyAppPublisher "Stainless Brown"
 #define MyAppURL "https://github.com/stainlessbrown/StampZ-III"
 #define MyAppExeName "StampZ-III.exe"
