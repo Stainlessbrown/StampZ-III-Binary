@@ -446,14 +446,16 @@ class TernaryPlotWindow:
                         print(f"DEBUG: Filled {nan_mask.sum()} NaN L*a*b* rows from Xnorm/Ynorm/Znorm")
                     
             elif has_normalized_columns:
-                # File has Plot_3D normalized format - convert to L*a*b*
-                print(f"DEBUG: File contains normalized columns, converting to L*a*b*")
+                # Plot3D data is already normalised (all positive, 0-1 range).
+                # Use Xnorm/Ynorm/Znorm DIRECTLY as ternary inputs — no L*a*b* conversion.
+                # Converting to L*a*b* would incorrectly introduce negative values.
+                print(f"DEBUG: File contains normalized columns, using directly for ternary")
                 xn = pd.to_numeric(df['Xnorm'], errors='coerce')
                 yn = pd.to_numeric(df['Ynorm'], errors='coerce')
                 zn = pd.to_numeric(df['Znorm'], errors='coerce')
-                df['L*'] = xn * 100.0
-                df['a*'] = yn * 255.0 - 128.0
-                df['b*'] = zn * 255.0 - 128.0
+                df['L*'] = xn  # Xnorm → X axis (bottom-left vertex)
+                df['a*'] = yn  # Ynorm → Y axis (bottom-right vertex)
+                df['b*'] = zn  # Znorm → Z axis (top vertex)
                 # Flag only rows with actual measurement data (all 3 norm coords present)
                 df['_has_data'] = xn.notna() & yn.notna() & zn.notna()
             else:
@@ -1092,14 +1094,11 @@ class TernaryPlotWindow:
         print(f"  a*: {A.min():.2f} to {A.max():.2f}")
         print(f"  b*: {B.min():.2f} to {B.max():.2f}")
         
-        # PROPER TERNARY CONVERSION: Use absolute values to create meaningful proportions
-        # This preserves the actual color relationships without distorting the data
-        
-        # Method 1: Use L* directly and absolute values for a* and b*
-        # This creates a meaningful ternary relationship based on color lightness and chromaticity
-        L_component = L.clip(lower=0.1)  # Ensure minimum positive value
-        A_component = A.abs().clip(lower=0.1)  # Use absolute value of a*
-        B_component = B.abs().clip(lower=0.1)  # Use absolute value of b*
+        # Ternary normalisation: values are already 0-1 (Xnorm/Ynorm/Znorm used directly).
+        # Simply normalise each triplet to sum to 1.
+        L_component = L.clip(lower=0.0)
+        A_component = A.clip(lower=0.0)
+        B_component = B.clip(lower=0.0)
         
         # Normalize to create ternary coordinates (sum = 1)
         total = (L_component + A_component + B_component).replace(0, np.nan)
@@ -1312,20 +1311,19 @@ class TernaryPlotWindow:
                 except (ValueError, TypeError):
                     radius = DEFAULT_RADIUS
                 
-                # Centroid_X/Y/Z are in the same 0-1 normalised format as Xnorm/Ynorm/Znorm.
-                # Apply the same scale conversion as the data loader, then ternary normalisation.
+                # Centroid_X/Y/Z are in the same 0-1 normalised space as Xnorm/Ynorm/Znorm.
+                # Use them directly as ternary proportions (normalise to sum=1).
                 try:
-                    L_val = float(row['Centroid_X']) * 100.0
-                    a_val = float(row['Centroid_Y']) * 255.0 - 128.0
-                    b_val = float(row['Centroid_Z']) * 255.0 - 128.0
-                    L_comp = max(L_val, 0.1)
-                    A_comp = max(abs(a_val), 0.1)
-                    B_comp = max(abs(b_val), 0.1)
-                    total = L_comp + A_comp + B_comp
+                    cx_raw = max(float(row['Centroid_X']), 0.0)
+                    cy_raw = max(float(row['Centroid_Y']), 0.0)
+                    cz_raw = max(float(row['Centroid_Z']), 0.0)
+                    total = cx_raw + cy_raw + cz_raw
+                    if total <= 0:
+                        raise ValueError("zero total")
                     pts = self._barycentric_to_cartesian(
-                        np.array([L_comp / total]),
-                        np.array([A_comp / total]),
-                        np.array([B_comp / total])
+                        np.array([cx_raw / total]),
+                        np.array([cy_raw / total]),
+                        np.array([cz_raw / total])
                     )
                     cx, cy = float(pts[0, 0]), float(pts[0, 1])
                 except Exception as e:
