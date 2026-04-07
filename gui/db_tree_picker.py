@@ -197,12 +197,9 @@ class DBTreePickerDialog:
             "New Group", "Group name:", parent=self.dialog
         )
         if name and name.strip():
-            # Just create it as empty — user can move DBs into it
-            self.groups_manager.set_group("__placeholder__", name.strip())
-            self.groups_manager.remove_from_group("__placeholder__")
-            # Force a save with the empty group by directly manipulating
             section = self.groups_manager._data.setdefault("color_analysis", {})
-            section.setdefault(name.strip(), [])
+            if name.strip() not in section:
+                section[name.strip()] = []
             self.groups_manager._save()
             self._populate_tree()
 

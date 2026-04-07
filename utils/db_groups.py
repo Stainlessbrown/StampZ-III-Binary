@@ -134,8 +134,7 @@ class GroupsManager:
                 db for db in self._data[DEFAULT_SECTION].get(group, [])
                 if db in all_db_names
             ]
-            if members:
-                result[group] = sorted(members)
+            result[group] = sorted(members)  # include empty groups so they are visible
         ungrouped = self.get_ungrouped(all_db_names)
         if ungrouped:
             result["Ungrouped"] = ungrouped
