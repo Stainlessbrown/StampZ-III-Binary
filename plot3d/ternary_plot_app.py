@@ -448,9 +448,14 @@ class TernaryPlotWindow:
             elif has_normalized_columns:
                 # File has Plot_3D normalized format - convert to L*a*b*
                 print(f"DEBUG: File contains normalized columns, converting to L*a*b*")
-                df['L*'] = pd.to_numeric(df['Xnorm'], errors='coerce') * 100.0
-                df['a*'] = pd.to_numeric(df['Ynorm'], errors='coerce') * 255.0 - 128.0
-                df['b*'] = pd.to_numeric(df['Znorm'], errors='coerce') * 255.0 - 128.0
+                xn = pd.to_numeric(df['Xnorm'], errors='coerce')
+                yn = pd.to_numeric(df['Ynorm'], errors='coerce')
+                zn = pd.to_numeric(df['Znorm'], errors='coerce')
+                df['L*'] = xn * 100.0
+                df['a*'] = yn * 255.0 - 128.0
+                df['b*'] = zn * 255.0 - 128.0
+                # Flag only rows with actual measurement data (all 3 norm coords present)
+                df['_has_data'] = xn.notna() & yn.notna() & zn.notna()
             else:
                 # Try to auto-detect from any numeric columns
                 print(f"DEBUG: No standard columns found, attempting auto-detection")
@@ -492,7 +497,7 @@ class TernaryPlotWindow:
 
             # Keep core columns plus any centroid/sphere columns present
             keep_cols = ['L*', 'a*', 'b*', 'DataID', 'Marker', 'Color']
-            for extra in ['Centroid_X', 'Centroid_Y', 'Centroid_Z', 'Sphere', 'Radius']:
+            for extra in ['_has_data', 'Cluster', 'Centroid_X', 'Centroid_Y', 'Centroid_Z', 'Sphere', 'Radius']:
                 if extra in df.columns:
                     keep_cols.append(extra)
             self.df = df[keep_cols].copy()
@@ -1171,14 +1176,18 @@ class TernaryPlotWindow:
         base_marker_size = 25  # Base size
         marker_size = base_marker_size * self.zoom_level.get()
         
-        # Identify centroid rows (have Centroid_X populated) — skip them in the scatter loop
-        is_centroid_row = pd.Series([False] * len(df))
-        if 'Centroid_X' in df.columns:
-            is_centroid_row = df['Centroid_X'].notna()
+        # Only plot rows with actual measurement data (Xnorm non-NaN).
+        # This skips both centroid rows and empty placeholder rows.
+        if '_has_data' in df.columns:
+            plot_mask = df['_has_data'].fillna(False)
+        else:
+            # Fallback for non-normalized files: skip rows with NaN L*
+            plot_mask = df['L*'].notna()
+            if 'Centroid_X' in df.columns:
+                plot_mask = plot_mask & df['Centroid_X'].isna()
         
         for i in range(len(df)):
-            # Skip centroid rows — they are rendered as circles, not scatter points
-            if is_centroid_row.iloc[i]:
+            if not plot_mask.iloc[i]:
                 continue
             
             m = markers.iloc[i]
