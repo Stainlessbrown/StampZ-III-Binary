@@ -1222,8 +1222,10 @@ class TernaryPlotWindow:
                 edge_width = 2.0
                 size_multiplier = 1.5
             else:
-                edge_color = 'black'
-                edge_width = 0.2
+                # Unfilled markers (x, +, |, _) get their colour from edgecolors, not facecolor
+                unfilled_markers = {'x', '+', '|', '_', '1', '2', '3', '4'}
+                edge_color = str(c) if str(m) in unfilled_markers else 'black'
+                edge_width = 1.5 if str(m) in unfilled_markers else 0.2
                 size_multiplier = 1.0
                 
             self.ax.scatter([x[i]], [y[i]], s=adjusted_size * size_multiplier, 
