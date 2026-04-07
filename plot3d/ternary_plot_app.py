@@ -1171,7 +1171,16 @@ class TernaryPlotWindow:
         base_marker_size = 25  # Base size
         marker_size = base_marker_size * self.zoom_level.get()
         
+        # Identify centroid rows (have Centroid_X populated) — skip them in the scatter loop
+        is_centroid_row = pd.Series([False] * len(df))
+        if 'Centroid_X' in df.columns:
+            is_centroid_row = df['Centroid_X'].notna()
+        
         for i in range(len(df)):
+            # Skip centroid rows — they are rendered as circles, not scatter points
+            if is_centroid_row.iloc[i]:
+                continue
+            
             m = markers.iloc[i]
             c = colors.iloc[i]
             
