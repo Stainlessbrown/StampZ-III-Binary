@@ -1310,9 +1310,11 @@ class TernaryPlotWindow:
                         np.array([B_comp / total])
                     )
                     cx, cy = float(pts[0, 0]), float(pts[0, 1])
-                except Exception:
+                except Exception as e:
+                    print(f"DEBUG SPHERE: conversion error for row {i}: {e}")
                     cx, cy = x[i], y[i]  # fallback
                 
+                print(f"DEBUG SPHERE: circle {circle_count} at ({cx:.4f}, {cy:.4f}), radius={radius}, color={color}")
                 circle = Circle(
                     (cx, cy), radius,
                     facecolor=color,
