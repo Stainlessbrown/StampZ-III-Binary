@@ -1294,13 +1294,20 @@ class TernaryPlotWindow:
                 except (ValueError, TypeError):
                     radius = DEFAULT_RADIUS
                 
-                # Centroid_X/Y/Z are already normalised L*/a*/b* proportions —
-                # pass directly to barycentric conversion without re-normalising.
+                # Centroid_X/Y/Z are in the same 0-1 normalised format as Xnorm/Ynorm/Znorm.
+                # Apply the same scale conversion as the data loader, then ternary normalisation.
                 try:
+                    L_val = float(row['Centroid_X']) * 100.0
+                    a_val = float(row['Centroid_Y']) * 255.0 - 128.0
+                    b_val = float(row['Centroid_Z']) * 255.0 - 128.0
+                    L_comp = max(L_val, 0.1)
+                    A_comp = max(abs(a_val), 0.1)
+                    B_comp = max(abs(b_val), 0.1)
+                    total = L_comp + A_comp + B_comp
                     pts = self._barycentric_to_cartesian(
-                        np.array([float(row['Centroid_X'])]),
-                        np.array([float(row['Centroid_Y'])]),
-                        np.array([float(row['Centroid_Z'])])
+                        np.array([L_comp / total]),
+                        np.array([A_comp / total]),
+                        np.array([B_comp / total])
                     )
                     cx, cy = float(pts[0, 0]), float(pts[0, 1])
                 except Exception:
