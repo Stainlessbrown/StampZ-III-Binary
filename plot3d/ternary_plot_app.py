@@ -1217,21 +1217,29 @@ class TernaryPlotWindow:
                 adjusted_size = marker_size
             
             # Highlight selected point with larger size and different edge
+            unfilled_markers = {'x', '+', '|', '_', '1', '2', '3', '4'}
+            point_color = str(c) if str(c) else 'blue'
+            point_marker = str(m) if str(m) else '.'
+            
             if self.highlighted_point == i:
-                edge_color = 'red'
-                edge_width = 2.0
-                size_multiplier = 1.5
+                if point_marker in unfilled_markers:
+                    self.ax.scatter([x[i]], [y[i]], s=adjusted_size * 1.5,
+                                  marker=point_marker, color='red',
+                                  linewidths=2.0, alpha=0.9)
+                else:
+                    self.ax.scatter([x[i]], [y[i]], s=adjusted_size * 1.5,
+                                  marker=point_marker, c=point_color,
+                                  edgecolors='red', linewidths=2.0, alpha=0.9)
             else:
-                # Unfilled markers (x, +, |, _) get their colour from edgecolors, not facecolor
-                unfilled_markers = {'x', '+', '|', '_', '1', '2', '3', '4'}
-                edge_color = str(c) if str(m) in unfilled_markers else 'black'
-                edge_width = 1.5 if str(m) in unfilled_markers else 0.2
-                size_multiplier = 1.0
-                
-            self.ax.scatter([x[i]], [y[i]], s=adjusted_size * size_multiplier, 
-                          marker=m if str(m) else '.', 
-                          c=c if str(c) else 'blue', 
-                          edgecolors=edge_color, linewidths=edge_width, alpha=0.9)
+                if point_marker in unfilled_markers:
+                    # Unfilled markers must use color= to render correctly
+                    self.ax.scatter([x[i]], [y[i]], s=adjusted_size,
+                                  marker=point_marker, color=point_color,
+                                  linewidths=1.5, alpha=0.9)
+                else:
+                    self.ax.scatter([x[i]], [y[i]], s=adjusted_size,
+                                  marker=point_marker, c=point_color,
+                                  edgecolors='black', linewidths=0.2, alpha=0.9)
 
         # Sphere circles – draw circles at centroid positions using the 3D radius
         self._render_sphere_circles(df, x, y, plot_mask)
