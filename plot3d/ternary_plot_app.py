@@ -874,10 +874,15 @@ class TernaryPlotWindow:
             print(f"DEBUG: Full traceback: {traceback.format_exc()}")
     
     def _refresh_data(self):
-        """Refresh data from the current database and update the plot."""
+        """Refresh data from the current database or external file and update the plot."""
         print(f"DEBUG: _refresh_data called with current_database_name: {self.current_database_name}")
         if not self.current_database_name:
             messagebox.showwarning("No Database", "No database is currently loaded.")
+            return
+        
+        # External file (ODS/XLSX/CSV) — reload directly from file
+        if self.current_database_name.endswith(('.ods', '.xlsx', '.xls', '.csv')):
+            self._open_file_by_path(self.current_database_name)
             return
         
         try:
@@ -1330,8 +1335,12 @@ class TernaryPlotWindow:
                     radius = float(radius)
                     if not (radius > 0):
                         radius = DEFAULT_RADIUS
+                    # Scale: the radius is in 3D normalised space (0-1 cube).
+                    # In ternary 2D space the cluster spread is roughly 1/3 of the
+                    # 3D value, so divide by 3 to get a reasonable visual size.
+                    radius = radius / 3.0
                 except (ValueError, TypeError):
-                    radius = DEFAULT_RADIUS
+                    radius = DEFAULT_RADIUS / 3.0
                 
                 # Use mean ternary position of the cluster's data points as circle centre.
                 # This correctly handles the non-linear ternary projection.
