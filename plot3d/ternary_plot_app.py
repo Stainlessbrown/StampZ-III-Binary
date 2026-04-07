@@ -1335,12 +1335,8 @@ class TernaryPlotWindow:
                     radius = float(radius)
                     if not (radius > 0):
                         radius = DEFAULT_RADIUS
-                    # Scale: the radius is in 3D normalised space (0-1 cube).
-                    # In ternary 2D space the cluster spread is roughly 1/3 of the
-                    # 3D value, so divide by 3 to get a reasonable visual size.
-                    radius = radius / 3.0
                 except (ValueError, TypeError):
-                    radius = DEFAULT_RADIUS / 3.0
+                    radius = DEFAULT_RADIUS
                 
                 # Use mean ternary position of the cluster's data points as circle centre.
                 # This correctly handles the non-linear ternary projection.
