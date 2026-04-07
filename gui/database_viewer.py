@@ -125,8 +125,9 @@ class DatabaseViewer:
         # Sample set selection
         ttk.Label(controls_frame, text="Sample Set:").pack(side=tk.LEFT, padx=(0, 5))
         self.sample_set_combo = ttk.Combobox(controls_frame, state="readonly", width=30)
-        self.sample_set_combo.pack(side=tk.LEFT, padx=(0, 10))
+        self.sample_set_combo.pack(side=tk.LEFT, padx=(0, 2))
         self.sample_set_combo.bind("<<ComboboxSelected>>", self._on_sample_set_changed)
+        ttk.Button(controls_frame, text="Browse…", command=self._browse_databases).pack(side=tk.LEFT, padx=(0, 8))
         
         # Buttons
         ttk.Button(controls_frame, text="Columns...", command=self._toggle_columns).pack(side=tk.LEFT, padx=5)
@@ -252,6 +253,37 @@ class DatabaseViewer:
             print(f"DEBUG: Error loading sample sets: {str(e)}")
             messagebox.showerror("Error", f"Failed to load sample sets: {str(e)}")
     
+    def _browse_databases(self):
+        """Open the tree picker dialog for grouped database selection."""
+        if self.data_source.get() != "color_analysis":
+            messagebox.showinfo(
+                "Browse",
+                "Group browsing is currently available for Color Analysis only.",
+                parent=self.dialog
+            )
+            return
+        try:
+            from utils.path_utils import get_color_analysis_dir
+            from utils.color_analysis_db import ColorAnalysisDB
+            from utils.db_groups import GroupsManager
+            from gui.db_tree_picker import DBTreePickerDialog
+
+            data_dir = get_color_analysis_dir()
+            all_dbs = ColorAnalysisDB.get_all_sample_set_databases(data_dir)
+            groups_mgr = GroupsManager(data_dir)
+
+            picker = DBTreePickerDialog(
+                self.dialog, groups_mgr, all_dbs,
+                title="Select Color Analysis Database"
+            )
+            if picker.result:
+                # Set the combobox to the selected value and load it
+                self.sample_set_combo.set(picker.result)
+                self.current_sample_set = picker.result
+                self._refresh_data()
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not open browser:\n{e}", parent=self.dialog)
+
     def _on_source_changed(self):
         """Handle data source change."""
         self._load_sample_sets()
