@@ -1285,19 +1285,13 @@ class TernaryPlotWindow:
                 except (ValueError, TypeError):
                     radius = DEFAULT_RADIUS
                 
-                # Compute ternary position from Centroid_X/Y/Z (normalised L*/a*/b*)
-                # using the same formula as the main render, not the pre-computed x[i]/y[i]
-                # which would be based on NaN L*/a*/b* for centroid-only rows.
+                # Centroid_X/Y/Z are already normalised L*/a*/b* proportions —
+                # pass directly to barycentric conversion without re-normalising.
                 try:
-                    L_comp = max(float(row['Centroid_X']), 0.1)
-                    A_comp = max(abs(float(row['Centroid_Y'])), 0.1)
-                    B_comp = max(abs(float(row['Centroid_Z'])), 0.1)
-                    total = L_comp + A_comp + B_comp
-                    Lp = L_comp / total
-                    Ap = A_comp / total
-                    Bp = B_comp / total
                     pts = self._barycentric_to_cartesian(
-                        np.array([Lp]), np.array([Ap]), np.array([Bp])
+                        np.array([float(row['Centroid_X'])]),
+                        np.array([float(row['Centroid_Y'])]),
+                        np.array([float(row['Centroid_Z'])])
                     )
                     cx, cy = float(pts[0, 0]), float(pts[0, 1])
                 except Exception:
