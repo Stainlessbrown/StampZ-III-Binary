@@ -1253,8 +1253,15 @@ class TernaryPlotWindow:
         """
         try:
             required = ['Centroid_X', 'Centroid_Y', 'Centroid_Z']
+            print(f"DEBUG SPHERE: df columns = {list(df.columns)}")
+            print(f"DEBUG SPHERE: df has {len(df)} rows")
             if not all(col in df.columns for col in required):
+                print(f"DEBUG SPHERE: missing Centroid columns, skipping")
                 return
+            
+            print(f"DEBUG SPHERE: Centroid_X values = {df['Centroid_X'].tolist()}")
+            print(f"DEBUG SPHERE: Centroid_Y values = {df['Centroid_Y'].tolist()}")
+            print(f"DEBUG SPHERE: Centroid_Z values = {df['Centroid_Z'].tolist()}")
             
             DEFAULT_RADIUS = 0.02
             SPHERE_ALPHA = 0.30
@@ -1264,8 +1271,10 @@ class TernaryPlotWindow:
                 df['Centroid_Y'].notna() &
                 df['Centroid_Z'].notna()
             )
+            print(f"DEBUG SPHERE: {centroid_mask.sum()} rows with valid centroid data")
             
             if not centroid_mask.any():
+                print(f"DEBUG SPHERE: no centroid rows found")
                 return
             
             circle_count = 0
