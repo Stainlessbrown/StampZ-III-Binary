@@ -935,7 +935,7 @@ class TernaryPlotWindow:
                 closest_point_idx = i
         
         # Only highlight if click is reasonably close to a point
-        click_threshold = 0.05  # Adjust based on plot scale
+        click_threshold = 0.015  # Tight threshold for clustered data
         if min_distance < click_threshold:
             if self.highlighted_point == closest_point_idx:
                 # Click on already highlighted point - deselect
