@@ -1232,7 +1232,7 @@ class TernaryPlotWindow:
                           edgecolors=edge_color, linewidths=edge_width, alpha=0.9)
 
         # Sphere circles – draw circles at centroid positions using the 3D radius
-        self._render_sphere_circles(df, x, y)
+        self._render_sphere_circles(df, x, y, plot_mask)
         
         # Convex hull
         if self.show_hull.get() and len(x) >= 3:
@@ -1259,14 +1259,13 @@ class TernaryPlotWindow:
         
         self.canvas.draw_idle()
 
-    def _render_sphere_circles(self, df, x, y):
+    def _render_sphere_circles(self, df, x, y, plot_mask=None):
         """Draw translucent circles at centroid positions on the ternary plot.
         
-        Identifies rows that have valid Centroid_X/Y/Z (i.e. sphere rows)
-        and draws a circle at the corresponding ternary (x, y) position
-        using the Radius value from the data.
-        Centroid_X/Y/Z are normalised L*/a*/b* values, so the same ternary
-        conversion used for individual points is applied here.
+        Circle centres are computed as the mean ternary (x,y) position of each
+        cluster's actual data points, which correctly accounts for the non-linear
+        ternary projection. Falls back to projecting Centroid_X/Y/Z if no
+        Cluster column is available.
         """
         try:
             required = ['Centroid_X', 'Centroid_Y', 'Centroid_Z']
@@ -1294,6 +1293,19 @@ class TernaryPlotWindow:
                 print(f"DEBUG SPHERE: no centroid rows found")
                 return
             
+            # Build cluster → mean ternary position lookup from actual data points
+            cluster_ternary = {}
+            if 'Cluster' in df.columns and plot_mask is not None:
+                cluster_col = pd.to_numeric(df['Cluster'], errors='coerce')
+                for cluster_num in cluster_col[plot_mask].dropna().unique():
+                    members = plot_mask & (cluster_col == cluster_num)
+                    if members.any():
+                        cluster_ternary[cluster_num] = (
+                            float(np.mean(x[members.values])),
+                            float(np.mean(y[members.values]))
+                        )
+            print(f"DEBUG SPHERE: cluster ternary means = {cluster_ternary}")
+            
             circle_count = 0
             for i in range(len(df)):
                 if not centroid_mask.iloc[i]:
@@ -1311,24 +1323,32 @@ class TernaryPlotWindow:
                 except (ValueError, TypeError):
                     radius = DEFAULT_RADIUS
                 
-                # Centroid_X/Y/Z are in the same 0-1 normalised space as Xnorm/Ynorm/Znorm.
-                # Use them directly as ternary proportions (normalise to sum=1).
-                try:
-                    cx_raw = max(float(row['Centroid_X']), 0.0)
-                    cy_raw = max(float(row['Centroid_Y']), 0.0)
-                    cz_raw = max(float(row['Centroid_Z']), 0.0)
-                    total = cx_raw + cy_raw + cz_raw
-                    if total <= 0:
-                        raise ValueError("zero total")
-                    pts = self._barycentric_to_cartesian(
-                        np.array([cx_raw / total]),
-                        np.array([cy_raw / total]),
-                        np.array([cz_raw / total])
-                    )
-                    cx, cy = float(pts[0, 0]), float(pts[0, 1])
-                except Exception as e:
-                    print(f"DEBUG SPHERE: conversion error for row {i}: {e}")
-                    cx, cy = x[i], y[i]  # fallback
+                # Use mean ternary position of the cluster's data points as circle centre.
+                # This correctly handles the non-linear ternary projection.
+                cx, cy = None, None
+                if 'Cluster' in df.columns:
+                    cluster_num = pd.to_numeric(row.get('Cluster'), errors='coerce')
+                    if pd.notna(cluster_num) and cluster_num in cluster_ternary:
+                        cx, cy = cluster_ternary[cluster_num]
+                
+                if cx is None:
+                    # Fallback: project Centroid_X/Y/Z directly
+                    try:
+                        cx_raw = max(float(row['Centroid_X']), 0.0)
+                        cy_raw = max(float(row['Centroid_Y']), 0.0)
+                        cz_raw = max(float(row['Centroid_Z']), 0.0)
+                        total = cx_raw + cy_raw + cz_raw
+                        if total <= 0:
+                            raise ValueError("zero total")
+                        pts = self._barycentric_to_cartesian(
+                            np.array([cx_raw / total]),
+                            np.array([cy_raw / total]),
+                            np.array([cz_raw / total])
+                        )
+                        cx, cy = float(pts[0, 0]), float(pts[0, 1])
+                    except Exception as e:
+                        print(f"DEBUG SPHERE: fallback error for row {i}: {e}")
+                        cx, cy = x[i], y[i]
                 
                 print(f"DEBUG SPHERE: circle {circle_count} at ({cx:.4f}, {cy:.4f}), radius={radius}, color={color}")
                 circle = Circle(
