@@ -24,10 +24,11 @@ class DBTreePickerDialog:
         self.result = None
         self.groups_manager = groups_manager
         self.all_db_names = all_db_names
+        self._current_db = None  # stores the last clicked DB name
 
         self.dialog = tk.Toplevel(parent)
         self.dialog.title(title)
-        self.dialog.geometry("380x480")
+        self.dialog.geometry("480x520")
         self.dialog.resizable(True, True)
         self.dialog.transient(parent)
         self.dialog.grab_set()
@@ -130,25 +131,20 @@ class DBTreePickerDialog:
     # ── Selection Handling ─────────────────────────────────────────────────
 
     def _on_tree_select(self, event):
-        """Update the selected label when tree selection changes."""
-        db = self._get_selected_db()
-        if db:
-            self._selected_label_var.set(f"Selected: {db}")
+        """Store the selected DB name whenever selection changes."""
+        sel = self.tree.selection()
+        item = sel[0] if sel else None
+        if item and self.tree.parent(item):  # has parent = DB item, not group
+            self._current_db = self.tree.item(item, "text")
+            self._selected_label_var.set(f"\u2713 Selected: {self._current_db}")
         else:
-            self._selected_label_var.set("Nothing selected (expand a folder and click a database)")
+            # Don't clear _current_db here — keep last valid selection
+            if not self._current_db:
+                self._selected_label_var.set("Expand a folder \u25b6 then click a database name")
 
     def _get_selected_db(self):
-        """Return the selected database name, or None if a group folder is selected."""
-        # Try tree selection first, then focused item
-        sel = self.tree.selection()
-        item = sel[0] if sel else self.tree.focus()
-        if not item:
-            return None
-        # DB items have a parent group node; group nodes have no parent
-        parent = self.tree.parent(item)
-        if parent:  # has parent = it's a DB item, not a group folder
-            return self.tree.item(item, "text")
-        return None
+        """Return the last selected database name."""
+        return self._current_db
 
     def _confirm_selection(self):
         db = self._get_selected_db()
