@@ -357,8 +357,23 @@ class StampZApp:
             return
         
         db = CoordinateDB()
-        all_sets = db.get_all_set_names()
-        
+        all_available = db.get_all_set_names()
+
+        # Filter by active workspace if one is set
+        try:
+            from utils.user_preferences import get_preferences_manager
+            prefs_mgr = get_preferences_manager()
+            active_ws = prefs_mgr.get_active_workspace()
+            if active_ws:
+                ws_templates = prefs_mgr.get_active_templates()
+                # Keep only templates that exist in both lists
+                all_sets = [t for t in all_available if t in ws_templates] or all_available
+                print(f"Workspace '{active_ws}': showing {len(all_sets)}/{len(all_available)} templates")
+            else:
+                all_sets = all_available
+        except Exception:
+            all_sets = all_available
+
         if not all_sets:
             messagebox.showinfo("No Sets", "No coordinate sets found in database")
             return
@@ -836,9 +851,21 @@ class StampZApp:
             self.control_panel.update_crop_dimensions(width, height)
 
     def _apply_default_settings(self):
-        """Apply default application settings."""
-        # This will be expanded with actual default settings
-        pass
+        """Apply default settings from user preferences on startup."""
+        try:
+            from utils.user_preferences import get_preferences_manager
+            prefs = get_preferences_manager()
+
+            # Pre-fill the default template name in the Sample Tool entry
+            default_template = prefs.get_default_template()
+            if default_template and hasattr(self, 'control_panel'):
+                current = self.control_panel.sample_set_name.get().strip()
+                if not current:  # only set if nothing already entered
+                    self.control_panel.sample_set_name.set(default_template)
+                    print(f"Applied default template: {default_template}")
+
+        except Exception as e:
+            print(f"Warning: could not apply default settings: {e}")
         
     def _apply_fine_square(self):
         """Apply fine square adjustment to the current crop vertices."""
