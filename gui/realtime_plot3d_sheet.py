@@ -2635,6 +2635,18 @@ class RealtimePlot3DSheet:
                         print(f"DEBUG: data_start_row = {data_start_row}")
                         print(f"DEBUG: Writing {len(df)} rows starting from row {current_row + 1} (1-based)")
                         
+                        # Columns that should always be written as numeric values
+                        # (so the template's Chroma / Hue / Lightness formulas in
+                        # columns O-T can compare and multiply them). tksheet
+                        # typically hands us strings, which otherwise become
+                        # text-typed ODS cells that break those formulas.
+                        numeric_column_names = {
+                            'Xnorm', 'Ynorm', 'Znorm',
+                            'Cluster', 'DeltaE',
+                            'Centroid_X', 'Centroid_Y', 'Centroid_Z',
+                            'Radius',
+                        }
+                        
                         for row_idx, (_, row_data) in enumerate(df.iterrows()):
                             actual_sheet_row = current_row + row_idx  # Maps tksheet row to ODS row
                             if row_idx < 10:  # Print first 10 rows for debugging
@@ -2646,10 +2658,25 @@ class RealtimePlot3DSheet:
                                 if pd.isna(value):
                                     value = ''
                                 try:
-                                    if isinstance(value, (int, float)) and value != '':
-                                        sheet[actual_sheet_row, col_idx].set_value(float(value))
-                                    else:
-                                        sheet[actual_sheet_row, col_idx].set_value(str(value) if value else '')
+                                    wrote_numeric = False
+                                    if column_name in numeric_column_names and value != '' and value is not None:
+                                        # Accept either a real Python number or
+                                        # a string that parses cleanly to one.
+                                        if isinstance(value, (int, float)):
+                                            sheet[actual_sheet_row, col_idx].set_value(float(value))
+                                            wrote_numeric = True
+                                        else:
+                                            try:
+                                                numeric = float(str(value).strip())
+                                                sheet[actual_sheet_row, col_idx].set_value(numeric)
+                                                wrote_numeric = True
+                                            except (ValueError, TypeError):
+                                                wrote_numeric = False
+                                    if not wrote_numeric:
+                                        if isinstance(value, (int, float)) and value != '':
+                                            sheet[actual_sheet_row, col_idx].set_value(float(value))
+                                        else:
+                                            sheet[actual_sheet_row, col_idx].set_value(str(value) if value else '')
                                 except IndexError as idx_error:
                                     print(f"DEBUG: IndexError at row {actual_sheet_row}, col {col_idx}: {idx_error}")
                                     print(f"DEBUG: Sheet dimensions: {sheet.nrows()} x {sheet.ncols()}")
