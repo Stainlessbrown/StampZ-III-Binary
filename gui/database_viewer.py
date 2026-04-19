@@ -26,14 +26,16 @@ class DatabaseViewer:
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("StampZ Database Viewer")
         
-        # Apply saved geometry (multi-monitor aware), falling back to a
-        # parent-centered default if nothing is saved yet.
+        # Apply saved geometry (multi-monitor aware). We intentionally
+        # do NOT pass the parent here because the helper's parent-
+        # centered fallback uses 90% of the primary screen as the size,
+        # which dwarfs and overlaps the main app window.
         try:
             from utils.window_geometry import apply_window_geometry, save_window_geometry
             apply_window_geometry(
                 self.dialog,
                 'database_viewer',
-                parent=parent,
+                parent=None,
                 default_size_ratio=0.9,
                 min_width=2000,
                 min_height=600,
@@ -47,11 +49,67 @@ class DatabaseViewer:
             self._window_geometry_key = None
         self.dialog.minsize(800, 500)
         
+        # Live-capture geometry plus macOS multi-monitor shrink guard.
+        self._last_good_geometry = None
+        self._geometry_save_after_id = None
+        
+        def _on_configure(event):
+            if event.widget is not self.dialog:
+                return
+            try:
+                w = self.dialog.winfo_width()
+                h = self.dialog.winfo_height()
+            except Exception:
+                return
+            if (w < 800 or h < 500) and self._last_good_geometry:
+                try:
+                    self.dialog.geometry(self._last_good_geometry)
+                except Exception:
+                    pass
+                return
+            try:
+                self._last_good_geometry = self.dialog.geometry()
+            except Exception:
+                return
+            if self._geometry_save_after_id:
+                try:
+                    self.dialog.after_cancel(self._geometry_save_after_id)
+                except Exception:
+                    pass
+            if self._save_window_geometry and self._window_geometry_key:
+                try:
+                    self._geometry_save_after_id = self.dialog.after(
+                        750,
+                        lambda: self._save_window_geometry(
+                            self.dialog, self._window_geometry_key
+                        ),
+                    )
+                except Exception:
+                    self._geometry_save_after_id = None
+        
+        self.dialog.bind('<Configure>', _on_configure)
+        
         # Persist geometry when the user closes the window.
         def _on_close():
+            if self._geometry_save_after_id:
+                try:
+                    self.dialog.after_cancel(self._geometry_save_after_id)
+                except Exception:
+                    pass
+                self._geometry_save_after_id = None
             try:
                 if self._save_window_geometry and self._window_geometry_key:
-                    self._save_window_geometry(self.dialog, self._window_geometry_key)
+                    geom = self._last_good_geometry
+                    if geom:
+                        try:
+                            from utils.user_preferences import get_preferences_manager
+                            get_preferences_manager().set_window_geometry(
+                                self._window_geometry_key, geom
+                            )
+                        except Exception:
+                            self._save_window_geometry(self.dialog, self._window_geometry_key)
+                    else:
+                        self._save_window_geometry(self.dialog, self._window_geometry_key)
             except Exception:
                 pass
             self.dialog.destroy()

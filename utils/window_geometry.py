@@ -55,39 +55,30 @@ def _parse_geometry(geom: str) -> Optional[Tuple[int, int, int, int]]:
         return None
 
 
-def _is_rect_on_any_monitor(root, x: int, y: int, w: int, h: int) -> bool:
-    """Return True if at least a reasonable slice of the rect is visible.
-
-    Tk doesn't give us a per-monitor API directly, but ``winfo_vrootwidth``
-    /``winfo_vrootheight`` and ``winfo_screenwidth``/``winfo_screenheight``
-    together approximate the virtual desktop on most platforms. We require
-    at least 100 px of the window (in each dimension) to lie within the
-    virtual desktop rectangle so a disconnected monitor doesn't strand
-    the window off-screen.
+def _is_geometry_reasonable(x: int, y: int, w: int, h: int) -> bool:
+    """Permissive sanity check for a saved Tk geometry.
+    
+    We deliberately do NOT try to verify the rect is on a connected
+    monitor: macOS Tk often reports ``winfo_vrootwidth`` as only the
+    primary display's width, which would cause us to wrongly reject any
+    saved position on a secondary monitor.
+    
+    Instead we just reject obviously absurd values. If the user ends up
+    with a genuinely off-screen saved window, they can reset via the
+    Close All menu item or by deleting ``window_geometry`` from
+    ``preferences.json``.
     """
-    try:
-        vx = root.winfo_vrootx()
-        vy = root.winfo_vrooty()
-        vw = root.winfo_vrootwidth() or root.winfo_screenwidth()
-        vh = root.winfo_vrootheight() or root.winfo_screenheight()
-    except Exception:
+    if w < 200 or h < 150:
         return False
-
-    # Virtual desktop rect
-    vr_left, vr_top = vx, vy
-    vr_right, vr_bottom = vx + vw, vy + vh
-
-    # Window rect
-    wr_left, wr_top = x, y
-    wr_right, wr_bottom = x + w, y + h
-
-    # Intersection
-    ix = max(0, min(wr_right, vr_right) - max(wr_left, vr_left))
-    iy = max(0, min(wr_bottom, vr_bottom) - max(wr_top, vr_top))
-
-    # Require at least 100x100 px of visibility to consider the saved
-    # geometry still usable.
-    return ix >= 100 and iy >= 100
+    # Very wide bounds: accommodates multi-monitor setups with displays
+    # placed anywhere in the virtual desktop, while still rejecting
+    # corrupted values.
+    MAX = 20000
+    if x < -MAX or x > MAX:
+        return False
+    if y < -MAX or y > MAX:
+        return False
+    return True
 
 
 def _get_prefs_manager():
@@ -155,30 +146,30 @@ def apply_window_geometry(
     min_height: int = 600,
 ) -> None:
     """Apply a sensible starting geometry to ``root``.
-
+    
     Priority order:
-
-    1. Saved geometry for ``key`` (if still on-screen).
-    2. Centered on ``parent``'s current monitor (so the window opens on
-       whichever display the main app window is on).
-    3. Centered on the primary display at ``default_size_ratio``.
-
-    ``min_width`` / ``min_height`` are used as lower bounds when falling
-    back to the primary display.
+    
+    1. Saved geometry for ``key`` (if the values look plausible).
+    2. Centered on the primary display at ``default_size_ratio`` — this
+       matches the pre-existing behavior of StampZ windows, so first-time
+       opens aren't surprising.
+    
+    ``parent`` is accepted for forward compatibility but is intentionally
+    not used for placement: centering the fallback on the parent window
+    caused the new window to swallow the main app on multi-monitor setups
+    (the parent and the 90%-of-primary child have very different sizes).
+    
+    ``min_width`` / ``min_height`` are used as lower bounds.
     """
-    # Make sure the window knows its screen metrics.
-    try:
-        root.update_idletasks()
-    except Exception:
-        pass
-
+    del parent  # accepted for API stability; see docstring
+    
     # 1) Try saved geometry
     saved = load_saved_geometry(key)
     if saved:
         parsed = _parse_geometry(saved)
         if parsed is not None:
             w, h, x, y = parsed
-            if _is_rect_on_any_monitor(root, x, y, w, h):
+            if _is_geometry_reasonable(x, y, w, h):
                 try:
                     root.geometry(saved)
                     return
@@ -187,31 +178,8 @@ def apply_window_geometry(
                         f"window_geometry: saved geometry '{saved}' for "
                         f"'{key}' could not be applied: {e}"
                     )
-
-    # 2) Fall back to parent-centered placement
-    if parent is not None:
-        try:
-            parent.update_idletasks()
-            px = parent.winfo_x()
-            py = parent.winfo_y()
-            pw = parent.winfo_width()
-            ph = parent.winfo_height()
-            # Use a sane default size relative to the parent's screen
-            screen_w = root.winfo_screenwidth()
-            screen_h = root.winfo_screenheight()
-            w = max(min_width, int(screen_w * default_size_ratio))
-            h = max(min_height, int(screen_h * default_size_ratio))
-            x = px + (pw - w) // 2
-            y = py + (ph - h) // 2
-            root.geometry(f"{w}x{h}+{x}+{y}")
-            return
-        except Exception as e:
-            print(
-                f"window_geometry: parent-centered fallback failed for "
-                f"'{key}': {e}"
-            )
-
-    # 3) Final fallback: primary-display centered
+    
+    # 2) Primary-display centered fallback (pre-existing behavior).
     try:
         screen_w = root.winfo_screenwidth()
         screen_h = root.winfo_screenheight()

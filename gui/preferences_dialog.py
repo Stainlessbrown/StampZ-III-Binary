@@ -48,19 +48,19 @@ class PreferencesDialog:
         self.parent.update_idletasks()
         
         # Apply saved geometry (multi-monitor aware). If nothing is saved,
-        # the helper falls back to parent-centered placement using its own
-        # screen-size math, so we just need to seed a sensible default size.
+        # keep the pre-existing parent-centered math (harmless here since
+        # the dialog is sized for the parent's monitor anyway).
         try:
             from utils.window_geometry import apply_window_geometry, save_window_geometry, load_saved_geometry
             self._save_window_geometry = save_window_geometry
             self._window_geometry_key = 'preferences_dialog'
             # Prefer a saved geometry if we have one; otherwise use the
-            # computed size (clamped to the parent's monitor).
+            # legacy parent-centered placement.
             if load_saved_geometry(self._window_geometry_key):
                 apply_window_geometry(
                     self.root,
                     self._window_geometry_key,
-                    parent=self.parent,
+                    parent=None,
                     default_size_ratio=0.7,
                     min_width=650,
                     min_height=750,
@@ -2121,6 +2121,16 @@ class PreferencesDialog:
         """Save the dialog's current geometry for next open. Safe to call anywhere."""
         try:
             if getattr(self, '_save_window_geometry', None) and getattr(self, '_window_geometry_key', None):
+                geom = getattr(self, '_last_good_geometry', None)
+                if geom:
+                    try:
+                        from utils.user_preferences import get_preferences_manager
+                        get_preferences_manager().set_window_geometry(
+                            self._window_geometry_key, geom
+                        )
+                        return
+                    except Exception:
+                        pass
                 self._save_window_geometry(self.root, self._window_geometry_key)
         except Exception:
             pass

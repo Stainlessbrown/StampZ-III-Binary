@@ -78,17 +78,26 @@ class ColorLibraryManager:
         
         self.root.title("Color Library Manager")
         
-        # Apply saved geometry (multi-monitor aware) with fallbacks to
-        # parent-centered placement and then primary-display centering.
+        # Apply saved geometry with a primary-display fallback. We DON'T
+        # use parent-centering here because the 90%-of-primary default
+        # size is far larger than the main app and ends up swallowing it.
         apply_window_geometry(
             self.root,
             _WINDOW_GEOMETRY_KEY,
-            parent=parent,
+            parent=None,
             default_size_ratio=0.9,
             min_width=800,
             min_height=600,
         )
         self.root.minsize(800, 600)
+        
+        # Track geometry for resilient save + macOS multi-monitor shrink
+        # mitigation. We capture the user's actual position/size after
+        # every Configure event, so even if the close handler fails we
+        # still remember where they want the window.
+        self._last_good_geometry = None
+        self._geometry_save_after_id = None
+        self.root.bind('<Configure>', self._on_root_configure)
         
         # Ensure window can be minimized and closed
         self.root.protocol("WM_DELETE_WINDOW", self.quit_app)
@@ -1964,13 +1973,90 @@ class ColorLibraryManager:
             import traceback
             traceback.print_exc()
     
+    def _on_root_configure(self, event):
+        """Track the user's actual window position/size.
+        
+        On macOS, dragging a Tk Toplevel between monitors can trigger a
+        pathological shrink where the window drops to something like 25%
+        of its prior size. When that happens, Tk fires a Configure event
+        reporting a size below our minsize; we intercept that and restore
+        the last known-good geometry.
+        
+        The handler also maintains an up-to-date saved geometry via a
+        throttled call to ``save_window_geometry``, so the next open
+        reliably restores the last position the user actually interacted
+        with.
+        """
+        # Only react to events for the root Toplevel itself, not child widgets.
+        if event.widget is not self.root:
+            return
+        try:
+            w = self.root.winfo_width()
+            h = self.root.winfo_height()
+        except Exception:
+            return
+        
+        # macOS multi-monitor shrink mitigation: if Tk suddenly reports a
+        # size below our minsize, restore the last known-good geometry
+        # rather than letting the bug stick.
+        if (w < 800 or h < 600) and self._last_good_geometry:
+            try:
+                self.root.geometry(self._last_good_geometry)
+            except Exception:
+                pass
+            return
+        
+        # Remember this as last-known-good so we can recover from the
+        # shrink bug and so close-time save has a reliable value even if
+        # Tk's reported geometry is briefly bad.
+        try:
+            self._last_good_geometry = self.root.geometry()
+        except Exception:
+            return
+        
+        # Throttle the save so rapid configure events don't hammer the
+        # preferences file. 750ms after the last event we'll persist.
+        if self._geometry_save_after_id:
+            try:
+                self.root.after_cancel(self._geometry_save_after_id)
+            except Exception:
+                pass
+        try:
+            self._geometry_save_after_id = self.root.after(
+                750,
+                lambda: save_window_geometry(self.root, _WINDOW_GEOMETRY_KEY),
+            )
+        except Exception:
+            self._geometry_save_after_id = None
+    
     def quit_app(self):
         """Close the color library manager window."""
-        # Persist the current geometry so we can restore it next time,
-        # even across multiple monitors.
+        # Cancel any pending throttled save so we don't race against the
+        # final save below.
+        if getattr(self, '_geometry_save_after_id', None):
+            try:
+                self.root.after_cancel(self._geometry_save_after_id)
+            except Exception:
+                pass
+            self._geometry_save_after_id = None
+        
+        # Persist the current geometry. Prefer the last-known-good value
+        # captured by _on_root_configure, because Tk's live geometry()
+        # can briefly report bad sizes during close on macOS.
         try:
             if hasattr(self, 'root') and self.root.winfo_exists():
-                save_window_geometry(self.root, _WINDOW_GEOMETRY_KEY)
+                geom_to_save = getattr(self, '_last_good_geometry', None)
+                if geom_to_save:
+                    try:
+                        from utils.user_preferences import get_preferences_manager
+                        get_preferences_manager().set_window_geometry(
+                            _WINDOW_GEOMETRY_KEY, geom_to_save
+                        )
+                    except Exception as e:
+                        print(f"ColorLibraryManager: direct geometry save failed: {e}")
+                        save_window_geometry(self.root, _WINDOW_GEOMETRY_KEY)
+                else:
+                    save_window_geometry(self.root, _WINDOW_GEOMETRY_KEY)
         except Exception as e:
             print(f"ColorLibraryManager: could not save geometry on close: {e}")
         
