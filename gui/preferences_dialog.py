@@ -47,27 +47,58 @@ class PreferencesDialog:
         # Wait for parent window to be fully initialized
         self.parent.update_idletasks()
         
-        # Position relative to parent window, but with fallback to screen center
+        # Apply saved geometry (multi-monitor aware). If nothing is saved,
+        # the helper falls back to parent-centered placement using its own
+        # screen-size math, so we just need to seed a sensible default size.
         try:
-            parent_x = self.parent.winfo_x()
-            parent_y = self.parent.winfo_y()
-            parent_width = self.parent.winfo_width()
-            parent_height = self.parent.winfo_height()
-            
-            # Calculate position relative to parent window
-            x = parent_x + (parent_width - dialog_width) // 2
-            y = parent_y + (parent_height - dialog_height) // 2
-        except tk.TclError:
-            # Fallback to screen center if parent info not available
-            x = (screen_width - dialog_width) // 2
-            y = (screen_height - dialog_height) // 2
-        
-        # Ensure dialog stays on screen
-        x = max(50, min(x, screen_width - dialog_width - 50))
-        y = max(50, min(y, screen_height - dialog_height - 50))
-        
-        # Set size and position in one call to prevent flashing
-        self.root.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
+            from utils.window_geometry import apply_window_geometry, save_window_geometry, load_saved_geometry
+            self._save_window_geometry = save_window_geometry
+            self._window_geometry_key = 'preferences_dialog'
+            # Prefer a saved geometry if we have one; otherwise use the
+            # computed size (clamped to the parent's monitor).
+            if load_saved_geometry(self._window_geometry_key):
+                apply_window_geometry(
+                    self.root,
+                    self._window_geometry_key,
+                    parent=self.parent,
+                    default_size_ratio=0.7,
+                    min_width=650,
+                    min_height=750,
+                )
+            else:
+                # First-time placement: keep the existing parent-centered math
+                # so we don't change first-run positioning.
+                try:
+                    parent_x = self.parent.winfo_x()
+                    parent_y = self.parent.winfo_y()
+                    parent_width = self.parent.winfo_width()
+                    parent_height = self.parent.winfo_height()
+                    x = parent_x + (parent_width - dialog_width) // 2
+                    y = parent_y + (parent_height - dialog_height) // 2
+                except tk.TclError:
+                    x = (screen_width - dialog_width) // 2
+                    y = (screen_height - dialog_height) // 2
+                x = max(50, min(x, screen_width - dialog_width - 50))
+                y = max(50, min(y, screen_height - dialog_height - 50))
+                self.root.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
+        except Exception as e:
+            # If the helper can't load, fall back to the original math.
+            print(f"PreferencesDialog: falling back to legacy geometry ({e})")
+            self._save_window_geometry = None
+            self._window_geometry_key = None
+            try:
+                parent_x = self.parent.winfo_x()
+                parent_y = self.parent.winfo_y()
+                parent_width = self.parent.winfo_width()
+                parent_height = self.parent.winfo_height()
+                x = parent_x + (parent_width - dialog_width) // 2
+                y = parent_y + (parent_height - dialog_height) // 2
+            except tk.TclError:
+                x = (screen_width - dialog_width) // 2
+                y = (screen_height - dialog_height) // 2
+            x = max(50, min(x, screen_width - dialog_width - 50))
+            y = max(50, min(y, screen_height - dialog_height - 50))
+            self.root.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
         self.root.resizable(True, True)
         
         # Set minimum size to ensure all content is usable
@@ -783,6 +814,38 @@ class PreferencesDialog:
             foreground="gray"
         ).pack(anchor=tk.W)
         
+        # Window management section
+        window_mgmt_frame = ttk.LabelFrame(
+            compare_frame, text="Window Management", padding="10"
+        )
+        window_mgmt_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        self.auto_close_prev_library_windows_var = tk.BooleanVar()
+        ttk.Checkbutton(
+            window_mgmt_frame,
+            text="Close previous Color Library Manager windows when re-sampling",
+            variable=self.auto_close_prev_library_windows_var
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        window_mgmt_explanation = (
+            "When enabled, opening the Color Library Manager or clicking "
+            "'Compare Sample to Library' will automatically close any previous "
+            "Color Library Manager windows that are still open. This avoids "
+            "window clutter and frees memory on resource-constrained machines.\n\n"
+            "When disabled (the default), previous windows remain open so you "
+            "can compare multiple analyses side-by-side. You can always use "
+            "Color Analysis \u2192 Close All Library Windows to close them manually."
+        )
+        
+        ttk.Label(
+            window_mgmt_frame,
+            text=window_mgmt_explanation,
+            wraplength=550,
+            justify=tk.LEFT,
+            font=("TkDefaultFont", 9),
+            foreground="gray"
+        ).pack(anchor=tk.W)
+        
         # Information section
         info_frame = ttk.LabelFrame(compare_frame, text="About Compare Mode", padding="10")
         info_frame.pack(fill=tk.X, pady=(10, 0))
@@ -1355,6 +1418,9 @@ class PreferencesDialog:
         
         # Compare mode preferences
         self.auto_save_averages_var.set(self.prefs_manager.get_auto_save_averages())
+        self.auto_close_prev_library_windows_var.set(
+            self.prefs_manager.get_auto_close_previous_library_windows()
+        )
         
         # Measurement preferences
         self.default_dpi_var.set(str(self.prefs_manager.get_default_dpi()))
@@ -1509,6 +1575,9 @@ class PreferencesDialog:
             
             # Compare mode preferences
             self.prefs_manager.set_auto_save_averages(self.auto_save_averages_var.get())
+            self.prefs_manager.set_auto_close_previous_library_windows(
+                self.auto_close_prev_library_windows_var.get()
+            )
             
             # Measurement preferences
             try:
@@ -1571,6 +1640,7 @@ class PreferencesDialog:
         """Handle OK button."""
         if self._apply_settings():
             self.result = "ok"
+            self._persist_window_geometry()
             self.root.destroy()
     
     def _on_apply(self):
@@ -2044,7 +2114,16 @@ class PreferencesDialog:
     def _on_cancel(self):
         """Handle Cancel button."""
         self.result = "cancel"
+        self._persist_window_geometry()
         self.root.destroy()
+    
+    def _persist_window_geometry(self):
+        """Save the dialog's current geometry for next open. Safe to call anywhere."""
+        try:
+            if getattr(self, '_save_window_geometry', None) and getattr(self, '_window_geometry_key', None):
+                self._save_window_geometry(self.root, self._window_geometry_key)
+        except Exception:
+            pass
     
     def show(self) -> Optional[str]:
         """Show the dialog and return result."""

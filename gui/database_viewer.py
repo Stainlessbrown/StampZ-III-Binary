@@ -26,20 +26,36 @@ class DatabaseViewer:
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("StampZ Database Viewer")
         
-        # Set size and position
-        dialog_width = 2000
-        dialog_height = 600
-        
-        # Get screen dimensions
-        screen_width = parent.winfo_screenwidth()
-        screen_height = parent.winfo_screenheight()
-        
-        # Calculate position
-        x = (screen_width - dialog_width) // 2
-        y = (screen_height - dialog_height) // 2
-        
-        self.dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
+        # Apply saved geometry (multi-monitor aware), falling back to a
+        # parent-centered default if nothing is saved yet.
+        try:
+            from utils.window_geometry import apply_window_geometry, save_window_geometry
+            apply_window_geometry(
+                self.dialog,
+                'database_viewer',
+                parent=parent,
+                default_size_ratio=0.9,
+                min_width=2000,
+                min_height=600,
+            )
+            self._save_window_geometry = save_window_geometry
+            self._window_geometry_key = 'database_viewer'
+        except Exception as e:
+            print(f"DatabaseViewer: falling back to fixed geometry ({e})")
+            self.dialog.geometry("2000x600")
+            self._save_window_geometry = None
+            self._window_geometry_key = None
         self.dialog.minsize(800, 500)
+        
+        # Persist geometry when the user closes the window.
+        def _on_close():
+            try:
+                if self._save_window_geometry and self._window_geometry_key:
+                    self._save_window_geometry(self.dialog, self._window_geometry_key)
+            except Exception:
+                pass
+            self.dialog.destroy()
+        self.dialog.protocol("WM_DELETE_WINDOW", _on_close)
         
         # Configure as independent window
         self.dialog.wm_transient(None)  # Make window independent

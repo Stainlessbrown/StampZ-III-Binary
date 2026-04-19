@@ -3358,6 +3358,7 @@ class AnalysisManager:
         """Open the Color Library Manager window."""
         try:
             from gui.color_library_manager import ColorLibraryManager
+            self._maybe_close_previous_library_windows()
             library_manager = ColorLibraryManager(parent=self.root)
             library_manager.root.update()
         except ImportError as e:
@@ -3372,6 +3373,44 @@ class AnalysisManager:
                 f"Failed to open Color Library Manager:\\n\\n{str(e)}"
             )
 
+    def _maybe_close_previous_library_windows(self) -> None:
+        """Close prior Color Library Manager windows if the user preference is set.
+        
+        The preference is off by default so the existing 'stack multiple
+        windows for comparison' workflow still works; users who want each
+        re-sample to replace the previous window can enable it in
+        Preferences > Compare Mode.
+        """
+        try:
+            from utils.user_preferences import get_preferences_manager
+            from gui.color_library_manager import ColorLibraryManager
+            prefs = get_preferences_manager()
+            if prefs.get_auto_close_previous_library_windows():
+                ColorLibraryManager.close_all_windows()
+        except Exception as e:
+            # Never let window-management hygiene block the user's action.
+            print(f"_maybe_close_previous_library_windows: {e}")
+    
+    def close_all_color_library_windows(self) -> None:
+        """Close every open Color Library Manager window.
+        
+        Wired to the 'Close All Library Windows' menu item. Shows a brief
+        info dialog if there was nothing to close so the user gets feedback.
+        """
+        try:
+            from gui.color_library_manager import ColorLibraryManager
+            closed = ColorLibraryManager.close_all_windows()
+            if closed == 0:
+                messagebox.showinfo(
+                    "Close All Library Windows",
+                    "No Color Library Manager windows are currently open."
+                )
+        except Exception as e:
+            messagebox.showerror(
+                "Error",
+                f"Failed to close Color Library Manager windows:\n\n{str(e)}"
+            )
+    
     def compare_sample_to_library(self):
         """Compare analyzed samples to color library entries."""
         try:
@@ -3415,6 +3454,7 @@ class AnalysisManager:
                     continue
 
             try:
+                self._maybe_close_previous_library_windows()
                 library_manager = ColorLibraryManager(parent=self.root)
                 if not library_manager.library:
                     # Use first available library on disk

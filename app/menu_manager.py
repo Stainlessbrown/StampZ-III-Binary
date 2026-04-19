@@ -140,6 +140,10 @@ class MenuManager:
             label="Compare Sample to Library...", 
             command=self.app.compare_sample_to_library
         )
+        self.color_menu.add_command(
+            label="Close All Library Windows",
+            command=self.app.close_all_color_library_windows
+        )
         self.color_menu.add_separator()
         
         self.color_menu.add_command(

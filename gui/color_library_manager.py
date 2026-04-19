@@ -16,10 +16,14 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.color_library import ColorLibrary, LibraryColor
 from utils.hue_sorting import sort_colors_philatelic, get_hue_group
+from utils.window_geometry import apply_window_geometry, save_window_geometry
 from gui.color_comparison_manager import ColorComparisonManager
 from gui.color_display import ColorDisplay
 
 __all__ = ['ColorLibraryManager']
+
+# Persistence key used by the window_geometry helper for this window.
+_WINDOW_GEOMETRY_KEY = 'color_library_manager'
 
 
 def _find_first_library_on_disk():
@@ -42,6 +46,9 @@ class ColorLibraryManager:
     
     # Class variable to store the most recent instance for refresh access
     _current_instance = None
+    # Registry of all live instances so we can close them all on demand or
+    # auto-close prior ones when re-sampling.
+    _open_instances = []
     
     def __init__(self, parent=None):
         self.parent = parent
@@ -49,6 +56,9 @@ class ColorLibraryManager:
         
         # Store this instance as the current one
         ColorLibraryManager._current_instance = self
+        # Track every live instance so 'Close All' and the auto-close
+        # preference can find them later.
+        ColorLibraryManager._open_instances.append(self)
         
         # Get default library from preferences, falling back to first on disk
         try:
@@ -68,21 +78,21 @@ class ColorLibraryManager:
         
         self.root.title("Color Library Manager")
         
-        # Set window size to 90% of screen
-        screen_width = self.root.winfo_screenwidth()
-        screen_height = self.root.winfo_screenheight()
-        window_width = int(screen_width * 0.9)
-        window_height = int(screen_height * 0.9)
-        
-        self.root.geometry(f"{window_width}x{window_height}")
+        # Apply saved geometry (multi-monitor aware) with fallbacks to
+        # parent-centered placement and then primary-display centering.
+        apply_window_geometry(
+            self.root,
+            _WINDOW_GEOMETRY_KEY,
+            parent=parent,
+            default_size_ratio=0.9,
+            min_width=800,
+            min_height=600,
+        )
         self.root.minsize(800, 600)
         
         # Ensure window can be minimized and closed
         self.root.protocol("WM_DELETE_WINDOW", self.quit_app)
         self.root.resizable(True, True)  # Allow window resizing
-        
-        # Set minimum size
-        self.root.minsize(800, 600)
         
         # Initialize variables
         self.display_to_file_map = {}
@@ -134,12 +144,6 @@ class ColorLibraryManager:
         
         # Bind tab change event to sync data between Results and Compare
         self.notebook.bind('<<NotebookTabChanged>>', self._on_tab_changed)
-        
-        # Center window
-        self.root.update_idletasks()
-        x = (screen_width - window_width) // 2
-        y = (screen_height - window_height) // 2
-        self.root.geometry(f"+{x}+{y}")
     def _create_library_tab(self):
         """Create the library management tab."""
         # Top controls
@@ -1962,8 +1966,57 @@ class ColorLibraryManager:
     
     def quit_app(self):
         """Close the color library manager window."""
+        # Persist the current geometry so we can restore it next time,
+        # even across multiple monitors.
+        try:
+            if hasattr(self, 'root') and self.root.winfo_exists():
+                save_window_geometry(self.root, _WINDOW_GEOMETRY_KEY)
+        except Exception as e:
+            print(f"ColorLibraryManager: could not save geometry on close: {e}")
+        
+        # Remove this instance from the live registry.
+        try:
+            ColorLibraryManager._open_instances.remove(self)
+        except ValueError:
+            pass
+        if ColorLibraryManager._current_instance is self:
+            ColorLibraryManager._current_instance = None
+        
         if hasattr(self, 'root'):
-            self.root.destroy()
+            try:
+                self.root.destroy()
+            except Exception:
+                pass
+    
+    @classmethod
+    def close_all_windows(cls) -> int:
+        """Close every open Color Library Manager window.
+        
+        Returns the number of windows that were closed. Safe to call even
+        if no windows are currently open.
+        """
+        # Copy the list because quit_app() mutates it.
+        instances = list(cls._open_instances)
+        closed = 0
+        for inst in instances:
+            try:
+                if hasattr(inst, 'root') and inst.root.winfo_exists():
+                    inst.quit_app()
+                    closed += 1
+            except Exception as e:
+                print(f"ColorLibraryManager.close_all_windows: {e}")
+        # Defensive: prune the registry of any instances whose window no
+        # longer exists (in case quit_app() didn't run for them).
+        def _alive(inst):
+            root = getattr(inst, 'root', None)
+            if root is None:
+                return False
+            try:
+                return bool(root.winfo_exists())
+            except Exception:
+                return False
+        cls._open_instances = [i for i in cls._open_instances if _alive(i)]
+        return closed
     
     def run(self):
         """Run the color library manager as standalone application."""

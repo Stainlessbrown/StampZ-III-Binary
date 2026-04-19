@@ -223,6 +223,10 @@ class StampZApp:
         """Delegate to analysis manager."""
         return self.analysis_manager.compare_sample_to_library()
         
+    def close_all_color_library_windows(self):
+        """Delegate to analysis manager."""
+        return self.analysis_manager.close_all_color_library_windows()
+        
     def create_standard_libraries(self):
         """Delegate to analysis manager."""
         return self.analysis_manager.create_standard_libraries()

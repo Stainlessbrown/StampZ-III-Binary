@@ -59,6 +59,7 @@ class SampleAreaPreferences:
 class CompareModePreferences:
     """Preferences for Compare mode behavior."""
     auto_save_averages: bool = False  # Automatically save averages to database
+    auto_close_previous_library_windows: bool = False  # Close prior Color Library Manager windows when opening a new one
 
 
 @dataclass
@@ -671,6 +672,75 @@ class PreferencesManager:
             print(f"Error setting auto save averages preference: {e}")
             return False
     
+    def get_auto_close_previous_library_windows(self) -> bool:
+        """Get whether to auto-close prior Color Library Manager windows when opening a new one."""
+        return self.preferences.compare_mode_prefs.auto_close_previous_library_windows
+    
+    def set_auto_close_previous_library_windows(self, auto_close: bool) -> bool:
+        """Set whether to auto-close prior Color Library Manager windows.
+        
+        Args:
+            auto_close: True to close previous Compare/Library windows on re-sample,
+                        False to leave them open (the default, useful for side-by-side comparison)
+        """
+        try:
+            self.preferences.compare_mode_prefs.auto_close_previous_library_windows = auto_close
+            self.save_preferences()
+            return True
+        except Exception as e:
+            print(f"Error setting auto close previous library windows preference: {e}")
+            return False
+    
+    # ==================== Window Geometry Methods ====================
+    
+    def get_window_geometry(self, key: str) -> Optional[str]:
+        """Get a saved Tk geometry string for a named window, or None.
+        
+        Args:
+            key: Identifier for the window (e.g. 'color_library_manager').
+        """
+        try:
+            if self.prefs_file.exists():
+                with open(self.prefs_file, 'r') as f:
+                    data = json.load(f)
+                geometries = data.get('window_geometry', {}) or {}
+                value = geometries.get(key)
+                if isinstance(value, str) and value:
+                    return value
+        except Exception as e:
+            print(f"Error getting window geometry for '{key}': {e}")
+        return None
+    
+    def set_window_geometry(self, key: str, geometry: str) -> bool:
+        """Persist a Tk geometry string for a named window.
+        
+        Args:
+            key: Identifier for the window (e.g. 'color_library_manager').
+            geometry: Geometry string in Tk 'WxH+X+Y' form.
+        """
+        if not key or not isinstance(geometry, str) or not geometry:
+            return False
+        try:
+            self.prefs_file.parent.mkdir(parents=True, exist_ok=True)
+            existing_data = {}
+            if self.prefs_file.exists():
+                try:
+                    with open(self.prefs_file, 'r') as f:
+                        existing_data = json.load(f)
+                except json.JSONDecodeError:
+                    existing_data = {}
+            geometries = existing_data.get('window_geometry', {}) or {}
+            if not isinstance(geometries, dict):
+                geometries = {}
+            geometries[key] = geometry
+            existing_data['window_geometry'] = geometries
+            with open(self.prefs_file, 'w') as f:
+                json.dump(existing_data, f, indent=2)
+            return True
+        except Exception as e:
+            print(f"Error setting window geometry for '{key}': {e}")
+            return False
+    
     def get_default_dpi(self) -> int:
         """Get the default DPI setting for measurements."""
         return self.preferences.measurement_prefs.default_dpi
@@ -1112,7 +1182,8 @@ class PreferencesManager:
                 if 'compare_mode_prefs' in data:
                     compare_data = data['compare_mode_prefs']
                     self.preferences.compare_mode_prefs = CompareModePreferences(
-                        auto_save_averages=compare_data.get('auto_save_averages', False)
+                        auto_save_averages=compare_data.get('auto_save_averages', False),
+                        auto_close_previous_library_windows=compare_data.get('auto_close_previous_library_windows', False)
                     )
                 
                 # Load measurement preferences
