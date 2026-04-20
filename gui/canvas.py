@@ -999,17 +999,36 @@ class CropCanvas(tk.Canvas):
         
         # ΔE HUD: only meaningful once we have ≥2 enabled samples (so there is
         # an average to compare against). Placed below the marker so it doesn't
-        # overlap the sample-number label above.
+        # overlap the sample-number label above, rendered at 12pt bold on a
+        # white background with a status-coloured border for readability
+        # regardless of what's under it on the stamp.
         if delta_e is not None and self._live_delta_e_enabled():
             max_half = max(screen_width, screen_height) / 2
-            label_offset = int(max(14, max_half + 10))
-            self.create_text(
+            label_offset = int(max(18, max_half + 14))
+            hud_font = ("Arial", 12, "bold")
+            text_id = self.create_text(
                 screen_x, screen_y + label_offset,
                 text=f"ΔE {delta_e:.2f}",
                 fill=outline_color,
-                font=("Arial", 9, "bold"),
+                font=hud_font,
                 tags=(marker["tag"], hud_tag),
             )
+            # Put a white rounded-ish background behind the text and re-raise
+            # the text on top. Canvas doesn't support rounded corners natively,
+            # so we use a plain rectangle with a thin status-coloured border.
+            bbox = self.bbox(text_id)
+            if bbox:
+                pad_x, pad_y = 4, 2
+                bx1, by1, bx2, by2 = bbox
+                rect_id = self.create_rectangle(
+                    bx1 - pad_x, by1 - pad_y, bx2 + pad_x, by2 + pad_y,
+                    fill="white",
+                    outline=outline_color,
+                    width=1,
+                    tags=(marker["tag"], hud_tag),
+                )
+                # Ensure the text draws on top of its background plaque
+                self.tag_raise(text_id, rect_id)
     
     # ------------------------------------------------------------------ #
     # Live ΔE HUD helpers
