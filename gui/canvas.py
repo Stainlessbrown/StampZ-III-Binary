@@ -65,6 +65,14 @@ class CropCanvas(tk.Canvas):
         self.anchor_position = 'center'
         self.dragging_preview = False
         
+        # Live ΔE feedback: model owns PIL image + per-sample RGB/Lab/ΔE.
+        from utils.live_sample_model import LiveSampleModel
+        self.live_model = LiveSampleModel()
+        self.live_model.on_change(self._on_live_model_change)
+        # Track the marker most recently clicked/placed/moved so arrow-key
+        # nudging and the right-click menu know which sample to act on.
+        self._last_selected_marker_index: Optional[int] = None
+        
         # Status callback
         self.status_callback = status_callback or (lambda _: None)
         
@@ -145,6 +153,10 @@ class CropCanvas(tk.Canvas):
         """
         # Clear coordinate markers when loading new image
         self._coord_markers.clear()
+        # Reset live model and hand it the new image
+        self.live_model.clear_samples()
+        self.live_model.set_image(image)
+        self._last_selected_marker_index = None
         
         # Load image through core
         self.core.load_image(image)
@@ -271,6 +283,10 @@ class CropCanvas(tk.Canvas):
         
         # Clear coordinate markers
         self._coord_markers.clear()
+        # Reset live-ΔE state for the blank canvas
+        self.live_model.clear_samples()
+        self.live_model.set_image(None)
+        self._last_selected_marker_index = None
         
         # Clear shape
         self.shape_manager.clear_shape()
@@ -375,6 +391,17 @@ class CropCanvas(tk.Canvas):
         self.bind('<Motion>', self._on_motion)
         self.bind('<Configure>', self._on_resize)
         
+        # Arrow-key nudging for the most recently selected sample marker.
+        # Shift+arrow uses a coarse (5 px) step; plain arrow nudges 1 px.
+        for key in ('<KeyPress-Left>', '<KeyPress-Right>',
+                    '<KeyPress-Up>', '<KeyPress-Down>'):
+            self.bind(key, self._on_arrow_nudge)
+        for key in ('<Shift-KeyPress-Left>', '<Shift-KeyPress-Right>',
+                    '<Shift-KeyPress-Up>', '<Shift-KeyPress-Down>'):
+            self.bind(key, self._on_arrow_nudge)
+        # Grab focus on click so key events actually reach the canvas
+        self.bind('<Button-1>', lambda e: self.focus_set(), add='+')
+        
         # Make sure canvas can get focus for events
         self.focus_set()
     
@@ -464,6 +491,17 @@ class CropCanvas(tk.Canvas):
         if not self.core.original_image:
             print("DEBUG: No original image for panning")
             return
+        # In coord mode, a right-click on a placed marker opens a context menu
+        # ("Optimize position") instead of starting a pan. Anywhere else falls
+        # through to the normal pan behavior.
+        if self.tool_manager.is_coord_mode():
+            marker_idx = self._find_marker_at_screen_position(event.x, event.y)
+            if marker_idx is not None:
+                self._last_selected_marker_index = self._coord_markers[marker_idx].get(
+                    'index', marker_idx + 1
+                )
+                self._show_marker_context_menu(event, marker_idx)
+                return
         print("DEBUG: Starting pan operation")
         self.core.handle_pan_start(event.x, event.y)
         self.configure(cursor='fleur')
@@ -585,6 +623,7 @@ class CropCanvas(tk.Canvas):
             
             # Update status
             marker = self._coord_markers[marker_index]
+            self._last_selected_marker_index = marker.get('index', marker_index + 1)
             self.status_callback(f"Dragging sample {marker.get('index', marker_index + 1)}")
             return
         
@@ -743,6 +782,12 @@ class CropCanvas(tk.Canvas):
         
         # Add to markers list
         self._coord_markers.append(marker)
+        self._last_selected_marker_index = marker['index']
+        # Feed live model so ΔE HUD updates immediately
+        try:
+            self.live_model.upsert_sample(marker['index'], marker)
+        except Exception as e:
+            print(f"DEBUG: live_model.upsert_sample (place) failed: {e}")
         
         # Clear preview
         self.delete("coord_preview")
@@ -834,19 +879,37 @@ class CropCanvas(tk.Canvas):
         if 0 <= marker_index < len(self._coord_markers):
             marker = self._coord_markers[marker_index]
             marker['image_pos'] = (image_x, image_y)
+            self._last_selected_marker_index = marker.get('index', marker_index + 1)
             
             # Redraw the marker at its new position
             self._draw_coordinate_marker(marker)
+            
+            # Live-resample colour at the new position so the ΔE HUD and any
+            # listeners (Results/Compare panel) update in real time.
+            try:
+                self.live_model.upsert_sample(
+                    marker.get('index', marker_index + 1), marker
+                )
+            except Exception as e:
+                print(f"DEBUG: live_model.upsert_sample (move) failed: {e}")
             
             # Update status
             self.status_callback(f"Moving sample {marker.get('index', marker_index + 1)} to ({image_x:.1f}, {image_y:.1f})")
 
     def _draw_coordinate_marker(self, marker):
-        """Draw a coordinate marker on the canvas"""
+        """Draw a coordinate marker on the canvas.
+
+        The outline colour is driven by the live ΔE state when available
+        (green / orange / red thresholds from preferences). The cross and
+        sample-number stay in the user-chosen shape colour so they remain
+        readable regardless of marker status.
+        """
         screen_x, screen_y = self.core.image_to_screen_coords(*marker["image_pos"])
         
-        # Clear any existing marker with this tag
+        # Clear any existing marker (and HUD) with this tag
         self.delete(marker["tag"])
+        hud_tag = f"{marker['tag']}_hud"
+        self.delete(hud_tag)
         
         # Get sample dimensions from marker with debug output
         sample_width = marker.get("sample_width", 10)
@@ -893,19 +956,23 @@ class CropCanvas(tk.Canvas):
             x2 = screen_x
             y2 = screen_y
         
+        # Pick outline colour: status colour when ΔE is available, otherwise
+        # fall back to the user-selected shape colour.
+        outline_color, delta_e = self._marker_status_color(marker)
+        
         # Draw the sample shape
         if sample_type == "circle":
             radius = screen_width/2
             self.create_oval(
                 screen_x - radius, screen_y - radius,
                 screen_x + radius, screen_y + radius,
-                outline=self.shape_manager.current_color,
+                outline=outline_color,
                 width=2, fill="", tags=marker["tag"]
             )
         else:  # rectangle
             self.create_rectangle(
                 x1, y1, x2, y2,
-                outline=self.shape_manager.current_color,
+                outline=outline_color,
                 width=2, fill="", tags=marker["tag"]
             )
         
@@ -928,6 +995,176 @@ class CropCanvas(tk.Canvas):
             text=str(marker["index"]),
             fill=self.shape_manager.current_color, font=("Arial", 10, "bold"),
             tags=marker["tag"]
+        )
+        
+        # ΔE HUD: only meaningful once we have ≥2 enabled samples (so there is
+        # an average to compare against). Placed below the marker so it doesn't
+        # overlap the sample-number label above.
+        if delta_e is not None and self._live_delta_e_enabled():
+            max_half = max(screen_width, screen_height) / 2
+            label_offset = int(max(14, max_half + 10))
+            self.create_text(
+                screen_x, screen_y + label_offset,
+                text=f"ΔE {delta_e:.2f}",
+                fill=outline_color,
+                font=("Arial", 9, "bold"),
+                tags=(marker["tag"], hud_tag),
+            )
+    
+    # ------------------------------------------------------------------ #
+    # Live ΔE HUD helpers
+    # ------------------------------------------------------------------ #
+    
+    def _live_delta_e_enabled(self) -> bool:
+        """Return True when the live ΔE feedback preference is on."""
+        try:
+            from utils.user_preferences import get_preferences_manager
+            return bool(get_preferences_manager().get_live_delta_e_enabled())
+        except Exception:
+            return True
+    
+    def _status_color_for_delta_e(self, delta_e: Optional[float]) -> Optional[str]:
+        """Map a ΔE value to a green / orange / red status colour.
+        
+        Returns None when ΔE is unknown so callers can fall back to the
+        user-chosen shape colour.
+        """
+        if delta_e is None:
+            return None
+        try:
+            from utils.user_preferences import get_preferences_manager
+            prefs = get_preferences_manager()
+            warn = prefs.get_live_delta_e_warn_threshold()
+            bad = prefs.get_live_delta_e_bad_threshold()
+        except Exception:
+            warn, bad = 2.0, 5.0
+        if delta_e <= warn:
+            return "#00AA00"   # green
+        if delta_e <= bad:
+            return "#E8A100"   # orange
+        return "#CC0000"        # red
+    
+    def _marker_status_color(self, marker) -> Tuple[str, Optional[float]]:
+        """Pick the outline colour for a marker, returning (color, delta_e).
+        
+        When live feedback is off, or ΔE isn't available yet, we fall back to
+        the user's current shape colour.
+        """
+        fallback = self.shape_manager.current_color
+        if not self._live_delta_e_enabled():
+            return fallback, None
+        try:
+            idx = marker.get('index')
+            if idx is None:
+                return fallback, None
+            delta_e = self.live_model.get_delta_e(idx)
+        except Exception:
+            delta_e = None
+        status = self._status_color_for_delta_e(delta_e)
+        return (status or fallback), delta_e
+    
+    def _on_live_model_change(self, changed_indices, _model) -> None:
+        """Redraw all (few) markers when the live model changes.
+        
+        Because every sample's ΔE shifts when the group average shifts, we
+        simply redraw every marker. N ≤ max_samples (typically 6) so this is
+        cheaper than tracking per-marker canvas items.
+        """
+        try:
+            for marker in self._coord_markers:
+                if marker.get('is_preview', False):
+                    continue
+                self._draw_coordinate_marker(marker)
+        except Exception as e:
+            print(f"DEBUG: _on_live_model_change redraw failed: {e}")
+    
+    # ------------------------------------------------------------------ #
+    # Arrow-key nudging
+    # ------------------------------------------------------------------ #
+    
+    def _on_arrow_nudge(self, event: tk.Event) -> Optional[str]:
+        """Nudge the most recently selected sample marker by 1 / 5 px."""
+        if not self.tool_manager.is_coord_mode():
+            return None
+        idx = self._last_selected_marker_index
+        if idx is None:
+            return None
+        # Find the marker list index matching this 1-based id
+        list_idx = None
+        for i, m in enumerate(self._coord_markers):
+            if m.get('is_preview', False):
+                continue
+            if m.get('index') == idx:
+                list_idx = i
+                break
+        if list_idx is None:
+            return None
+        
+        step = 5 if (event.state & 0x0001) else 1  # Shift = coarse nudge
+        dx = dy = 0
+        if event.keysym == 'Left':
+            dx = -step
+        elif event.keysym == 'Right':
+            dx = step
+        elif event.keysym == 'Up':
+            # Cartesian Y grows upward, so Up increases y
+            dy = step
+        elif event.keysym == 'Down':
+            dy = -step
+        else:
+            return None
+        
+        x0, y0 = self._coord_markers[list_idx]['image_pos']
+        self._move_marker(list_idx, x0 + dx, y0 + dy)
+        return 'break'   # stop the event from bubbling (e.g. scroll-lock style)
+    
+    # ------------------------------------------------------------------ #
+    # Right-click 'Optimize position' context menu
+    # ------------------------------------------------------------------ #
+    
+    def _show_marker_context_menu(self, event: tk.Event, list_idx: int) -> None:
+        """Pop up a small menu with 'Optimize position (ΔE)' for a marker."""
+        marker = self._coord_markers[list_idx]
+        idx = marker.get('index', list_idx + 1)
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(
+            label=f"Optimize position (ΔE) — sample {idx}",
+            command=lambda: self._optimize_marker_position(list_idx),
+        )
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+    
+    def _optimize_marker_position(self, list_idx: int) -> None:
+        """Run the live model's local-search optimiser for a marker."""
+        if not (0 <= list_idx < len(self._coord_markers)):
+            return
+        marker = self._coord_markers[list_idx]
+        idx = marker.get('index', list_idx + 1)
+        try:
+            from utils.user_preferences import get_preferences_manager
+            prefs = get_preferences_manager()
+            radius = prefs.get_optimize_position_radius_px()
+            step = prefs.get_optimize_position_step_px()
+        except Exception:
+            radius, step = 5, 1
+        
+        best = None
+        try:
+            best = self.live_model.optimize_position(idx, radius_px=radius, step_px=step)
+        except Exception as e:
+            print(f"DEBUG: optimize_position failed: {e}")
+        if best is None:
+            self.status_callback(
+                f"Cannot optimize sample {idx}: need at least one other enabled sample"
+            )
+            return
+        bx, by = best
+        marker['image_pos'] = (bx, by)
+        self._draw_coordinate_marker(marker)
+        self.status_callback(
+            f"Optimized sample {idx} → ({bx:.1f}, {by:.1f}) [ΔE-minimised]"
         )
     
     def start_marker_edit(self, marker_idx: int) -> None:
@@ -1073,13 +1310,20 @@ class CropCanvas(tk.Canvas):
     # Coordinate marker methods (simplified)
     def clear_coordinate_markers(self) -> None:
         """Clear all coordinate markers from the canvas and internal list."""
-        # Clear visual markers from canvas
+        # Clear visual markers (and any ΔE HUD overlays) from canvas
         for marker in self._coord_markers:
             if 'tag' in marker:
                 self.delete(marker['tag'])
+                self.delete(f"{marker['tag']}_hud")
         
         # Clear the internal markers list
         self._coord_markers.clear()
+        # Keep the live model aligned so stale ΔE doesn't linger
+        try:
+            self.live_model.clear_samples()
+        except Exception as e:
+            print(f"DEBUG: live_model.clear_samples failed: {e}")
+        self._last_selected_marker_index = None
         
         # Also clear any preview markers
         self.delete("coord_preview")
@@ -1119,6 +1363,11 @@ class CropCanvas(tk.Canvas):
             
             # Add to internal list
             self._coord_markers.append(marker)
+            # Feed live model so template-loaded markers also get live ΔE
+            try:
+                self.live_model.upsert_sample(marker['index'], marker)
+            except Exception as e:
+                print(f"DEBUG: live_model.upsert_sample (template) failed: {e}")
             
             # Draw the marker
             self._draw_coordinate_marker(marker)

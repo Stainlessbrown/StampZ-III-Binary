@@ -1314,6 +1314,63 @@ class PreferencesManager:
             print(f"Error setting preference '{key}': {e}")
             return False
     
+    # ==================== Live ΔE feedback / Optimize ====================
+    # These are stored as top-level JSON keys (not in a dataclass) so adding them
+    # doesn't change the on-disk dataclass schema. Defaults apply automatically
+    # when the keys are absent.
+
+    _LIVE_DE_ENABLED_KEY = "live_delta_e_enabled"
+    _LIVE_DE_WARN_KEY = "live_delta_e_warn_threshold"
+    _LIVE_DE_BAD_KEY = "live_delta_e_bad_threshold"
+    _OPTIMIZE_RADIUS_KEY = "optimize_position_radius_px"
+    _OPTIMIZE_STEP_KEY = "optimize_position_step_px"
+
+    def get_live_delta_e_enabled(self) -> bool:
+        """Show live ΔE HUD + status color on sample markers."""
+        val = self.get(self._LIVE_DE_ENABLED_KEY, True)
+        return bool(val)
+
+    def set_live_delta_e_enabled(self, enabled: bool) -> bool:
+        return self.set(self._LIVE_DE_ENABLED_KEY, bool(enabled))
+
+    def get_live_delta_e_warn_threshold(self) -> float:
+        """ΔE at or below this is considered 'good' (green)."""
+        try:
+            return float(self.get(self._LIVE_DE_WARN_KEY, 2.0))
+        except (TypeError, ValueError):
+            return 2.0
+
+    def set_live_delta_e_warn_threshold(self, value: float) -> bool:
+        return self.set(self._LIVE_DE_WARN_KEY, float(value))
+
+    def get_live_delta_e_bad_threshold(self) -> float:
+        """ΔE above this is considered 'bad' (red)."""
+        try:
+            return float(self.get(self._LIVE_DE_BAD_KEY, 5.0))
+        except (TypeError, ValueError):
+            return 5.0
+
+    def set_live_delta_e_bad_threshold(self, value: float) -> bool:
+        return self.set(self._LIVE_DE_BAD_KEY, float(value))
+
+    def get_optimize_position_radius_px(self) -> int:
+        try:
+            return max(1, int(self.get(self._OPTIMIZE_RADIUS_KEY, 5)))
+        except (TypeError, ValueError):
+            return 5
+
+    def set_optimize_position_radius_px(self, value: int) -> bool:
+        return self.set(self._OPTIMIZE_RADIUS_KEY, int(value))
+
+    def get_optimize_position_step_px(self) -> int:
+        try:
+            return max(1, int(self.get(self._OPTIMIZE_STEP_KEY, 1)))
+        except (TypeError, ValueError):
+            return 1
+
+    def set_optimize_position_step_px(self, value: int) -> bool:
+        return self.set(self._OPTIMIZE_STEP_KEY, int(value))
+
     def get_preferences_summary(self) -> Dict[str, Any]:
         """Get a summary of current preferences."""
         return {
