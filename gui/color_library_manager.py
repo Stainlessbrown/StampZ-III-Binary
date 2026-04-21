@@ -818,6 +818,29 @@ class ColorLibraryManager:
         else:
             self.copy_selected_btn.configure(state='disabled')
     
+    def _position_dialog_over_root(self, dialog: 'tk.Toplevel', width: int, height: int) -> None:
+        """Center ``dialog`` over the Color Library Manager's current window.
+        
+        On macOS multi-monitor setups, ``winfo_screenwidth/height`` only
+        report the *primary* display's dimensions, so dialogs centered
+        that way always land on the primary monitor regardless of where
+        the parent was moved. Anchoring to the parent's current x/y/size
+        keeps child dialogs on the same screen the user is actually using.
+        """
+        try:
+            px = self.root.winfo_x()
+            py = self.root.winfo_y()
+            pw = self.root.winfo_width()
+            ph = self.root.winfo_height()
+            x = px + max(0, (pw - width) // 2)
+            y = py + max(0, (ph - height) // 2)
+        except tk.TclError:
+            # Fallback to primary-screen center (legacy behaviour) if the
+            # parent isn't mappable yet.
+            x = (dialog.winfo_screenwidth() - width) // 2
+            y = (dialog.winfo_screenheight() - height) // 2
+        dialog.geometry(f"{width}x{height}+{x}+{y}")
+    
     def _copy_selected_to_library(self):
         """Copy selected colors to another library."""
         if not self.selected_colors:
@@ -837,15 +860,9 @@ class ColorLibraryManager:
         # Create dialog to select destination library
         dialog = tk.Toplevel(self.root)
         dialog.title("Copy Colors to Library")
-        dialog.geometry("400x300")
         dialog.transient(self.root)
         dialog.grab_set()
-        
-        # Center dialog
-        dialog.update_idletasks()
-        x = (dialog.winfo_screenwidth() // 2) - (200)
-        y = (dialog.winfo_screenheight() // 2) - (150)
-        dialog.geometry(f"+{x}+{y}")
+        self._position_dialog_over_root(dialog, 400, 300)
         
         ttk.Label(dialog, text=f"Copy {len(selected_color_objects)} selected colors to:",
                  font=("Arial", 11, "bold")).pack(pady=10)
@@ -1048,15 +1065,9 @@ class ColorLibraryManager:
         """Create a new library."""
         dialog = tk.Toplevel(self.root)
         dialog.title("Create New Library")
-        dialog.geometry("400x500")
         dialog.transient(self.root)
         dialog.grab_set()
-        
-        # Center dialog
-        dialog.update_idletasks()
-        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
-        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
-        dialog.geometry(f"+{x}+{y}")
+        self._position_dialog_over_root(dialog, 400, 500)
         
         ttk.Label(dialog, text="Library Name:").pack(pady=10)
         
@@ -1150,8 +1161,8 @@ class ColorLibraryManager:
             # Create and configure the dialog
             dialog = tk.Toplevel(self.root)
             dialog.title("Add Color")
-            dialog.geometry("400x700")  # Increased height to show all elements
             dialog.transient(self.root)
+            self._position_dialog_over_root(dialog, 400, 700)
             
             # Force dialog to be visible and on top
             dialog.lift()
@@ -1172,13 +1183,8 @@ class ColorLibraryManager:
             # Bind cleanup to dialog close button
             dialog.protocol("WM_DELETE_WINDOW", on_dialog_close)
             
-            # Center the dialog on screen
+            # Dialog position is set by _position_dialog_over_root above.
             dialog.update_idletasks()
-            width = dialog.winfo_width()
-            height = dialog.winfo_height()
-            x = (dialog.winfo_screenwidth() // 2) - (width // 2)
-            y = (dialog.winfo_screenheight() // 2) - (height // 2)
-            dialog.geometry(f"+{x}+{y}")
             
             print("DEBUG: Dialog window positioned and ready")
             
@@ -1314,15 +1320,9 @@ class ColorLibraryManager:
         
         dialog = tk.Toplevel(self.root)
         dialog.title("Edit Color Information")
-        dialog.geometry("400x300")
         dialog.transient(self.root)
         dialog.grab_set()
-        
-        # Center dialog
-        dialog.update_idletasks()
-        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
-        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
-        dialog.geometry(f"+{x}+{y}")
+        self._position_dialog_over_root(dialog, 400, 300)
         
         # Variables
         name_var = tk.StringVar(value=color.name)
@@ -1405,15 +1405,9 @@ class ColorLibraryManager:
         # Create dialog to select destination library
         dialog = tk.Toplevel(self.root)
         dialog.title(f"Add '{color.name}' to Library")
-        dialog.geometry("400x250")
         dialog.transient(self.root)
         dialog.grab_set()
-        
-        # Center dialog
-        dialog.update_idletasks()
-        x = (dialog.winfo_screenwidth() // 2) - (200)
-        y = (dialog.winfo_screenheight() // 2) - (125)
-        dialog.geometry(f"+{x}+{y}")
+        self._position_dialog_over_root(dialog, 400, 250)
         
         # Info label
         info_frame = ttk.Frame(dialog)
@@ -1542,15 +1536,9 @@ class ColorLibraryManager:
         # Create dialog
         dialog = tk.Toplevel(self.root)
         dialog.title("Merge Library")
-        dialog.geometry("480x380")
         dialog.transient(self.root)
         dialog.grab_set()
-        
-        # Center dialog
-        dialog.update_idletasks()
-        x = (dialog.winfo_screenwidth() // 2) - 240
-        y = (dialog.winfo_screenheight() // 2) - 190
-        dialog.geometry(f"+{x}+{y}")
+        self._position_dialog_over_root(dialog, 480, 380)
         
         # Current library info
         current_display = self.file_to_display_map.get(self.current_library_name, self.current_library_name)
@@ -1697,12 +1685,7 @@ class ColorLibraryManager:
         format_dialog.title("Select Export Format")
         format_dialog.transient(self.root)
         format_dialog.grab_set()
-        
-        # Center dialog
-        format_dialog.update_idletasks()
-        x = (format_dialog.winfo_screenwidth() // 2) - 200
-        y = (format_dialog.winfo_screenheight() // 2) - 150
-        format_dialog.geometry(f"400x250+{x}+{y}")
+        self._position_dialog_over_root(format_dialog, 400, 250)
         
         # Variable to store selected format
         selected_format = tk.StringVar(value="lab")
@@ -1787,12 +1770,7 @@ class ColorLibraryManager:
             dialog.title("Import Options")
             dialog.transient(self.root)
             dialog.grab_set()
-            
-            # Center dialog
-            dialog.update_idletasks()
-            x = (dialog.winfo_screenwidth() // 2) - (200)
-            y = (dialog.winfo_screenheight() // 2) - (150)
-            dialog.geometry(f"400x300+{x}+{y}")
+            self._position_dialog_over_root(dialog, 400, 300)
             
             # Variables
             import_type = tk.StringVar(value="current")
