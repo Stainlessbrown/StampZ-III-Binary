@@ -828,19 +828,29 @@ class DatabaseViewer:
             except:
                 use_normalized = False
             
-            # Define CSV headers based on normalization preference
+            # Define CSV headers based on normalization preference.
+            # `sample_anchor` and the six stddev columns are always included so a
+            # user can round-trip edit a CSV without losing those fields on import.
+            stddev_headers = [
+                'rgb_r_stddev', 'rgb_g_stddev', 'rgb_b_stddev',
+                'lab_l_stddev', 'lab_a_stddev', 'lab_b_stddev',
+            ]
             if use_normalized:
                 headers = [
                     'id', 'set_id', 'image_name', 'measurement_date', 'coordinate_point',
                     'l_norm', 'a_norm', 'b_norm', 'r_norm', 'g_norm', 'b_norm_rgb',
-                    'x_position', 'y_position', 'sample_type', 'sample_size', 'notes', 'is_averaged'
-                ]
+                    'x_position', 'y_position',
+                    'sample_type', 'sample_size', 'sample_anchor',
+                    'notes', 'is_averaged',
+                ] + stddev_headers
             else:
                 headers = [
                     'id', 'set_id', 'image_name', 'measurement_date', 'coordinate_point',
                     'l_value', 'a_value', 'b_value', 'rgb_r', 'rgb_g', 'rgb_b',
-                    'x_position', 'y_position', 'sample_type', 'sample_size', 'notes', 'is_averaged'
-                ]
+                    'x_position', 'y_position',
+                    'sample_type', 'sample_size', 'sample_anchor',
+                    'notes', 'is_averaged',
+                ] + stddev_headers
             
             with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
@@ -861,6 +871,16 @@ class DatabaseViewer:
                     if l_val <= 1.0 and abs(a_val) <= 1.0 and abs(b_val) <= 1.0:
                         # Values are in 0-1 range, likely already normalized
                         is_already_normalized = True
+                    
+                    # Stddev fields are optional in the DB; fall back to empty
+                    # string so users can see the column exists even when absent.
+                    def _sd(key):
+                        v = measurement.get(key)
+                        return v if v is not None else ''
+                    stddev_cells = [
+                        _sd('rgb_r_stddev'), _sd('rgb_g_stddev'), _sd('rgb_b_stddev'),
+                        _sd('lab_l_stddev'), _sd('lab_a_stddev'), _sd('lab_b_stddev'),
+                    ]
                     
                     if use_normalized:
                         if is_already_normalized:
@@ -899,9 +919,10 @@ class DatabaseViewer:
                             measurement.get('y_position', ''),
                             measurement.get('sample_type', ''),
                             measurement.get('sample_size', ''),
+                            measurement.get('sample_anchor', ''),
                             measurement.get('notes', ''),
-                            measurement.get('is_averaged', '')
-                        ]
+                            measurement.get('is_averaged', ''),
+                        ] + stddev_cells
                     else:
                         # Export raw values
                         row = [
@@ -920,9 +941,10 @@ class DatabaseViewer:
                             measurement.get('y_position', ''),
                             measurement.get('sample_type', ''),
                             measurement.get('sample_size', ''),
+                            measurement.get('sample_anchor', ''),
                             measurement.get('notes', ''),
-                            measurement.get('is_averaged', '')
-                        ]
+                            measurement.get('is_averaged', ''),
+                        ] + stddev_cells
                     
                     writer.writerow(row)
             
@@ -1158,6 +1180,27 @@ class DatabaseViewer:
             # Read and import CSV data
             with open(filepath, 'r', encoding='utf-8') as csvfile:
                 reader = csv.DictReader(csvfile)
+                headers = reader.fieldnames or []
+                header_set = set(headers)
+                # Detect which Lab/RGB family the CSV uses. The validator already
+                # ensured at least one family is complete, so this is safe.
+                using_norm = (
+                    all(h in header_set for h in self._CSV_NORM_LAB_RGB)
+                    and not all(h in header_set for h in self._CSV_RAW_LAB_RGB)
+                )
+                print(f"Importing color analysis CSV using {'normalised' if using_norm else 'raw'} Lab/RGB columns")
+                
+                def _opt_float(val):
+                    """Parse a stddev-style optional float cell; '' / None -> None."""
+                    if val is None:
+                        return None
+                    s = str(val).strip()
+                    if not s:
+                        return None
+                    try:
+                        return float(s)
+                    except ValueError:
+                        return None
                 
                 imported_count = 0
                 # Track measurement sets to create them as needed
@@ -1189,22 +1232,49 @@ class DatabaseViewer:
                             else:
                                 actual_set_id = created_sets[image_name]
                         
-                        # Import measurement (without image_name parameter)
+                        # Decode Lab/RGB from whichever family the CSV uses.
+                        if using_norm:
+                            # Normalised inputs are on 0..1; map back to StampZ's
+                            # canonical ranges (L*: 0..100, a*/b*: -128..+127,
+                            # RGB: 0..255) so downstream code behaves the same
+                            # regardless of how the CSV was written.
+                            l_value = float(row['l_norm']) * 100.0
+                            a_value = float(row['a_norm']) * 255.0 - 128.0
+                            b_value = float(row['b_norm']) * 255.0 - 128.0
+                            rgb_r = float(row['r_norm']) * 255.0
+                            rgb_g = float(row['g_norm']) * 255.0
+                            rgb_b = float(row['b_norm_rgb']) * 255.0
+                        else:
+                            l_value = float(row['l_value'])
+                            a_value = float(row['a_value'])
+                            b_value = float(row['b_value'])
+                            rgb_r = float(row['rgb_r'])
+                            rgb_g = float(row['rgb_g'])
+                            rgb_b = float(row['rgb_b'])
+                        
+                        # Import measurement (without image_name parameter).
+                        # sample_anchor + stddev fields are preserved when present.
                         success = db.save_color_measurement(
                             set_id=actual_set_id,
                             coordinate_point=int(row['coordinate_point']) if row.get('coordinate_point') else 1,
                             x_pos=float(row['x_position']) if row.get('x_position') else 0,
                             y_pos=float(row['y_position']) if row.get('y_position') else 0,
-                            l_value=float(row['l_value']),
-                            a_value=float(row['a_value']),
-                            b_value=float(row['b_value']),
-                            rgb_r=float(row['rgb_r']),
-                            rgb_g=float(row['rgb_g']),
-                            rgb_b=float(row['rgb_b']),
+                            l_value=l_value,
+                            a_value=a_value,
+                            b_value=b_value,
+                            rgb_r=rgb_r,
+                            rgb_g=rgb_g,
+                            rgb_b=rgb_b,
                             sample_type=row.get('sample_type', 'circle'),
                             sample_size=row.get('sample_size', '10x10'),
                             sample_anchor=row.get('sample_anchor', 'center'),
-                            notes=row.get('notes', '')
+                            notes=row.get('notes', ''),
+                            rgb_r_stddev=_opt_float(row.get('rgb_r_stddev')),
+                            rgb_g_stddev=_opt_float(row.get('rgb_g_stddev')),
+                            rgb_b_stddev=_opt_float(row.get('rgb_b_stddev')),
+                            lab_l_stddev=_opt_float(row.get('lab_l_stddev')),
+                            lab_a_stddev=_opt_float(row.get('lab_a_stddev')),
+                            lab_b_stddev=_opt_float(row.get('lab_b_stddev')),
                         )
                         
                         if success:
@@ -1256,30 +1326,56 @@ class DatabaseViewer:
             print(f"Error importing color library from CSV: {e}")
             return False
     
+    # Column groups recognised by the color-analysis CSV round-trip.
+    # The importer accepts either the raw family (l_value, a_value, ..., rgb_b)
+    # or the normalised family written when 'Export normalized values' is on
+    # (l_norm, a_norm, b_norm, r_norm, g_norm, b_norm_rgb).
+    _CSV_RAW_LAB_RGB = ['l_value', 'a_value', 'b_value', 'rgb_r', 'rgb_g', 'rgb_b']
+    _CSV_NORM_LAB_RGB = ['l_norm', 'a_norm', 'b_norm', 'r_norm', 'g_norm', 'b_norm_rgb']
+    
     def _validate_color_analysis_csv(self, filepath: str) -> bool:
-        """Validate color analysis CSV format."""
+        """Validate color analysis CSV format.
+        
+        Accepts either raw column names (l_value/... /rgb_b) or the normalised
+        ones written when the 'Export normalized values' preference is on
+        (l_norm/... /b_norm_rgb). Either family is treated as 'present';
+        the importer will denormalise as needed.
+        """
         try:
-            required_headers = ['l_value', 'a_value', 'b_value', 'rgb_r', 'rgb_g', 'rgb_b']
+            raw_required = self._CSV_RAW_LAB_RGB
+            norm_required = self._CSV_NORM_LAB_RGB
             recommended_headers = ['image_name', 'coordinate_point', 'x_position', 'y_position']
             
             with open(filepath, 'r', encoding='utf-8') as csvfile:
                 reader = csv.DictReader(csvfile)
-                headers = reader.fieldnames
+                headers = reader.fieldnames or []
+                header_set = set(headers)
                 
                 print(f"CSV headers found: {headers}")
                 
-                # Check for required headers
-                missing_headers = [h for h in required_headers if h not in headers]
-                if missing_headers:
+                has_raw = all(h in header_set for h in raw_required)
+                has_norm = all(h in header_set for h in norm_required)
+                
+                if not has_raw and not has_norm:
+                    # Report whichever family is closer to satisfied for a useful error.
+                    missing_raw = [h for h in raw_required if h not in header_set]
+                    missing_norm = [h for h in norm_required if h not in header_set]
+                    closest = missing_raw if len(missing_raw) <= len(missing_norm) else missing_norm
+                    closest_family = 'raw' if closest is missing_raw else 'normalised'
                     messagebox.showerror(
                         "Invalid CSV Format",
-                        f"Missing required columns:\n\n{', '.join(missing_headers)}\n\n"
-                        f"Required columns: {', '.join(required_headers)}"
+                        f"Missing required columns (closest match: {closest_family} family):\n\n"
+                        f"{', '.join(closest)}\n\n"
+                        f"Accepts either:\n  • {', '.join(raw_required)}\n"
+                        f"  • {', '.join(norm_required)}"
                     )
                     return False
                 
+                use_norm = has_norm and not has_raw
+                lab_rgb_cols = norm_required if use_norm else raw_required
+                
                 # Warn about missing recommended headers
-                missing_recommended = [h for h in recommended_headers if h not in headers]
+                missing_recommended = [h for h in recommended_headers if h not in header_set]
                 if missing_recommended:
                     if not messagebox.askyesno(
                         "Missing Recommended Columns",
@@ -1288,20 +1384,15 @@ class DatabaseViewer:
                     ):
                         return False
                 
-                # Validate a few rows for data format
+                # Validate a few rows for data format using the detected family.
                 row_count = 0
                 for row in reader:
                     if row_count >= 5:  # Check first 5 rows
                         break
                     
                     try:
-                        # Try to convert numeric values
-                        float(row['l_value'])
-                        float(row['a_value']) 
-                        float(row['b_value'])
-                        float(row['rgb_r'])
-                        float(row['rgb_g'])
-                        float(row['rgb_b'])
+                        for col in lab_rgb_cols:
+                            float(row[col])
                         
                         # Validate optional numeric fields if present
                         if row.get('x_position'):
@@ -1319,7 +1410,7 @@ class DatabaseViewer:
                         )
                         return False
             
-            print(f"CSV validation passed for {row_count} sample rows")
+            print(f"CSV validation passed for {row_count} sample rows (family: {'norm' if use_norm else 'raw'})")
             return True
             
         except Exception as e:
