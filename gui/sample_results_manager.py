@@ -509,26 +509,52 @@ class SampleResultsManager(tk.Frame):
         button_frame = ttk.Frame(dialog)
         button_frame.pack(fill=tk.X, padx=16, pady=(10, 14))
         
-        def do_save():
-            layout = layout_var.get()
-            dialog.destroy()
-            self._write_comparison_image(
-                layout=layout,
+        def _build():
+            """Build the composite image from the current dialog values."""
+            return self._build_comparison_image(
+                layout=layout_var.get(),
                 avg_rgb=avg_rgb,
                 avg_lab=avg_lab,
                 include_values=include_values_var.get(),
                 frame_padding=max(0, int(padding_var.get())),
             )
         
-        ttk.Button(button_frame, text="Save…", command=do_save).pack(side=tk.RIGHT)
+        def do_preview():
+            composite, suffix = _build()
+            if composite is None:
+                return
+            dialog.destroy()
+            self._show_comparison_preview(
+                composite=composite,
+                avg_rgb=avg_rgb,
+                avg_lab=avg_lab,
+                suggested_suffix=suffix,
+                layout=layout_var.get(),
+            )
+        
+        def do_save():
+            composite, suffix = _build()
+            if composite is None:
+                return
+            dialog.destroy()
+            self._save_composite_to_disk(composite, suffix)
+        
+        ttk.Button(button_frame, text="Preview", command=do_preview).pack(side=tk.RIGHT)
+        ttk.Button(button_frame, text="Save…", command=do_save).pack(
+            side=tk.RIGHT, padx=(0, 6),
+        )
         ttk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(
             side=tk.RIGHT, padx=(0, 6),
         )
     
-    def _write_comparison_image(
+    def _build_comparison_image(
         self, layout, avg_rgb, avg_lab, include_values, frame_padding,
     ):
-        """Build the composite image and prompt the user for a save path."""
+        """Return ``(composite_image, filename_suffix)`` or ``(None, None)``.
+        
+        Centralises the composer dispatch so Preview and Save go through
+        the same code path with identical parameters.
+        """
         try:
             from utils.comparison_image import (
                 compose_swatch_layer, compose_side_by_side,
@@ -538,7 +564,7 @@ class SampleResultsManager(tk.Frame):
                 "Missing Module",
                 f"Could not load comparison composer:\n\n{e}",
             )
-            return
+            return None, None
         
         try:
             if layout == "swatch_behind":
@@ -559,10 +585,12 @@ class SampleResultsManager(tk.Frame):
                 "Composition Failed",
                 f"Could not build the comparison image:\n\n{e}",
             )
-            return
+            return None, None
         
-        # Default filename / directory mirror Save-to-File behaviour: sit
-        # beside the analysed image when one is known.
+        return composite, suffix
+    
+    def _save_composite_to_disk(self, composite, suffix):
+        """Prompt for a save location and write ``composite`` there."""
         default_dir = None
         suggested_name = "comparison"
         if getattr(self, 'current_file_path', None):
@@ -584,7 +612,7 @@ class SampleResultsManager(tk.Frame):
             filetypes=filetypes,
         )
         if not filepath:
-            return
+            return False
         
         try:
             # PIL picks format from extension; composite is RGB so PNG/TIFF
@@ -592,12 +620,109 @@ class SampleResultsManager(tk.Frame):
             composite.save(filepath)
         except Exception as e:
             messagebox.showerror("Save Failed", f"Could not save image:\n\n{e}")
-            return
+            return False
         
         messagebox.showinfo(
             "Saved",
             f"Comparison image saved:\n\n{os.path.basename(filepath)}",
         )
+        return True
+    
+    def _show_comparison_preview(
+        self, composite, avg_rgb, avg_lab, suggested_suffix, layout,
+    ):
+        """Open a Toplevel window showing ``composite`` with Save / Close buttons.
+        
+        The image is down-scaled to fit the current screen when larger;
+        the original full-resolution copy is preserved so Save always
+        writes the un-shrunk version.
+        """
+        from PIL import ImageTk
+        
+        viewer = tk.Toplevel(self)
+        layout_label = (
+            "Swatch behind stamp" if layout == "swatch_behind"
+            else "Side-by-side panel"
+        )
+        viewer.title(f"Comparison Preview — {layout_label}")
+        
+        # Size the viewer to roughly fit the screen, leaving room for the
+        # Dock / menu bar and the button strip below the image.
+        try:
+            screen_w = viewer.winfo_screenwidth()
+            screen_h = viewer.winfo_screenheight()
+        except Exception:
+            screen_w, screen_h = 1600, 1000
+        max_img_w = int(screen_w * 0.8)
+        max_img_h = int(screen_h * 0.75)
+        
+        img_w, img_h = composite.size
+        scale = min(1.0, max_img_w / img_w, max_img_h / img_h)
+        if scale < 1.0:
+            preview_img = composite.resize(
+                (max(1, int(img_w * scale)), max(1, int(img_h * scale))),
+                Image.LANCZOS,
+            )
+        else:
+            preview_img = composite
+        
+        # Layout: image on top, info strip + buttons on the bottom.
+        image_frame = ttk.Frame(viewer, padding=8)
+        image_frame.pack(fill=tk.BOTH, expand=True)
+        
+        photo = ImageTk.PhotoImage(preview_img)
+        label = ttk.Label(image_frame, image=photo, anchor="center")
+        # Keep a reference; Tk will garbage-collect the image otherwise.
+        label.image = photo
+        label.pack(fill=tk.BOTH, expand=True)
+        
+        info_bar = ttk.Frame(viewer, padding=(12, 0, 12, 6))
+        info_bar.pack(fill=tk.X)
+        info_text = (
+            f"Avg RGB  ({int(round(avg_rgb[0]))}, "
+            f"{int(round(avg_rgb[1]))}, {int(round(avg_rgb[2]))})"
+        )
+        if avg_lab:
+            info_text += (
+                f"     L*a*b*  ({avg_lab[0]:.1f}, "
+                f"{avg_lab[1]:.1f}, {avg_lab[2]:.1f})"
+            )
+        if scale < 1.0:
+            info_text += f"     (displayed at {int(scale * 100)}% of full size)"
+        ttk.Label(info_bar, text=info_text, font=("Arial", 10)).pack(
+            side=tk.LEFT
+        )
+        
+        button_bar = ttk.Frame(viewer, padding=(12, 0, 12, 10))
+        button_bar.pack(fill=tk.X)
+        
+        def on_save():
+            # Save the full-resolution composite, not the shrunk preview.
+            if self._save_composite_to_disk(composite, suggested_suffix):
+                viewer.destroy()
+        
+        ttk.Button(button_bar, text="Close", command=viewer.destroy).pack(
+            side=tk.RIGHT
+        )
+        ttk.Button(button_bar, text="Save…", command=on_save).pack(
+            side=tk.RIGHT, padx=(0, 6)
+        )
+        
+        # Center the viewer on the parent's current monitor.
+        viewer.update_idletasks()
+        try:
+            parent_window = self.winfo_toplevel()
+            px = parent_window.winfo_x()
+            py = parent_window.winfo_y()
+            pw = parent_window.winfo_width()
+            ph = parent_window.winfo_height()
+            vw = viewer.winfo_width()
+            vh = viewer.winfo_height()
+            x = px + max(0, (pw - vw) // 2)
+            y = py + max(0, (ph - vh) // 2)
+            viewer.geometry(f"+{x}+{y}")
+        except Exception:
+            pass
     
     def _add_color_to_library(self, rgb_values, lab_values):
         """Handle adding the current average color to a library."""
