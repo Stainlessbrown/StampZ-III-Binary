@@ -412,10 +412,192 @@ class SampleResultsManager(tk.Frame):
         save_file_button = ttk.Button(buttons_frame, text="Save to File",
                               command=lambda: self._save_to_text_file(avg_rgb, avg_lab, enabled_samples))
         save_file_button.pack(fill=tk.X, pady=2)
+        
+        # Save a composed stamp + average-swatch image for visual comparison.
+        # Works on both cropped (alpha) and uncropped stamp images.
+        compare_button = ttk.Button(
+            buttons_frame,
+            text="Save comparison image…",
+            command=lambda: self._save_comparison_image(avg_rgb, avg_lab),
+        )
+        compare_button.pack(fill=tk.X, pady=2)
     
     def _on_sample_toggle(self):
         """Handle sample toggle events."""
         self._update_average_display()
+    
+    def _save_comparison_image(self, avg_rgb, avg_lab):
+        """Export the current stamp image composed with the average swatch.
+        
+        Two layouts are offered:
+          * "Swatch behind stamp" — solid swatch as the bottom layer, stamp
+            on top. If the stamp was loaded from a shape-cropped PNG/TIFF
+            (alpha channel present), the swatch shows through the
+            transparent corners.
+          * "Side by side" — stamp on the left, swatch panel on the right
+            with the RGB / Lab values printed on it.
+        """
+        if not getattr(self, 'current_image', None):
+            messagebox.showerror(
+                "No Image",
+                "Load an image and run an analysis before saving a comparison image.",
+            )
+            return
+        if not avg_rgb:
+            messagebox.showerror("No Average", "No average colour is available.")
+            return
+        
+        # --- layout chooser dialog ---------------------------------------- #
+        dialog = tk.Toplevel(self)
+        dialog.title("Save Comparison Image")
+        dialog.grab_set()
+        
+        # Center relative to parent window so it appears on the correct
+        # monitor in multi-display setups.
+        dialog.update_idletasks()
+        dlg_w, dlg_h = 460, 320
+        try:
+            parent_window = self.winfo_toplevel()
+            px = parent_window.winfo_x()
+            py = parent_window.winfo_y()
+            pw = parent_window.winfo_width()
+            ph = parent_window.winfo_height()
+            x = px + (pw - dlg_w) // 2
+            y = py + (ph - dlg_h) // 2
+            dialog.geometry(f"{dlg_w}x{dlg_h}+{x}+{y}")
+        except Exception:
+            dialog.geometry(f"{dlg_w}x{dlg_h}")
+        
+        ttk.Label(
+            dialog, text="Save Comparison Image",
+            font=("Arial", 14, "bold"),
+        ).pack(pady=(12, 6))
+        
+        layout_var = tk.StringVar(value="swatch_behind")
+        include_values_var = tk.BooleanVar(value=True)
+        padding_var = tk.IntVar(value=60)
+        
+        layout_frame = ttk.LabelFrame(dialog, text="Layout", padding=8)
+        layout_frame.pack(fill=tk.X, padx=16, pady=6)
+        ttk.Radiobutton(
+            layout_frame,
+            text="Swatch behind stamp (best for cropped shapes)",
+            variable=layout_var, value="swatch_behind",
+        ).pack(anchor="w")
+        ttk.Radiobutton(
+            layout_frame,
+            text="Side-by-side panel (stamp | swatch)",
+            variable=layout_var, value="side_by_side",
+        ).pack(anchor="w")
+        
+        opts_frame = ttk.LabelFrame(dialog, text="Options", padding=8)
+        opts_frame.pack(fill=tk.X, padx=16, pady=6)
+        ttk.Checkbutton(
+            opts_frame,
+            text="Print RGB / L*a*b* values on the side-by-side swatch",
+            variable=include_values_var,
+        ).pack(anchor="w")
+        
+        pad_row = ttk.Frame(opts_frame)
+        pad_row.pack(fill=tk.X, pady=(6, 0))
+        ttk.Label(pad_row, text="Swatch frame padding (px):").pack(side=tk.LEFT)
+        ttk.Spinbox(
+            pad_row, from_=0, to=400, increment=10,
+            textvariable=padding_var, width=6,
+        ).pack(side=tk.LEFT, padx=(6, 0))
+        
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(fill=tk.X, padx=16, pady=(10, 14))
+        
+        def do_save():
+            layout = layout_var.get()
+            dialog.destroy()
+            self._write_comparison_image(
+                layout=layout,
+                avg_rgb=avg_rgb,
+                avg_lab=avg_lab,
+                include_values=include_values_var.get(),
+                frame_padding=max(0, int(padding_var.get())),
+            )
+        
+        ttk.Button(button_frame, text="Save…", command=do_save).pack(side=tk.RIGHT)
+        ttk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(
+            side=tk.RIGHT, padx=(0, 6),
+        )
+    
+    def _write_comparison_image(
+        self, layout, avg_rgb, avg_lab, include_values, frame_padding,
+    ):
+        """Build the composite image and prompt the user for a save path."""
+        try:
+            from utils.comparison_image import (
+                compose_swatch_layer, compose_side_by_side,
+            )
+        except ImportError as e:
+            messagebox.showerror(
+                "Missing Module",
+                f"Could not load comparison composer:\n\n{e}",
+            )
+            return
+        
+        try:
+            if layout == "swatch_behind":
+                composite = compose_swatch_layer(
+                    self.current_image, avg_rgb, frame_padding=frame_padding,
+                )
+                suffix = "_swatch_behind"
+            else:
+                composite = compose_side_by_side(
+                    self.current_image,
+                    avg_rgb,
+                    avg_lab=avg_lab,
+                    include_values=include_values,
+                )
+                suffix = "_side_by_side"
+        except Exception as e:
+            messagebox.showerror(
+                "Composition Failed",
+                f"Could not build the comparison image:\n\n{e}",
+            )
+            return
+        
+        # Default filename / directory mirror Save-to-File behaviour: sit
+        # beside the analysed image when one is known.
+        default_dir = None
+        suggested_name = "comparison"
+        if getattr(self, 'current_file_path', None):
+            default_dir = os.path.dirname(self.current_file_path)
+            base = os.path.splitext(os.path.basename(self.current_file_path))[0]
+            suggested_name = f"{base}{suffix}"
+        
+        from tkinter import filedialog
+        filetypes = [
+            ("PNG (lossless, recommended)", "*.png"),
+            ("TIFF", "*.tif *.tiff"),
+            ("All files", "*.*"),
+        ]
+        filepath = filedialog.asksaveasfilename(
+            title="Save Comparison Image",
+            defaultextension=".png",
+            initialfile=f"{suggested_name}.png",
+            initialdir=default_dir,
+            filetypes=filetypes,
+        )
+        if not filepath:
+            return
+        
+        try:
+            # PIL picks format from extension; composite is RGB so PNG/TIFF
+            # both save without further conversion.
+            composite.save(filepath)
+        except Exception as e:
+            messagebox.showerror("Save Failed", f"Could not save image:\n\n{e}")
+            return
+        
+        messagebox.showinfo(
+            "Saved",
+            f"Comparison image saved:\n\n{os.path.basename(filepath)}",
+        )
     
     def _add_color_to_library(self, rgb_values, lab_values):
         """Handle adding the current average color to a library."""
