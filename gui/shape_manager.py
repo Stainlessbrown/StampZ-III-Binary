@@ -360,19 +360,17 @@ class ShapeManager:
             return cropped
         
         # Standard 8-bit cropping
-        # Apply mask and crop
+        # Apply mask and crop. The resulting image is always RGBA: pixels
+        # outside the shape have alpha=0 (fully transparent) and pixels
+        # inside keep their original colour. Returning RGBA preserves the
+        # shape when saved as PNG or TIFF (both support alpha). The save
+        # manager will flatten RGBA onto white only when saving as JPEG,
+        # so legacy behaviour is retained for that case.
         orig_rgba = self.core.original_image.convert('RGBA')
         result = Image.new('RGBA', self.core.original_image.size, (0, 0, 0, 0))
         result.paste(orig_rgba, mask=mask)
         
         cropped = result.crop(bbox)
-        
-        # Convert to RGB if original wasn't RGBA
-        if self.core.original_image.mode != 'RGBA':
-            background = Image.new('RGB', cropped.size, 'white')
-            background.paste(cropped, mask=cropped.split()[3])
-            cropped = background
-        
         return cropped
     
     def _get_current_shape(self):
