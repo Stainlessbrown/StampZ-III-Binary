@@ -157,13 +157,18 @@ class ScannerCalibration:
             h, w = arr.shape[:2]
             gray = np.mean(arr.astype(float), axis=2)
             
-            # Find patch grid using brightness profile analysis
-            col_ranges = self._find_patch_ranges(
-                np.mean(gray[h // 4:3 * h // 4, :], axis=0)
-            )
-            row_ranges = self._find_patch_ranges(
-                np.mean(gray[:, w // 4:3 * w // 4], axis=1)
-            )
+            col_profile = np.mean(gray[h // 4:3 * h // 4, :], axis=0)
+            row_profile = np.mean(gray[:, w // 4:3 * w // 4], axis=1)
+            
+            # Find patch grid using brightness profile analysis. The
+            # threshold is adaptive (driven by each profile's own bright
+            # background level) so scans with darker paper-white — common
+            # on different scanner drivers / OSes / Vuescan presets — still
+            # detect the inter-patch gaps. If adaptive detection still
+            # mismatches the expected count, retry with a sweep of fixed
+            # thresholds before giving up.
+            col_ranges = self._detect_axis_ranges(col_profile, self.GRID_COLS)
+            row_ranges = self._detect_axis_ranges(row_profile, self.GRID_ROWS)
             
             # Fallback: very light patches (especially white) can blend with
             # white paper and disappear from threshold-based detection.
@@ -481,13 +486,72 @@ class ScannerCalibration:
     # ---- Internal helpers ----
     
     @staticmethod
-    def _find_patch_ranges(profile: np.ndarray, threshold: float = 220) -> List[Tuple[int, int]]:
+    def _adaptive_threshold(profile: np.ndarray) -> float:
+        """Pick a sensible patch/paper threshold from a brightness profile.
+        
+        Sits the threshold a fixed margin below the apparent paper-white
+        level (95th-percentile of the profile). Clamped to a reasonable
+        range so a profile with no real bright background can't push the
+        threshold up to 254 (which would make every dark pixel a 'patch')
+        nor down so far that bright patches read as paper.
+        """
+        paper = float(np.percentile(profile, 95))
+        # Margin is proportional to the bright level so darker scans get
+        # a more aggressive cut.
+        thresh = paper - max(15.0, paper * 0.08)
+        return max(80.0, min(235.0, thresh))
+    
+    @classmethod
+    def _detect_axis_ranges(
+        cls,
+        profile: np.ndarray,
+        expected: int,
+    ) -> List[Tuple[int, int]]:
+        """Detect ``expected`` patch ranges on one axis with retries.
+        
+        Tries the adaptive threshold first; if the count is wrong, sweeps
+        a few fixed thresholds and keeps whichever attempt has the best
+        match (closest to ``expected``, then most ranges below it).
+        """
+        attempts: List[Tuple[int, List[Tuple[int, int]]]] = []
+        # Adaptive (image-driven) attempt first.
+        thresholds = [cls._adaptive_threshold(profile)]
+        # Fixed fallbacks span the realistic paper-white range across
+        # scanner drivers / Vuescan presets.
+        thresholds.extend([240.0, 220.0, 200.0, 180.0, 160.0])
+        
+        seen = set()
+        for t in thresholds:
+            key = round(t, 1)
+            if key in seen:
+                continue
+            seen.add(key)
+            ranges = cls._find_patch_ranges(profile, threshold=t)
+            attempts.append((len(ranges), ranges))
+            if len(ranges) == expected:
+                return ranges
+        
+        # No attempt was a perfect match. Prefer the one closest to the
+        # expected count; on ties, prefer more ranges (gives the grid
+        # interpolator more anchors to work with). This keeps backward
+        # compatibility with the existing _interpolate_grid_ranges path.
+        attempts.sort(key=lambda x: (abs(x[0] - expected), -x[0]))
+        return attempts[0][1] if attempts else []
+    
+    @staticmethod
+    def _find_patch_ranges(
+        profile: np.ndarray,
+        threshold: float = 220,
+    ) -> List[Tuple[int, int]]:
         """Find contiguous non-white regions in a 1D brightness profile.
         
         Args:
             profile: 1D array of brightness values
-            threshold: Values below this are considered part of a patch
-            
+            threshold: Values below this are considered part of a patch.
+                Callers should usually go through ``_detect_axis_ranges``
+                which will pick an adaptive threshold; the default 220 is
+                kept for backward compatibility / direct callers.
+        
         Returns:
             List of (start, end) pixel ranges
         """
