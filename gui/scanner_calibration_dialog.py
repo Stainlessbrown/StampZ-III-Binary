@@ -145,11 +145,12 @@ class ScannerCalibrationDialog:
         )
         self.deactivate_button.pack(side=tk.LEFT, padx=(0, 10))
         
-        # Load existing profile
+        # Import a profile JSON (e.g. shared by another user) into the
+        # canonical profiles directory and activate it.
         ttk.Button(
             step3_frame,
-            text="Load Existing Profile...",
-            command=self._load_existing_profile
+            text="Import & Activate Profile…",
+            command=self._import_profile
         ).pack(side=tk.LEFT)
         
         # Results frame (patch comparison grid)
@@ -487,57 +488,174 @@ class ScannerCalibrationDialog:
             parent=self.root
         )
     
-    def _load_existing_profile(self):
-        """Load an existing calibration profile from file."""
+    def _import_profile(self):
+        """Import a calibration profile JSON into the canonical profiles
+        directory and activate it.
+        
+        Steps:
+          1. Pick a JSON file from anywhere on disk.
+          2. Validate it as a real calibration profile.
+          3. If the JSON's internal ``profile_name`` doesn't match the
+             filename, ask the user which to use; the chosen name is the
+             one persisted both in the filename and in the JSON.
+          4. Copy / rewrite the file into
+             ``get_calibration_profiles_dir()`` (handling collisions).
+          5. Load the freshly imported file and activate.
+        
+        After import the active profile path always lives inside StampZ's
+        own data directory, so it can't disappear if the user moves the
+        original.
+        """
+        import json
         from utils.path_utils import get_calibration_profiles_dir
         from utils.scanner_calibration import ScannerCalibration, set_active_calibration
         
         profiles_dir = get_calibration_profiles_dir()
         
-        filepath = filedialog.askopenfilename(
+        # 1. Pick the source file. Default to Desktop because shared
+        # profiles typically arrive there via email / download.
+        src_path = filedialog.askopenfilename(
             parent=self.root,
-            title="Select Calibration Profile",
-            initialdir=profiles_dir,
+            title="Import Calibration Profile",
+            initialdir=os.path.expanduser('~/Desktop'),
             filetypes=[
                 ("JSON profiles", "*.json"),
-                ("All files", "*.*")
-            ]
+                ("All files", "*.*"),
+            ],
         )
-        
-        if not filepath:
+        if not src_path:
             return
         
+        # 2. Validate by attempting a real load.
         cal = ScannerCalibration()
-        if cal.load_profile(filepath):
-            self.calibration = cal
-            self.active_profile_path = filepath
-            set_active_calibration(cal)
-            
-            # Update preferences
-            try:
-                from utils.user_preferences import get_preferences_manager
-                prefs = get_preferences_manager()
-                prefs.preferences.calibration_prefs.active_profile_path = filepath
-                prefs.preferences.calibration_prefs.calibration_enabled = True
-                prefs.save_preferences()
-            except Exception as e:
-                logger.warning(f"Could not save calibration preference: {e}")
-            
-            self._update_status()
-            self._update_sharing_buttons()
-            self._populate_results()
-            
-            messagebox.showinfo(
-                "Profile Loaded",
-                f"Calibration profile '{cal.profile_name}' loaded and activated.",
-                parent=self.root
-            )
-        else:
+        if not cal.load_profile(src_path):
             messagebox.showerror(
-                "Load Error",
-                "Failed to load calibration profile.",
-                parent=self.root
+                "Invalid Profile",
+                f"The selected file is not a valid calibration profile:\n\n{src_path}",
+                parent=self.root,
             )
+            return
+        
+        # 3. Reconcile filename vs internal profile_name.
+        filename_stem = os.path.splitext(os.path.basename(src_path))[0]
+        internal_name = (cal.profile_name or "").strip()
+        
+        def _norm(s: str) -> str:
+            return "".join(c.lower() for c in s if c.isalnum())
+        
+        chosen_name = internal_name or filename_stem
+        rewrite_internal_name = False
+        
+        if not internal_name:
+            chosen_name = filename_stem
+            rewrite_internal_name = True
+        elif _norm(internal_name) != _norm(filename_stem):
+            choice = messagebox.askyesnocancel(
+                "Profile Name Mismatch",
+                f"The file's name and its internal profile name don't match.\n\n"
+                f"  Filename:        {filename_stem}.json\n"
+                f"  Internal name:   {internal_name}\n\n"
+                f"Yes  → keep the internal name (file will be renamed to it)\n"
+                f"No   → use the filename (the JSON's internal name will be rewritten)\n"
+                f"Cancel → abort import",
+                parent=self.root,
+            )
+            if choice is None:
+                return
+            if choice:
+                chosen_name = internal_name
+            else:
+                chosen_name = filename_stem
+                rewrite_internal_name = True
+        
+        # 4. Build a safe destination path and handle collisions.
+        safe_name = "".join(
+            c for c in chosen_name if c.isalnum() or c in ' _-'
+        ).strip() or "imported_profile"
+        dest_path = os.path.join(profiles_dir, f"{safe_name}.json")
+        
+        # If the source IS the destination, just activate without copying.
+        same_file = (
+            os.path.exists(dest_path)
+            and os.path.realpath(dest_path) == os.path.realpath(src_path)
+        )
+        
+        if os.path.exists(dest_path) and not same_file:
+            replace = messagebox.askyesno(
+                "Profile Already Exists",
+                f"A profile named '{safe_name}' already exists in the profiles "
+                f"directory.\n\nOverwrite it?\n\n"
+                f"(No will save with a numeric suffix instead.)",
+                parent=self.root,
+            )
+            if not replace:
+                n = 2
+                while True:
+                    candidate = os.path.join(
+                        profiles_dir, f"{safe_name} ({n}).json"
+                    )
+                    if not os.path.exists(candidate):
+                        dest_path = candidate
+                        break
+                    n += 1
+        
+        # 5. Copy or rewrite into the canonical location.
+        try:
+            os.makedirs(profiles_dir, exist_ok=True)
+            if same_file and not rewrite_internal_name:
+                # Already in the canonical dir with matching internal name;
+                # nothing to write, just proceed to load + activate.
+                pass
+            elif rewrite_internal_name:
+                with open(src_path, 'r') as f:
+                    profile_data = json.load(f)
+                profile_data['profile_name'] = chosen_name
+                with open(dest_path, 'w') as f:
+                    json.dump(profile_data, f, indent=2)
+            else:
+                shutil.copy2(src_path, dest_path)
+        except Exception as e:
+            messagebox.showerror(
+                "Import Failed",
+                f"Could not copy profile to canonical location:\n\n{e}",
+                parent=self.root,
+            )
+            return
+        
+        # 6. Load freshly from the destination and activate.
+        imported = ScannerCalibration()
+        if not imported.load_profile(dest_path):
+            messagebox.showerror(
+                "Import Error",
+                "The profile was copied but could not be re-loaded from the "
+                "destination directory.",
+                parent=self.root,
+            )
+            return
+        
+        self.calibration = imported
+        self.active_profile_path = dest_path
+        set_active_calibration(imported)
+        
+        try:
+            from utils.user_preferences import get_preferences_manager
+            prefs = get_preferences_manager()
+            prefs.preferences.calibration_prefs.active_profile_path = dest_path
+            prefs.preferences.calibration_prefs.calibration_enabled = True
+            prefs.save_preferences()
+        except Exception as e:
+            logger.warning(f"Could not save calibration preference: {e}")
+        
+        self._update_status()
+        self._update_sharing_buttons()
+        self._populate_results()
+        
+        messagebox.showinfo(
+            "Profile Imported",
+            f"Calibration profile '{imported.profile_name}' has been imported "
+            f"and activated.\n\nLocation:\n{dest_path}",
+            parent=self.root,
+        )
 
     def _update_sharing_buttons(self):
         """Enable or disable the Export / Reveal buttons."""
