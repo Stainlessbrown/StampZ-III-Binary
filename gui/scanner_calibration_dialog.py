@@ -514,13 +514,16 @@ class ScannerCalibrationDialog:
         
         # 1. Pick the source file. Default to Desktop because shared
         # profiles typically arrive there via email / download.
+        # macOS Tk treats `*.*` as "only files with a literal dot in the
+        # name" which can grey out perfectly valid JSON files — list `*`
+        # explicitly and accept upper-case .JSON too.
         src_path = filedialog.askopenfilename(
             parent=self.root,
             title="Import Calibration Profile",
             initialdir=os.path.expanduser('~/Desktop'),
             filetypes=[
-                ("JSON profiles", "*.json"),
-                ("All files", "*.*"),
+                ("All files", "*"),
+                ("JSON profiles", "*.json *.JSON"),
             ],
         )
         if not src_path:
@@ -686,9 +689,9 @@ class ScannerCalibrationDialog:
             initialfile=suggested_name,
             defaultextension=".json",
             filetypes=[
-                ("JSON profiles", "*.json"),
-                ("All files", "*.*")
-            ]
+                ("JSON profiles", "*.json *.JSON"),
+                ("All files", "*"),
+            ],
         )
         
         if not dest:
