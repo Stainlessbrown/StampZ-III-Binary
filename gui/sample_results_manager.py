@@ -617,7 +617,17 @@ class SampleResultsManager(tk.Frame):
         try:
             # PIL picks format from extension; composite is RGB so PNG/TIFF
             # both save without further conversion.
-            composite.save(filepath)
+            #
+            # Embed an sRGB ICC profile so colour-managed viewers (macOS
+            # Preview, browsers, Photoshop) interpret the bytes the same
+            # way Windows users do — without this tag, macOS will assume
+            # the display's profile and shift the colours.
+            from utils.icc_profiles import get_save_icc_profile
+            save_kwargs = {}
+            icc_bytes = get_save_icc_profile(composite)
+            if icc_bytes:
+                save_kwargs["icc_profile"] = icc_bytes
+            composite.save(filepath, **save_kwargs)
         except Exception as e:
             messagebox.showerror("Save Failed", f"Could not save image:\n\n{e}")
             return False

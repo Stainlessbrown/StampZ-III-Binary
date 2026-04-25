@@ -304,22 +304,57 @@ class SaveManager:
                 img_array = np.array(img_to_save)
                 is_16bit = img_array.dtype == np.uint16
             
+            # Resolve an ICC profile to embed. StampZ normalises every
+            # loaded image to sRGB (see utils.image_processor.load_image),
+            # so the saved file's pixels really are sRGB-coded — tagging
+            # with sRGB stops macOS / browsers from re-interpreting them
+            # under another assumed colour space.
+            from .icc_profiles import get_save_icc_profile
+            icc_bytes = get_save_icc_profile(img_to_save)
+            
             if is_16bit and options.format == SaveFormat.TIFF:
                 # Use tifffile to save 16-bit TIFF properly
                 try:
                     import tifffile
                     logger.info("Saving as 16-bit TIFF using tifffile to preserve precision")
-                    tifffile.imwrite(str(filepath), img_array, photometric='rgb')
+                    tifffile_kwargs = {"photometric": "rgb"}
+                    # tifffile >= 2021.x accepts iccprofile=; older versions
+                    # don't. Try with the kwarg first, fall back without.
+                    if icc_bytes:
+                        try:
+                            tifffile.imwrite(
+                                str(filepath), img_array,
+                                iccprofile=icc_bytes, **tifffile_kwargs,
+                            )
+                        except TypeError:
+                            logger.info(
+                                "tifffile build does not support iccprofile=, "
+                                "writing 16-bit TIFF without ICC tag"
+                            )
+                            tifffile.imwrite(str(filepath), img_array, **tifffile_kwargs)
+                    else:
+                        tifffile.imwrite(str(filepath), img_array, **tifffile_kwargs)
                     logger.debug(f"16-bit TIFF save completed successfully")
                 except ImportError:
                     logger.warning("tifffile not available - saving with PIL (may lose 16-bit precision)")
-                    img_to_save.save(str(filepath), **options.save_kwargs)
+                    pil_kwargs = dict(options.save_kwargs)
+                    if icc_bytes:
+                        pil_kwargs["icc_profile"] = icc_bytes
+                    img_to_save.save(str(filepath), **pil_kwargs)
                 except Exception as e:
                     logger.error(f"Error saving with tifffile: {e}, falling back to PIL")
-                    img_to_save.save(str(filepath), **options.save_kwargs)
+                    pil_kwargs = dict(options.save_kwargs)
+                    if icc_bytes:
+                        pil_kwargs["icc_profile"] = icc_bytes
+                    img_to_save.save(str(filepath), **pil_kwargs)
             else:
-                # Standard save operation for 8-bit images or non-TIFF formats
-                img_to_save.save(str(filepath), **options.save_kwargs)
+                # Standard save operation for 8-bit images or non-TIFF formats.
+                # PIL accepts icc_profile= for both PNG and TIFF and silently
+                # ignores it for JPEG (which is not a save target here anyway).
+                pil_kwargs = dict(options.save_kwargs)
+                if icc_bytes:
+                    pil_kwargs["icc_profile"] = icc_bytes
+                img_to_save.save(str(filepath), **pil_kwargs)
                 logger.debug(f"Save completed successfully")
             
         except (OSError, ValueError) as e:
