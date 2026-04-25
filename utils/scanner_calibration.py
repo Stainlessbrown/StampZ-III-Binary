@@ -501,6 +501,34 @@ class ScannerCalibration:
         thresh = paper - max(15.0, paper * 0.08)
         return max(80.0, min(235.0, thresh))
     
+    @staticmethod
+    def _ranges_look_fused(
+        ranges: List[Tuple[int, int]],
+        expected: int,
+    ) -> bool:
+        """Heuristic: detect when threshold-found ranges have fused multiple
+        real patches into single big blocks.
+        
+        A correctly detected target has each range covering one patch with
+        clean gaps between centres. When merging fuses adjacent rows, each
+        "range" ends up wider than the centre-to-centre spacing of the
+        next-detected one — a clear sanity-check failure.
+        """
+        if len(ranges) < 2 or expected <= 1:
+            return False
+        widths = [e - s for s, e in ranges]
+        centres = [(s + e) / 2.0 for s, e in ranges]
+        spacings = [centres[i + 1] - centres[i] for i in range(len(centres) - 1)]
+        if not spacings:
+            return False
+        median_w = float(np.median(widths))
+        median_sp = float(np.median(spacings))
+        if median_sp <= 0:
+            return True
+        # Real patches: width / spacing typically around 0.5–0.9.
+        # Fused: width ≥ spacing (often substantially greater).
+        return median_w > median_sp * 1.10
+    
     @classmethod
     def _detect_axis_ranges(
         cls,
@@ -509,11 +537,15 @@ class ScannerCalibration:
     ) -> List[Tuple[int, int]]:
         """Detect ``expected`` patch ranges on one axis with retries.
         
-        Tries the adaptive threshold first; if the count is wrong, sweeps
-        a few fixed thresholds and keeps whichever attempt has the best
-        match (closest to ``expected``, then most ranges below it).
+        Tries the adaptive threshold first; if the count is wrong (or the
+        result looks fused — width ≫ spacing), sweeps a series of fixed
+        thresholds and keeps whichever attempt has the best match
+        (closest to ``expected``, then most ranges below it). Fused
+        results are treated as worse than under-counts so the
+        ``_interpolate_grid_ranges`` step downstream gets correctly-placed
+        anchors instead of bogus ones.
         """
-        attempts: List[Tuple[int, List[Tuple[int, int]]]] = []
+        attempts: List[Tuple[int, int, List[Tuple[int, int]]]] = []
         # Adaptive (image-driven) attempt first.
         thresholds = [cls._adaptive_threshold(profile)]
         # Fixed fallbacks span the realistic paper-white range across
@@ -527,16 +559,17 @@ class ScannerCalibration:
                 continue
             seen.add(key)
             ranges = cls._find_patch_ranges(profile, threshold=t)
-            attempts.append((len(ranges), ranges))
-            if len(ranges) == expected:
+            fused = cls._ranges_look_fused(ranges, expected)
+            attempts.append((len(ranges), 1 if fused else 0, ranges))
+            if len(ranges) == expected and not fused:
                 return ranges
         
-        # No attempt was a perfect match. Prefer the one closest to the
-        # expected count; on ties, prefer more ranges (gives the grid
-        # interpolator more anchors to work with). This keeps backward
-        # compatibility with the existing _interpolate_grid_ranges path.
-        attempts.sort(key=lambda x: (abs(x[0] - expected), -x[0]))
-        return attempts[0][1] if attempts else []
+        # No attempt was a perfect match. Prefer non-fused over fused;
+        # within each group, prefer counts closest to expected, with ties
+        # broken toward more ranges (gives the grid interpolator more
+        # anchors).
+        attempts.sort(key=lambda x: (x[1], abs(x[0] - expected), -x[0]))
+        return attempts[0][2] if attempts else []
     
     @staticmethod
     def _find_patch_ranges(
@@ -569,10 +602,22 @@ class ScannerCalibration:
         if in_patch:
             ranges.append((start, len(profile)))
         
-        # Merge small gaps (< 30 pixels) — handles slight printing artifacts
+        if not ranges:
+            return []
+        
+        # Merge tiny gaps that are clearly printing/scan artifacts. The
+        # threshold scales with the median raw range width so a wide-patch
+        # / wide-scan target doesn't accidentally fuse real inter-patch
+        # gaps (the original hard-coded 30 px was bridging real ~25-30 px
+        # gaps on tighter target prints, which collapsed multiple rows
+        # into a single range and broke patch detection downstream).
+        raw_widths = [e - s for s, e in ranges if e > s]
+        median_w = float(np.median(raw_widths)) if raw_widths else 0.0
+        merge_gap_threshold = max(4.0, min(15.0, median_w * 0.05))
+        
         merged = []
         for r in ranges:
-            if merged and r[0] - merged[-1][1] < 30:
+            if merged and (r[0] - merged[-1][1]) < merge_gap_threshold:
                 merged[-1] = (merged[-1][0], r[1])
             else:
                 merged.append(r)
