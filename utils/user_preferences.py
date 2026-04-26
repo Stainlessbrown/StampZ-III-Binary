@@ -1324,6 +1324,25 @@ class PreferencesManager:
     _LIVE_DE_BAD_KEY = "live_delta_e_bad_threshold"
     _OPTIMIZE_RADIUS_KEY = "optimize_position_radius_px"
     _OPTIMIZE_STEP_KEY = "optimize_position_step_px"
+    _EXPORT_INCLUDE_PAPER_KEY = "export_include_paper"
+
+    def get_export_include_paper(self) -> bool:
+        """Return True if paper-tagged samples (-p) should be included in exports.
+
+        Default False: paper measurements live in measurement sets whose
+        image_name ends in '-p' (see
+        ``gui/sample_results_manager.py::_save_one_group_to_db``); these
+        are deliberately separated from ink so K-means and ΔE in Plot_3D
+        operate on a single ink cluster. Set True to surface paper rows
+        in the ODS export, the realtime Plot_3D worksheet, and the
+        Direct Plot_3D exporter alongside ink.
+        """
+        val = self.get(self._EXPORT_INCLUDE_PAPER_KEY, False)
+        return bool(val)
+
+    def set_export_include_paper(self, include: bool) -> bool:
+        """Persist whether paper-tagged samples should be included in exports."""
+        return self.set(self._EXPORT_INCLUDE_PAPER_KEY, bool(include))
 
     def get_live_delta_e_enabled(self) -> bool:
         """Show live ΔE HUD + status color on sample markers."""

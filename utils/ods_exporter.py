@@ -81,17 +81,37 @@ class ODSExporter:
         if not ODF_AVAILABLE:
             raise ImportError("odfpy library not available. Install with: pip install odfpy==1.4.1")
     
-    def get_color_measurements(self, deduplicate: bool = True) -> List[ColorMeasurement]:
+    def get_color_measurements(self, deduplicate: bool = True,
+                                include_paper=None) -> List[ColorMeasurement]:
         """Retrieve all color measurements from separate sample set databases.
         
         Args:
             deduplicate: If True, removes duplicates by keeping only the most recent measurement
                         If False, returns all measurements for accumulation in spreadsheet
+            include_paper: Whether to include paper-tagged measurements
+                (image_name ending in '-p').
+                * ``None`` (default): honour the
+                  ``export_include_paper`` user preference (default False).
+                * ``True``: include paper rows.
+                * ``False``: exclude paper rows regardless of the preference.
+                Plot_3D and downstream K-means / ΔE flows assume a single
+                colour cluster, so paper data must not mix with ink data
+                in the default export.
         """
         measurements = []
         
+        # Resolve include_paper from preference if not explicit
+        if include_paper is None:
+            try:
+                from utils.user_preferences import get_preferences_manager
+                include_paper = (
+                    get_preferences_manager().get_export_include_paper()
+                )
+            except Exception:
+                include_paper = False
+        
         try:
-            print(f"DEBUG ODSExporter: Starting get_color_measurements, deduplicate={deduplicate}")
+            print(f"DEBUG ODSExporter: Starting get_color_measurements, deduplicate={deduplicate}, include_paper={include_paper}")
             print(f"DEBUG ODSExporter: self.sample_set_name = {repr(self.sample_set_name)}")
             
             from utils.color_analysis_db import ColorAnalysisDB
@@ -146,6 +166,25 @@ class ODSExporter:
                     
                     # Get all measurements for this sample set
                     all_measurements = color_db.get_all_measurements()
+                    
+                    # Drop paper-tagged measurements (image_name ending '-p')
+                    # unless the caller explicitly wants them. Paper sits in
+                    # its own measurement set inside the same DB, so it'd
+                    # otherwise be pulled in here and pollute K-means / ΔE.
+                    if not include_paper:
+                        from utils.measurement_filters import is_paper_image_name
+                        before = len(all_measurements)
+                        all_measurements = [
+                            m for m in all_measurements
+                            if not is_paper_image_name(m.get('image_name'))
+                        ]
+                        excluded = before - len(all_measurements)
+                        if excluded:
+                            print(
+                                f"DEBUG ODSExporter: Excluded {excluded} "
+                                f"paper-tagged measurement(s) from "
+                                f"'{sample_set_name}'"
+                            )
                     
                     # Separate individual measurements from averaged measurements
                     individual_measurements = [m for m in all_measurements if not m.get('is_averaged', False)]

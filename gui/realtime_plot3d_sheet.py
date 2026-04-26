@@ -612,6 +612,29 @@ class RealtimePlot3DSheet:
             # Get measurements from database
             db = ColorAnalysisDB(self.sample_set_name)
             measurements = db.get_all_measurements()
+            
+            # Filter out paper-tagged measurements (-p) unless the user
+            # has opted in via the export_include_paper preference. Paper
+            # samples sit in a separate measurement set inside the same
+            # DB and would otherwise pollute K-means / ΔE in Plot_3D.
+            try:
+                from utils.user_preferences import get_preferences_manager
+                from utils.measurement_filters import is_paper_image_name
+                if not get_preferences_manager().get_export_include_paper() and measurements:
+                    before = len(measurements)
+                    measurements = [
+                        m for m in measurements
+                        if not is_paper_image_name(m.get('image_name'))
+                    ]
+                    excluded = before - len(measurements)
+                    if excluded:
+                        logger.info(
+                            f"Excluded {excluded} paper-tagged measurement(s) "
+                            f"(-p) from {self.sample_set_name} worksheet"
+                        )
+            except Exception as filter_err:
+                logger.debug(f"Paper filter skipped: {filter_err}")
+            
             logger.info(f"Found {len(measurements) if measurements else 0} measurements for {self.sample_set_name}")
             
             # Store raw measurements and detect data type
@@ -3295,6 +3318,20 @@ class RealtimePlot3DSheet:
             
             db = ColorAnalysisDB(self.sample_set_name)
             current_measurements = db.get_all_measurements()
+            
+            # Filter out paper-tagged measurements unless the user opted in.
+            # Mirrors the filter in _refresh_from_stampz so the auto-refresh
+            # check sees the same row count as the displayed worksheet.
+            try:
+                from utils.user_preferences import get_preferences_manager
+                from utils.measurement_filters import is_paper_image_name
+                if not get_preferences_manager().get_export_include_paper() and current_measurements:
+                    current_measurements = [
+                        m for m in current_measurements
+                        if not is_paper_image_name(m.get('image_name'))
+                    ]
+            except Exception:
+                pass
             
             # Compare with current sheet data count
             current_rows = self.sheet.get_total_rows()

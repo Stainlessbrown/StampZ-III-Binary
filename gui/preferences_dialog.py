@@ -363,6 +363,28 @@ class PreferencesDialog:
             foreground="gray"
         ).pack(anchor=tk.W, pady=(5, 0))
         
+        # Paper sample inclusion section
+        ttk.Separator(behavior_frame).pack(fill=tk.X, pady=8)
+        self.export_include_paper_var = tk.BooleanVar()
+        ttk.Checkbutton(
+            behavior_frame,
+            text="Include paper-tagged samples (-p) in exports and Plot_3D",
+            variable=self.export_include_paper_var
+        ).pack(anchor=tk.W)
+        
+        ttk.Label(
+            behavior_frame,
+            text=(
+                "When unchecked (default), measurement sets whose name ends in '-p'\n"
+                "are hidden from the ODS / Plot_3D exporter and the realtime worksheet,\n"
+                "so K-means and \u0394E operate on ink only. Check this to surface\n"
+                "paper points alongside ink (e.g. for a paper-only analysis)."
+            ),
+            font=("TkDefaultFont", 9),
+            foreground="gray",
+            justify=tk.LEFT,
+        ).pack(anchor=tk.W, pady=(5, 0))
+        
         # Color space selection section
         color_space_frame = ttk.LabelFrame(export_frame, text="Color Space Selection", padding="10")
         color_space_frame.pack(fill=tk.X, pady=(10, 0))
@@ -1381,6 +1403,11 @@ class PreferencesDialog:
         # Normalized export values
         self.export_normalized_var.set(prefs.export_normalized_values)
         
+        # Paper-tagged sample inclusion (top-level JSON pref, default False)
+        self.export_include_paper_var.set(
+            self.prefs_manager.get_export_include_paper()
+        )
+        
         # File dialog preferences
         dialog_prefs = self.prefs_manager.preferences.file_dialog_prefs
         self.remember_directories_var.set(dialog_prefs.remember_directories)
@@ -1521,6 +1548,11 @@ class PreferencesDialog:
             
             # Normalized export values
             self.prefs_manager.set_export_normalized_values(self.export_normalized_var.get())
+            
+            # Paper-tagged sample inclusion in exports and Plot_3D
+            self.prefs_manager.set_export_include_paper(
+                self.export_include_paper_var.get()
+            )
             
             # File dialog preferences
             self.prefs_manager.set_remember_directories(self.remember_directories_var.get())

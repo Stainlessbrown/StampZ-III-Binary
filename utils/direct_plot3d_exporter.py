@@ -92,18 +92,39 @@ class DirectPlot3DExporter:
             self.logger.error(f"Error getting sample sets: {e}")
             return []
     
-    def get_sample_data(self, sample_set_name: str, use_averages: bool = False) -> List[Dict]:
+    def get_sample_data(self, sample_set_name: str, use_averages: bool = False,
+                        include_paper=None) -> List[Dict]:
         """Get color measurement data directly from StampZ database.
         
         Args:
             sample_set_name: Name of the sample set
             use_averages: If True, use averaged data; if False, use individual measurements
+            include_paper: Whether to include paper-tagged measurements
+                (image_name ending in '-p').
+                * ``None`` (default): honour the
+                  ``export_include_paper`` user preference (default False).
+                * ``True``: include paper rows.
+                * ``False``: exclude paper rows regardless of the preference.
+                Plot_3D's K-means and ΔE flows assume a single colour
+                cluster per analysis, so paper points must not mix with
+                ink points in the default plot.
             
         Returns:
             List of data dictionaries with keys: L_norm, a_norm, b_norm, DataID
         """
         try:
             from utils.color_analysis_db import ColorAnalysisDB
+            from utils.measurement_filters import is_paper_image_name
+            
+            # Resolve include_paper from preference if not explicit
+            if include_paper is None:
+                try:
+                    from utils.user_preferences import get_preferences_manager
+                    include_paper = (
+                        get_preferences_manager().get_export_include_paper()
+                    )
+                except Exception:
+                    include_paper = False
             
             # Determine database name
             if use_averages:
@@ -118,6 +139,19 @@ class DirectPlot3DExporter:
             
             # Get measurements
             measurements = db.get_all_measurements()
+            
+            if not include_paper:
+                before = len(measurements)
+                measurements = [
+                    m for m in measurements
+                    if not is_paper_image_name(m.get('image_name'))
+                ]
+                excluded = before - len(measurements)
+                if excluded:
+                    self.logger.info(
+                        f"Excluded {excluded} paper-tagged measurement(s) "
+                        f"(image_name ending in '-p') from {db_name}"
+                    )
             
             if not measurements:
                 self.logger.warning(f"No measurements found for {db_name}")

@@ -207,12 +207,17 @@ class SampleResultsManager(tk.Frame):
                         avg_rgb = analyzer._calculate_average_color(rgb_values)
                         
                         # Store the sample point data
+                        # is_paper marks this sample as a margin/paper reading;
+                        # paper samples participate in their own group average
+                        # and on save are routed to a separate '-p' measurement
+                        # set inside the same DB (see _save_to_database).
                         sample_point = {
                             'rgb': avg_rgb,
                             'rgb_stddev': rgb_stddev,
                             'lab_stddev': lab_stddev,
                             'position': (x, y),
                             'enabled': tk.BooleanVar(value=True),
+                            'is_paper': tk.BooleanVar(value=False),
                             'index': i,
                             'type': sample['type'],
                             'size': sample['size'],
@@ -238,31 +243,50 @@ class SampleResultsManager(tk.Frame):
             )
     
     def _display_sample_points(self):
-        """Display sample points with their color values and swatches."""
+        """Display sample points with their color values and swatches.
+        
+        Each sample row carries two checkboxes:
+          * the existing 'Sample N' (enable/disable in averaging)
+          * 'P' (mark this sample as a paper-margin reading instead of ink)
+        
+        ΔE labels show distance from the *group* average (ink or paper)
+        the sample belongs to, so paper samples don't get penalised for
+        being far from the ink mean.
+        """
         # Clear existing samples
         for widget in self.samples_frame.winfo_children():
             widget.destroy()
         
-        # Calculate average color for ΔE comparisons
-        enabled_samples = [s for s in self.sample_points if s['enabled'].get()]
-        average_lab = None
+        from utils.color_analyzer import ColorAnalyzer
+        from utils.color_display_utils import (
+            get_conditional_color_values_text, get_conditional_stddev_text,
+        )
+        analyzer = ColorAnalyzer()
         
-        if enabled_samples and self.library:
-            from utils.color_analyzer import ColorAnalyzer
-            analyzer = ColorAnalyzer()
-            
+        def _group_avg_lab(group_samples):
+            """Quality-controlled Lab mean for a group, or None if empty."""
+            if not group_samples:
+                return None
             lab_values = []
             rgb_values = []
-            for sample in enabled_samples:
-                rgb = sample['rgb']
-                lab = self.library.rgb_to_lab(rgb) if self.library else analyzer.rgb_to_lab(rgb)
+            for s in group_samples:
+                rgb = s['rgb']
+                lab = (self.library.rgb_to_lab(rgb)
+                       if self.library else analyzer.rgb_to_lab(rgb))
                 lab_values.append(lab)
                 rgb_values.append(rgb)
-            
-            if lab_values:
-                # Calculate quality-controlled average for ΔE comparison
-                averaging_result = analyzer._calculate_quality_controlled_average(lab_values, rgb_values)
-                average_lab = averaging_result['avg_lab']
+            if not lab_values:
+                return None
+            return analyzer._calculate_quality_controlled_average(
+                lab_values, rgb_values,
+            )['avg_lab']
+        
+        enabled_ink = [s for s in self.sample_points
+                       if s['enabled'].get() and not s['is_paper'].get()]
+        enabled_paper = [s for s in self.sample_points
+                         if s['enabled'].get() and s['is_paper'].get()]
+        ink_avg_lab = _group_avg_lab(enabled_ink)
+        paper_avg_lab = _group_avg_lab(enabled_paper)
         
         # Display each sample point
         for sample in self.sample_points:
@@ -270,37 +294,44 @@ class SampleResultsManager(tk.Frame):
             frame.pack(fill=tk.X, pady=5)
             
             # Sample toggle
-            ttk.Checkbutton(frame, 
+            ttk.Checkbutton(frame,
                           text=f"Sample {sample['index']}",
                           variable=sample['enabled'],
                           command=self._on_sample_toggle).pack(side=tk.LEFT)
             
-            # Color values with ΔE from average
+            # Paper toggle — marks this sample as paper-margin (vs ink)
+            ttk.Checkbutton(frame,
+                          text="P",
+                          variable=sample['is_paper'],
+                          command=self._on_sample_toggle).pack(
+                              side=tk.LEFT, padx=(2, 8))
+            
+            # Color values with ΔE from this sample's group average
             rgb = sample['rgb']
             rgb_stddev = sample.get('rgb_stddev', None)
             lab_stddev = sample.get('lab_stddev', None)
             lab = self.library.rgb_to_lab(rgb) if self.library else None
             
-            # Use conditional color display based on user preferences
-            from utils.color_display_utils import get_conditional_color_values_text, get_conditional_stddev_text
             value_text = get_conditional_color_values_text(rgb, lab, compact=True)
             
             # Add blank line for separation
             value_text += "\n"
             
-            # Add ΔE from average if we have both values
-            if lab and average_lab and sample['enabled'].get():
-                from utils.color_analyzer import ColorAnalyzer
-                analyzer = ColorAnalyzer()
-                delta_e = analyzer.calculate_delta_e(lab, average_lab)
-                value_text += f"\nΔE from avg: {delta_e:.2f}"
+            if lab and sample['enabled'].get():
+                is_paper = sample['is_paper'].get()
+                group_avg = paper_avg_lab if is_paper else ink_avg_lab
+                if group_avg:
+                    delta_e = analyzer.calculate_delta_e(lab, group_avg)
+                    role_label = "paper" if is_paper else "ink"
+                    value_text += f"\nΔE from {role_label} avg: {delta_e:.2f}"
             
             # Add StdDev if available (conditionally based on user preferences)
             stddev_text = get_conditional_stddev_text(rgb_stddev, lab_stddev)
             if stddev_text:
                 value_text += f"\n{stddev_text}"
             
-            ttk.Label(frame, text=value_text, font=("Arial", 12)).pack(side=tk.LEFT, padx=20)
+            ttk.Label(frame, text=value_text, font=("Arial", 12)).pack(
+                side=tk.LEFT, padx=20)
             
             # Color swatch using canvas - increased height to accommodate multi-line text
             canvas = tk.Canvas(
@@ -320,110 +351,171 @@ class SampleResultsManager(tk.Frame):
             )
     
     def _update_average_display(self):
-        """Update the average color display."""
+        """Render ink and (optionally) paper average sections.
+        
+        Ink samples produce the primary, full-size swatch with the existing
+        action buttons (Add to library, Save to DB, Save to File, Save
+        comparison image). Paper samples, if any are enabled, get their
+        own smaller readout below — no action buttons, since the existing
+        Save buttons will handle paper persistence in slice 2 by routing
+        them to a '-p' measurement set inside the same DB.
+        """
         # Clear existing display
         for widget in self.average_frame.winfo_children():
             widget.destroy()
         
-        # Get enabled samples
-        enabled_samples = [s for s in self.sample_points if s['enabled'].get()]
+        enabled_ink = [s for s in self.sample_points
+                       if s['enabled'].get() and not s['is_paper'].get()]
+        enabled_paper = [s for s in self.sample_points
+                         if s['enabled'].get() and s['is_paper'].get()]
         
-        if not enabled_samples:
+        if not enabled_ink and not enabled_paper:
             ttk.Label(self.average_frame, text="No samples enabled").pack(pady=20)
             return
         
-        # Use ColorAnalyzer for quality-controlled averaging with ΔE outlier detection
+        if enabled_ink:
+            self._render_average_section(
+                samples=enabled_ink,
+                label="Average Color (ink)",
+                big=True,
+                with_buttons=True,
+            )
+        else:
+            ttk.Label(
+                self.average_frame,
+                text=("No ink samples enabled.\n"
+                      "Uncheck 'P' on at least one sample to compute an ink average."),
+                font=("Arial", 10), justify=tk.LEFT,
+            ).pack(anchor='w', padx=10, pady=10)
+        
+        if enabled_paper:
+            self._render_average_section(
+                samples=enabled_paper,
+                label="Paper Color",
+                big=False,
+                with_buttons=False,
+            )
+    
+    def _render_average_section(self, samples, label, big=True, with_buttons=False):
+        """Render one labelled average swatch + readout into ``self.average_frame``.
+        
+        Args:
+            samples: list of enabled sample dicts in this group (ink or paper).
+            label: section heading shown above the swatch.
+            big: True for the primary ink swatch (450×360); False for the
+                smaller paper swatch (450×120).
+            with_buttons: True attaches the existing 'Add to library' /
+                'Save to DB' / 'Save to File' / 'Save comparison image…'
+                actions, which currently operate on the ink group.
+        """
         from utils.color_analyzer import ColorAnalyzer
+        from utils.color_display_utils import get_conditional_color_values_text
+        
         analyzer = ColorAnalyzer()
         
-        # Convert samples to Lab and RGB lists for quality averaging
         lab_values = []
         rgb_values = []
-        for sample in enabled_samples:
+        for sample in samples:
             rgb = sample['rgb']
-            lab = self.library.rgb_to_lab(rgb) if self.library else analyzer.rgb_to_lab(rgb)
+            lab = (self.library.rgb_to_lab(rgb)
+                   if self.library else analyzer.rgb_to_lab(rgb))
             lab_values.append(lab)
             rgb_values.append(rgb)
         
-        # Calculate quality-controlled average with ΔE outlier detection
-        averaging_result = analyzer._calculate_quality_controlled_average(lab_values, rgb_values)
-        
+        averaging_result = analyzer._calculate_quality_controlled_average(
+            lab_values, rgb_values,
+        )
         avg_rgb = averaging_result['avg_rgb']
         avg_lab = averaging_result['avg_lab']
         max_delta_e = averaging_result['max_delta_e']
         samples_used = averaging_result['samples_used']
         outliers_excluded = averaging_result['outliers_excluded']
         
-        # Create display frame
-        frame = ttk.Frame(self.average_frame)
-        frame.pack(fill=tk.BOTH, expand=True, padx=0, pady=5)  # Remove left padding
+        # Section header
+        ttk.Label(
+            self.average_frame, text=label,
+            font=("Arial", 12, "bold"),
+        ).pack(anchor='w', padx=10, pady=(8, 2))
         
-        # Average color swatch using canvas
+        # Display row
+        frame = ttk.Frame(self.average_frame)
+        frame.pack(fill=tk.BOTH, expand=big, padx=0, pady=5)
+        
+        sw_w = 450
+        sw_h = 360 if big else 120
+        
         canvas = tk.Canvas(
-            frame,
-            width=450,
-            height=360,
-            highlightthickness=1,
-            highlightbackground='gray'
+            frame, width=sw_w, height=sw_h,
+            highlightthickness=1, highlightbackground='gray',
         )
         canvas.pack(side=tk.LEFT, padx=5, pady=5)
-        
-        # Create rectangle for color display
         canvas.create_rectangle(
-            0, 0, 450, 360,
+            0, 0, sw_w, sw_h,
             fill=f"#{int(avg_rgb[0]):02x}{int(avg_rgb[1]):02x}{int(avg_rgb[2]):02x}",
-            outline=''
+            outline='',
         )
         
-        # Color values based on user preferences
-        from utils.color_display_utils import get_conditional_color_values_text
-        value_text = get_conditional_color_values_text(avg_rgb, avg_lab, compact=True)
+        value_text = get_conditional_color_values_text(
+            avg_rgb, avg_lab, compact=True,
+        )
         
-        # Create a frame for values and button
         values_frame = ttk.Frame(frame)
         values_frame.pack(side=tk.LEFT, padx=20, fill=tk.Y)
         
-        # Add color values
-        ttk.Label(values_frame, text=value_text, font=("Arial", 14)).pack(pady=10)
+        ttk.Label(
+            values_frame, text=value_text,
+            font=("Arial", 14 if big else 12),
+        ).pack(pady=(10 if big else 4))
         
-        # Add averaging information
         if outliers_excluded > 0:
-            outlier_text = f"\nAveraging Quality Control:\n{samples_used}/{len(enabled_samples)} samples used\n{outliers_excluded} outlier(s) excluded\nMax ΔE from centroid: {max_delta_e:.2f}"
+            outlier_text = (
+                f"\nAveraging Quality Control:\n"
+                f"{samples_used}/{len(samples)} samples used\n"
+                f"{outliers_excluded} outlier(s) excluded\n"
+                f"Max ΔE from centroid: {max_delta_e:.2f}"
+            )
             ttk.Label(values_frame, text=outlier_text, font=("Arial", 10)).pack(pady=5)
         
-        # Add some vertical space
-        ttk.Frame(values_frame, height=15).pack()
+        if not with_buttons:
+            return
         
-        # Add buttons frame - vertically stacked for better space management
+        # --- ink-only action buttons -------------------------------------- #
+        ttk.Frame(values_frame, height=15).pack()
         buttons_frame = ttk.Frame(values_frame)
         buttons_frame.pack(anchor='se', pady=(0, 5))
-
-        # Add color to library button
-        add_button = ttk.Button(buttons_frame, text="Add color to library", 
-                              command=lambda: self._add_color_to_library(avg_rgb, avg_lab))
+        
+        add_button = ttk.Button(
+            buttons_frame, text="Add color to library",
+            command=lambda: self._add_color_to_library(avg_rgb, avg_lab),
+        )
         add_button.pack(fill=tk.X, pady=2)
-
-        # Add Save to DB button (renamed from "Save Results")
-        save_db_button = ttk.Button(buttons_frame, text="Save to DB",
-                              command=lambda: self._save_to_database(avg_rgb, avg_lab, enabled_samples))
+        
+        save_db_button = ttk.Button(
+            buttons_frame, text="Save to DB",
+            command=lambda: self._save_to_database(avg_rgb, avg_lab, samples),
+        )
         save_db_button.pack(fill=tk.X, pady=2)
         
-        # Add Save to File button (new - saves to unified data logger)
-        save_file_button = ttk.Button(buttons_frame, text="Save to File",
-                              command=lambda: self._save_to_text_file(avg_rgb, avg_lab, enabled_samples))
+        save_file_button = ttk.Button(
+            buttons_frame, text="Save to File",
+            command=lambda: self._save_to_text_file(avg_rgb, avg_lab, samples),
+        )
         save_file_button.pack(fill=tk.X, pady=2)
         
-        # Save a composed stamp + average-swatch image for visual comparison.
-        # Works on both cropped (alpha) and uncropped stamp images.
         compare_button = ttk.Button(
-            buttons_frame,
-            text="Save comparison image…",
+            buttons_frame, text="Save comparison image…",
             command=lambda: self._save_comparison_image(avg_rgb, avg_lab),
         )
         compare_button.pack(fill=tk.X, pady=2)
     
     def _on_sample_toggle(self):
-        """Handle sample toggle events."""
+        """Handle sample toggle events (enable/disable, ink/paper).
+        
+        Refreshes both panes because toggling 'P' changes which group a
+        sample belongs to, which changes the per-sample ΔE label and the
+        composition of both the ink and paper averages.
+        """
+        self._display_sample_points()
         self._update_average_display()
     
     def _save_comparison_image(self, avg_rgb, avg_lab):
@@ -1062,6 +1154,120 @@ class SampleResultsManager(tk.Frame):
             print(f"Error getting existing databases: {e}")
             return []
     
+    def _save_one_group_to_db(
+        self, samples, db_name, image_name,
+        save_individual, save_average, use_averages_suffix,
+        notes_label="Results Manager",
+    ):
+        """Save one sample group (ink or paper) into ``db_name`` as ``image_name``.
+        
+        Mirrors the per-set save logic that previously lived inline in
+        ``_perform_quick_save`` and the Save Results dialog. Both ink
+        and paper groups go through this helper; paper just uses an
+        ``image_name`` suffixed with ``-p`` so the two sets stay tied
+        to the same stamp inside one DB but never mix in plots.
+        
+        Returns:
+            dict with keys 'success_individual', 'success_average',
+            'saved_files', 'measurements_count'.
+        """
+        from utils.color_analyzer import ColorAnalyzer
+        from utils.color_analysis_db import ColorAnalysisDB
+        
+        analyzer = ColorAnalyzer()
+        
+        sample_measurements = []
+        for i, sample in enumerate(samples, 1):
+            sample_rgb = sample['rgb']
+            sample_lab = (
+                self.library.rgb_to_lab(sample_rgb)
+                if hasattr(self, 'library') and self.library
+                else analyzer.rgb_to_lab(sample_rgb)
+            )
+            rgb_stddev = sample.get('rgb_stddev', None)
+            lab_stddev = sample.get('lab_stddev', None)
+            sample_measurements.append({
+                'id': f"sample_{i}",
+                'l_value': sample_lab[0],
+                'a_value': sample_lab[1],
+                'b_value': sample_lab[2],
+                'rgb_r': sample_rgb[0],
+                'rgb_g': sample_rgb[1],
+                'rgb_b': sample_rgb[2],
+                'x_position': sample['position'][0],
+                'y_position': sample['position'][1],
+                'sample_type': sample['type'],
+                'sample_width': sample['size'][0],
+                'sample_height': sample['size'][1],
+                'anchor': sample['anchor'],
+                'rgb_r_stddev': rgb_stddev[0] if rgb_stddev else None,
+                'rgb_g_stddev': rgb_stddev[1] if rgb_stddev else None,
+                'rgb_b_stddev': rgb_stddev[2] if rgb_stddev else None,
+                'lab_l_stddev': lab_stddev[0] if lab_stddev else None,
+                'lab_a_stddev': lab_stddev[1] if lab_stddev else None,
+                'lab_b_stddev': lab_stddev[2] if lab_stddev else None,
+            })
+        
+        success_individual = True
+        success_average = True
+        saved_files = []
+        
+        if save_individual:
+            individual_db = ColorAnalysisDB(db_name)
+            set_id = individual_db.create_measurement_set(
+                image_name, f"Individual samples from {image_name}",
+            )
+            success_individual = False
+            if set_id:
+                success_individual = True
+                for m in sample_measurements:
+                    size_str = f"{m['sample_width']}x{m['sample_height']}"
+                    saved = individual_db.save_color_measurement(
+                        set_id=set_id,
+                        coordinate_point=int(m['id'].replace('sample_', '')),
+                        x_pos=m['x_position'], y_pos=m['y_position'],
+                        l_value=m['l_value'], a_value=m['a_value'], b_value=m['b_value'],
+                        rgb_r=m['rgb_r'], rgb_g=m['rgb_g'], rgb_b=m['rgb_b'],
+                        sample_type=m['sample_type'], sample_size=size_str,
+                        sample_anchor=m['anchor'],
+                        notes=f"Sample from {notes_label}",
+                        rgb_r_stddev=m.get('rgb_r_stddev'),
+                        rgb_g_stddev=m.get('rgb_g_stddev'),
+                        rgb_b_stddev=m.get('rgb_b_stddev'),
+                        lab_l_stddev=m.get('lab_l_stddev'),
+                        lab_a_stddev=m.get('lab_a_stddev'),
+                        lab_b_stddev=m.get('lab_b_stddev'),
+                    )
+                    if not saved:
+                        success_individual = False
+                        break
+                if success_individual:
+                    saved_files.append(f"{db_name}.db")
+        
+        if save_average and sample_measurements:
+            avg_db_name = f"{db_name}_AVG" if use_averages_suffix else db_name
+            ok = analyzer.save_averaged_measurement_from_samples(
+                sample_measurements=sample_measurements,
+                sample_set_name=avg_db_name,
+                image_name=image_name,
+                notes=f"Average from {len(samples)} samples via {notes_label}",
+            )
+            success_average = bool(ok)
+            if success_average and use_averages_suffix:
+                saved_files.append(f"{avg_db_name}.db")
+        
+        return {
+            'success_individual': success_individual,
+            'success_average': success_average,
+            'saved_files': saved_files,
+            'measurements_count': len(sample_measurements),
+        }
+    
+    def _enabled_paper_samples(self):
+        """Return the list of enabled paper-tagged samples (may be empty)."""
+        return [s for s in self.sample_points
+                if s['enabled'].get() and s['is_paper'].get()]
+    
     def _save_to_database(self, avg_rgb, avg_lab, enabled_samples):
         """Save results to database - checks for quick save preference first."""
         # Check if quick save is enabled
@@ -1080,16 +1286,18 @@ class SampleResultsManager(tk.Frame):
             self._show_save_results_dialog(avg_rgb, avg_lab, enabled_samples)
     
     def _perform_quick_save(self, avg_rgb, avg_lab, enabled_samples):
-        """Perform quick save using preference settings without showing dialog."""
+        """Quick save using preference settings without showing a dialog.
+        
+        Saves the ink samples to ``<final_db_name>``/``<image_name>``, and
+        if any paper samples are enabled, saves them to the same DB under
+        ``<image_name>-p`` so they stay associated with the stamp but
+        never mix into ink plots.
+        """
         try:
             from utils.user_preferences import get_preferences_manager
-            from utils.color_analyzer import ColorAnalyzer
-            from utils.color_analysis_db import ColorAnalysisDB
             from utils.dismissible_message import showsuccess_dismissible
-            import os
             
             prefs = get_preferences_manager()
-            analyzer = ColorAnalyzer()
             
             # Get preferences
             default_db_name = prefs.get_default_database_name()
@@ -1097,7 +1305,7 @@ class SampleResultsManager(tk.Frame):
             save_average = prefs.get_save_average_default()
             use_averages_suffix = prefs.get_use_averages_suffix()
             
-            # Use preference default, or base on filename if available
+            # Resolve DB name + image name from current file
             if hasattr(self, 'current_file_path'):
                 filename = os.path.basename(self.current_file_path)
                 file_base = os.path.splitext(filename)[0]
@@ -1105,140 +1313,91 @@ class SampleResultsManager(tk.Frame):
                     final_db_name = f"Results_{file_base}"
                 else:
                     final_db_name = default_db_name
+                image_name = file_base
             else:
                 final_db_name = default_db_name
+                image_name = "analysis_result"
             
-            # Convert sample data
-            sample_measurements = []
-            for i, sample in enumerate(enabled_samples, 1):
-                sample_rgb = sample['rgb']
-                sample_lab = self.library.rgb_to_lab(sample_rgb) if hasattr(self, 'library') and self.library else analyzer.rgb_to_lab(sample_rgb)
-                
-                # Get stddev values if available
-                rgb_stddev = sample.get('rgb_stddev', None)
-                lab_stddev = sample.get('lab_stddev', None)
-                
-                measurement = {
-                    'id': f"sample_{i}",
-                    'l_value': sample_lab[0],
-                    'a_value': sample_lab[1],
-                    'b_value': sample_lab[2],
-                    'rgb_r': sample_rgb[0],
-                    'rgb_g': sample_rgb[1],
-                    'rgb_b': sample_rgb[2],
-                    'x_position': sample['position'][0],
-                    'y_position': sample['position'][1],
-                    'sample_type': sample['type'],
-                    'sample_width': sample['size'][0],
-                    'sample_height': sample['size'][1],
-                    'anchor': sample['anchor'],
-                    'rgb_r_stddev': rgb_stddev[0] if rgb_stddev else None,
-                    'rgb_g_stddev': rgb_stddev[1] if rgb_stddev else None,
-                    'rgb_b_stddev': rgb_stddev[2] if rgb_stddev else None,
-                    'lab_l_stddev': lab_stddev[0] if lab_stddev else None,
-                    'lab_a_stddev': lab_stddev[1] if lab_stddev else None,
-                    'lab_b_stddev': lab_stddev[2] if lab_stddev else None
-                }
-                sample_measurements.append(measurement)
+            # --- ink (primary) save ----------------------------------------- #
+            ink_result = self._save_one_group_to_db(
+                samples=enabled_samples,
+                db_name=final_db_name,
+                image_name=image_name,
+                save_individual=save_individual,
+                save_average=save_average,
+                use_averages_suffix=use_averages_suffix,
+                notes_label="Results Manager (Quick Save)",
+            )
             
-            # Get image name
-            image_name = "analysis_result"
-            if hasattr(self, 'current_file_path'):
-                image_name = os.path.splitext(os.path.basename(self.current_file_path))[0]
-            
-            success_individual = True
-            success_average = True
-            saved_files = []
-            
-            # Save individual samples if enabled
-            if save_individual:
-                individual_db = ColorAnalysisDB(final_db_name)
-                set_id = individual_db.create_measurement_set(image_name, f"Individual samples from {image_name}")
-                
-                if set_id:
-                    success_individual = True
-                    for measurement in sample_measurements:
-                        sample_size_str = f"{measurement['sample_width']}x{measurement['sample_height']}"
-                        saved = individual_db.save_color_measurement(
-                            set_id=set_id,
-                            coordinate_point=int(measurement['id'].replace('sample_', '')),
-                            x_pos=measurement['x_position'],
-                            y_pos=measurement['y_position'],
-                            l_value=measurement['l_value'],
-                            a_value=measurement['a_value'],
-                            b_value=measurement['b_value'],
-                            rgb_r=measurement['rgb_r'],
-                            rgb_g=measurement['rgb_g'],
-                            rgb_b=measurement['rgb_b'],
-                            sample_type=measurement['sample_type'],
-                            sample_size=sample_size_str,
-                            sample_anchor=measurement['anchor'],
-                            notes=f"Sample from Results Manager",
-                            rgb_r_stddev=measurement.get('rgb_r_stddev'),
-                            rgb_g_stddev=measurement.get('rgb_g_stddev'),
-                            rgb_b_stddev=measurement.get('rgb_b_stddev'),
-                            lab_l_stddev=measurement.get('lab_l_stddev'),
-                            lab_a_stddev=measurement.get('lab_a_stddev'),
-                            lab_b_stddev=measurement.get('lab_b_stddev')
-                        )
-                        if not saved:
-                            success_individual = False
-                            break
-                    
-                    if success_individual:
-                        saved_files.append(f"{final_db_name}.db")
-            
-            # Save averaged result if enabled
-            if save_average:
-                if use_averages_suffix:
-                    avg_db_name = f"{final_db_name}_AVG"
-                else:
-                    avg_db_name = final_db_name
-                
-                success_average = analyzer.save_averaged_measurement_from_samples(
-                    sample_measurements=sample_measurements,
-                    sample_set_name=avg_db_name,
-                    image_name=image_name,
-                    notes=f"Average from {len(enabled_samples)} samples via Results Manager (Quick Save)"
+            # --- paper (optional) save -------------------------------------- #
+            paper_samples = self._enabled_paper_samples()
+            paper_result = None
+            if paper_samples:
+                paper_result = self._save_one_group_to_db(
+                    samples=paper_samples,
+                    db_name=final_db_name,
+                    image_name=f"{image_name}-p",
+                    save_individual=save_individual,
+                    save_average=save_average,
+                    use_averages_suffix=use_averages_suffix,
+                    notes_label="Results Manager (Quick Save) [paper]",
                 )
-                
-                if success_average:
-                    saved_files.append(f"{avg_db_name}.db")
             
-            # Check success
-            if (not save_individual or success_individual) and (not save_average or success_average):
-                # Save database name to preferences
+            # --- evaluate combined success/error and report ----------------- #
+            ok_ink = ((not save_individual or ink_result['success_individual'])
+                      and (not save_average or ink_result['success_average']))
+            ok_paper = (
+                paper_result is None or (
+                    (not save_individual or paper_result['success_individual'])
+                    and (not save_average or paper_result['success_average'])
+                )
+            )
+            
+            if ok_ink and ok_paper:
                 prefs.set('last_used_database', final_db_name)
                 
-                # Build success message
                 success_msg = "Results saved successfully!\n\n"
-                if save_individual and success_individual:
-                    success_msg += f"✓ {len(enabled_samples)} individual samples saved\n"
-                if save_average and success_average:
-                    success_msg += f"✓ 1 averaged result saved\n"
+                if save_individual:
+                    success_msg += (
+                        f"✓ {ink_result['measurements_count']} ink samples saved\n"
+                    )
+                    if paper_result:
+                        success_msg += (
+                            f"✓ {paper_result['measurements_count']} "
+                            f"paper samples saved (set '{image_name}-p')\n"
+                        )
+                if save_average:
+                    success_msg += "✓ 1 averaged ink result saved\n"
+                    if paper_result:
+                        success_msg += "✓ 1 averaged paper result saved\n"
+                # De-dup file list (preserve order)
+                saved_files = list(dict.fromkeys(
+                    ink_result['saved_files']
+                    + (paper_result['saved_files'] if paper_result else [])
+                ))
                 success_msg += "\nSaved to:\n"
-                for file in saved_files:
-                    success_msg += f"• {file}\n"
+                for f in saved_files:
+                    success_msg += f"• {f}\n"
                 
-                # Use dismissible success message with parent window for proper positioning
                 showsuccess_dismissible(
                     title="Quick Save Complete",
                     message=success_msg,
                     message_id="quick_save_success",
-                    parent=self.winfo_toplevel()
+                    parent=self.winfo_toplevel(),
                 )
             else:
-                # Show error
-                from tkinter import messagebox
                 error_msg = "Some save operations failed:\n\n"
-                if save_individual and not success_individual:
-                    error_msg += "✗ Individual samples failed to save\n"
-                if save_average and not success_average:
-                    error_msg += "✗ Average calculation failed to save\n"
+                if save_individual and not ink_result['success_individual']:
+                    error_msg += "✗ Ink individual samples failed to save\n"
+                if save_average and not ink_result['success_average']:
+                    error_msg += "✗ Ink average failed to save\n"
+                if paper_result and save_individual and not paper_result['success_individual']:
+                    error_msg += "✗ Paper individual samples failed to save\n"
+                if paper_result and save_average and not paper_result['success_average']:
+                    error_msg += "✗ Paper average failed to save\n"
                 messagebox.showerror("Quick Save Error", error_msg)
-                
+        
         except Exception as e:
-            from tkinter import messagebox
             messagebox.showerror("Error", f"Quick save failed: {str(e)}")
     
     def _show_save_results_dialog(self, avg_rgb, avg_lab, enabled_samples):
@@ -1423,185 +1582,118 @@ class SampleResultsManager(tk.Frame):
                     return
                 
                 # Determine which database to use
-                final_db_name = ""
                 if db_choice.get() == "existing" and existing_databases:
                     final_db_name = db_var.get().strip()
                 else:
                     final_db_name = new_db_var.get().strip()
                 
                 if not final_db_name:
-                    messagebox.showerror("Error", "Please select or enter a database name")
+                    messagebox.showerror(
+                        "Error", "Please select or enter a database name")
                     return
                 
+                # Image (= measurement-set) name from the current file
+                image_name = "analysis_result"
+                if hasattr(self, 'current_file_path'):
+                    image_name = os.path.splitext(
+                        os.path.basename(self.current_file_path))[0]
+                
                 try:
-                    # Save to database using ColorAnalyzer
-                    from utils.color_analyzer import ColorAnalyzer
-                    analyzer = ColorAnalyzer()
-                    
-                    # Convert sample data for saving
-                    sample_measurements = []
-                    for i, sample in enumerate(enabled_samples, 1):
-                        # Calculate Lab values properly for each sample
-                        sample_rgb = sample['rgb']
-                        sample_lab = self.library.rgb_to_lab(sample_rgb) if hasattr(self, 'library') and self.library else analyzer.rgb_to_lab(sample_rgb)
-                        
-                        # Get stddev values if available
-                        rgb_stddev = sample.get('rgb_stddev', None)
-                        lab_stddev = sample.get('lab_stddev', None)
-                        
-                        measurement = {
-                            'id': f"sample_{i}",
-                            'l_value': sample_lab[0],
-                            'a_value': sample_lab[1], 
-                            'b_value': sample_lab[2],
-                            'rgb_r': sample_rgb[0],
-                            'rgb_g': sample_rgb[1],
-                            'rgb_b': sample_rgb[2],
-                            'x_position': sample['position'][0],
-                            'y_position': sample['position'][1],
-                            'sample_type': sample['type'],
-                            'sample_width': sample['size'][0],
-                            'sample_height': sample['size'][1],
-                            'anchor': sample['anchor'],
-                            'rgb_r_stddev': rgb_stddev[0] if rgb_stddev else None,
-                            'rgb_g_stddev': rgb_stddev[1] if rgb_stddev else None,
-                            'rgb_b_stddev': rgb_stddev[2] if rgb_stddev else None,
-                            'lab_l_stddev': lab_stddev[0] if lab_stddev else None,
-                            'lab_a_stddev': lab_stddev[1] if lab_stddev else None,
-                            'lab_b_stddev': lab_stddev[2] if lab_stddev else None
-                        }
-                        sample_measurements.append(measurement)
-                    
-                    # Get image name
-                    image_name = "analysis_result"
-                    if hasattr(self, 'current_file_path'):
-                        import os
-                        image_name = os.path.splitext(os.path.basename(self.current_file_path))[0]
-                    
-                    # Initialize success flags
-                    success_individual = True
-                    success_average = True
-                    saved_files = []
-                    
-                    # Save individual samples if requested
-                    if save_individual.get():
-                        from utils.color_analysis_db import ColorAnalysisDB
-                        individual_db = ColorAnalysisDB(final_db_name)
-                        
-                        # Create measurement set
-                        set_id = individual_db.create_measurement_set(image_name, f"Individual samples from {image_name}")
-                        success_individual = False
-                        
-                        if set_id:
-                            # Save each individual measurement
-                            success_individual = True
-                            for measurement in sample_measurements:
-                                # Format sample size as string
-                                sample_size_str = f"{measurement['sample_width']}x{measurement['sample_height']}"
-                                
-                                saved = individual_db.save_color_measurement(
-                                    set_id=set_id,
-                                    coordinate_point=int(measurement['id'].replace('sample_', '')),
-                                    x_pos=measurement['x_position'],
-                                    y_pos=measurement['y_position'],
-                                    l_value=measurement['l_value'],
-                                    a_value=measurement['a_value'],
-                                    b_value=measurement['b_value'],
-                                    rgb_r=measurement['rgb_r'],
-                                    rgb_g=measurement['rgb_g'],
-                                    rgb_b=measurement['rgb_b'],
-                                    sample_type=measurement['sample_type'],
-                                    sample_size=sample_size_str,
-                                    sample_anchor=measurement['anchor'],
-                                    notes=f"Sample from Results Manager",
-                                    rgb_r_stddev=measurement.get('rgb_r_stddev'),
-                                    rgb_g_stddev=measurement.get('rgb_g_stddev'),
-                                    rgb_b_stddev=measurement.get('rgb_b_stddev'),
-                                    lab_l_stddev=measurement.get('lab_l_stddev'),
-                                    lab_a_stddev=measurement.get('lab_a_stddev'),
-                                    lab_b_stddev=measurement.get('lab_b_stddev')
-                                )
-                                if not saved:
-                                    success_individual = False
-                                    break
-                            
-                            if success_individual:
-                                saved_files.append(f"{final_db_name}.db")
-                    
-                    # Save averaged result if requested
-                    if save_average.get():
-                        # Get suffix preference
-                        try:
-                            from utils.user_preferences import get_preferences_manager
-                            prefs = get_preferences_manager()
-                            use_averages_suffix = prefs.get_use_averages_suffix()
-                        except:
-                            use_averages_suffix = True
-                        
-                        # Apply _AVG suffix if preference is enabled
-                        if use_averages_suffix:
-                            avg_db_name = f"{final_db_name}_AVG"
-                        else:
-                            avg_db_name = final_db_name
-                        
-                        success_average = analyzer.save_averaged_measurement_from_samples(
-                            sample_measurements=sample_measurements,
-                            sample_set_name=avg_db_name,
-                            image_name=image_name,
-                            notes=f"Average from {len(enabled_samples)} samples via Results Manager"
+                    try:
+                        from utils.user_preferences import get_preferences_manager
+                        use_averages_suffix = (
+                            get_preferences_manager().get_use_averages_suffix()
                         )
-                        
-                        if success_average:
-                            saved_files.append(f"{avg_db_name}.db")
+                    except Exception:
+                        use_averages_suffix = True
                     
-                    # Check if all requested operations succeeded
-                    all_requested_succeeded = True
-                    if save_individual.get() and not success_individual:
-                        all_requested_succeeded = False
-                    if save_average.get() and not success_average:
-                        all_requested_succeeded = False
+                    # --- ink save (existing behaviour) ---------------------- #
+                    ink_result = self._save_one_group_to_db(
+                        samples=enabled_samples,
+                        db_name=final_db_name,
+                        image_name=image_name,
+                        save_individual=save_individual.get(),
+                        save_average=save_average.get(),
+                        use_averages_suffix=use_averages_suffix,
+                    )
                     
-                    if all_requested_succeeded and saved_files:
-                        # Save database name to preferences for next time
+                    # --- paper save (if any paper samples are enabled) ------ #
+                    paper_samples = self._enabled_paper_samples()
+                    paper_result = None
+                    if paper_samples:
+                        paper_result = self._save_one_group_to_db(
+                            samples=paper_samples,
+                            db_name=final_db_name,
+                            image_name=f"{image_name}-p",
+                            save_individual=save_individual.get(),
+                            save_average=save_average.get(),
+                            use_averages_suffix=use_averages_suffix,
+                            notes_label="Results Manager [paper]",
+                        )
+                    
+                    ok_ink = (
+                        (not save_individual.get() or ink_result['success_individual'])
+                        and (not save_average.get() or ink_result['success_average'])
+                    )
+                    ok_paper = (
+                        paper_result is None or (
+                            (not save_individual.get() or paper_result['success_individual'])
+                            and (not save_average.get() or paper_result['success_average'])
+                        )
+                    )
+                    
+                    saved_files = list(dict.fromkeys(
+                        ink_result['saved_files']
+                        + (paper_result['saved_files'] if paper_result else [])
+                    ))
+                    
+                    if ok_ink and ok_paper and saved_files:
                         try:
                             from utils.user_preferences import get_preferences_manager
-                            prefs = get_preferences_manager()
-                            prefs.set('last_used_database', final_db_name)
+                            get_preferences_manager().set(
+                                'last_used_database', final_db_name)
                         except Exception as e:
                             print(f"Warning: Could not save last_used_database preference: {e}")
                         
-                        # Build success message
                         success_msg = "Results saved successfully!\n\n"
-                        
-                        if save_individual.get() and success_individual:
-                            success_msg += f"✓ {len(enabled_samples)} individual samples saved\n"
-                        if save_average.get() and success_average:
-                            success_msg += f"✓ 1 averaged result saved\n"
-                        
+                        if save_individual.get():
+                            success_msg += (
+                                f"✓ {ink_result['measurements_count']} ink samples saved\n"
+                            )
+                            if paper_result:
+                                success_msg += (
+                                    f"✓ {paper_result['measurements_count']} "
+                                    f"paper samples saved (set '{image_name}-p')\n"
+                                )
+                        if save_average.get():
+                            success_msg += "✓ 1 averaged ink result saved\n"
+                            if paper_result:
+                                success_msg += "✓ 1 averaged paper result saved\n"
                         success_msg += "\nSaved to:\n"
-                        for file in saved_files:
-                            success_msg += f"• {file}\n"
+                        for f in saved_files:
+                            success_msg += f"• {f}\n"
                         
                         messagebox.showinfo("Success", success_msg)
                         dialog.destroy()
                     else:
-                        # Build error message for failures
                         error_msg = "Some save operations failed:\n\n"
-                        
-                        if save_individual.get() and not success_individual:
-                            error_msg += "✗ Individual samples failed to save\n"
-                        if save_average.get() and not success_average:
-                            error_msg += "✗ Average calculation failed to save\n"
-                        
+                        if save_individual.get() and not ink_result['success_individual']:
+                            error_msg += "✗ Ink individual samples failed to save\n"
+                        if save_average.get() and not ink_result['success_average']:
+                            error_msg += "✗ Ink average failed to save\n"
+                        if paper_result and save_individual.get() and not paper_result['success_individual']:
+                            error_msg += "✗ Paper individual samples failed to save\n"
+                        if paper_result and save_average.get() and not paper_result['success_average']:
+                            error_msg += "✗ Paper average failed to save\n"
                         if saved_files:
                             error_msg += "\nPartially saved to:\n"
-                            for file in saved_files:
-                                error_msg += f"• {file}\n"
-                        
+                            for f in saved_files:
+                                error_msg += f"• {f}\n"
                         messagebox.showerror("Save Error", error_msg)
                         
                 except Exception as e:
-                    messagebox.showerror("Error", f"Failed to save results: {str(e)}")
+                    messagebox.showerror(
+                        "Error", f"Failed to save results: {str(e)}")
             
             # Buttons frame
             button_frame = ttk.Frame(content_frame)
