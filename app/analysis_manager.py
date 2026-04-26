@@ -3464,6 +3464,18 @@ class AnalysisManager:
                     if db_files:
                         library_manager.library = ColorLibrary(db_files[0][:-11])
                 
+                # Wire the canvas's live sample model into the Results
+                # panel so P-toggles in the Results UI flow back to the
+                # on-image ΔE HUD with group-aware (ink-only / paper-only)
+                # means. Set BEFORE set_analyzed_data so the data load
+                # resets both sides in sync.
+                try:
+                    library_manager.results_manager._live_model_ref = (
+                        self.app.canvas.live_model
+                    )
+                except Exception as e:
+                    print(f"DEBUG: could not wire live_model back-ref: {e}")
+                
                 # Send data to both Results and Compare tabs
                 library_manager.results_manager.set_analyzed_data(
                     image_path=self.app.current_file,

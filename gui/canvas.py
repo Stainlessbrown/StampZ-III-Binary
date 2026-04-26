@@ -1002,15 +1002,45 @@ class CropCanvas(tk.Canvas):
         # overlap the sample-number label above, rendered at 12pt bold on a
         # white background with a status-coloured border for readability
         # regardless of what's under it on the stamp.
+        # 
+        # The HUD is two lines: the scalar ΔE on top (the headline
+        # number, status-coloured), and the ΔL/ΔC/ΔH decomposition
+        # below it (so the user can see *which axis* the disagreement
+        # is on — essential for low-chroma blues where ΔE alone is
+        # famously unreliable).
         if delta_e is not None and self._live_delta_e_enabled():
             max_half = max(screen_width, screen_height) / 2
             label_offset = int(max(18, max_half + 14))
             hud_font = ("Arial", 12, "bold")
+            
+            # Try to fetch the Δ components from the live model. If
+            # they're unavailable for any reason, fall back to the
+            # original single-line ΔE HUD.
+            hud_text = f"ΔE {delta_e:.2f}"
+            try:
+                idx = marker.get('index')
+                comps = (
+                    self.live_model.get_delta_components(idx)
+                    if idx is not None else None
+                )
+            except Exception:
+                comps = None
+            if comps is not None:
+                try:
+                    from utils.lab_difference import format_lab_components_compact
+                    hud_text = (
+                        f"ΔE {delta_e:.2f}\n"
+                        f"{format_lab_components_compact(comps)}"
+                    )
+                except Exception:
+                    pass
+            
             text_id = self.create_text(
                 screen_x, screen_y + label_offset,
-                text=f"ΔE {delta_e:.2f}",
+                text=hud_text,
                 fill=outline_color,
                 font=hud_font,
+                justify="center",
                 tags=(marker["tag"], hud_tag),
             )
             # Put a white rounded-ish background behind the text and re-raise

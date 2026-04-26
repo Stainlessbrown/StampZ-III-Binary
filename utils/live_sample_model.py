@@ -71,11 +71,19 @@ class LiveSampleModel:
 
     def __init__(self):
         self._image: Optional[Image.Image] = None
-        # index (1-based marker id) -> dict with pos, size, rgb, lab, delta_e, enabled
+        # index (1-based marker id) -> dict with pos, size, rgb, lab,
+        # delta_e, enabled, is_paper
         self._samples: Dict[int, dict] = {}
-        # Cached group means (over *enabled* samples). `None` when < 2 enabled.
-        self._avg_lab: Optional[Tuple[float, float, float]] = None
-        self._avg_rgb: Optional[Tuple[float, float, float]] = None
+        # Cached per-role means (over *enabled* samples in that role).
+        # ``False`` = ink, ``True`` = paper. Each entry is the QC mean
+        # (with the same outlier rule the Results panel uses), or None
+        # when that role has fewer than 2 enabled samples.
+        self._avg_lab_by_role: Dict[bool, Optional[Tuple[float, float, float]]] = {
+            False: None, True: None,
+        }
+        self._avg_rgb_by_role: Dict[bool, Optional[Tuple[float, float, float]]] = {
+            False: None, True: None,
+        }
         self._listeners: List[Callable[[List[int], "LiveSampleModel"], None]] = []
 
         # Cached analyzer; created lazily so importing this module doesn't
@@ -100,8 +108,8 @@ class LiveSampleModel:
             return
         removed = list(self._samples.keys())
         self._samples.clear()
-        self._avg_lab = None
-        self._avg_rgb = None
+        self._avg_lab_by_role = {False: None, True: None}
+        self._avg_rgb_by_role = {False: None, True: None}
         self._notify(removed)
 
     def has_image(self) -> bool:
@@ -139,9 +147,13 @@ class LiveSampleModel:
 
         `marker` is the canvas marker dict with keys: image_pos, sample_type,
         sample_width, sample_height, anchor.
+        
+        Existing ``enabled`` and ``is_paper`` flags are preserved across
+        updates so dragging / nudging a marker doesn't reset its role.
         """
         prev = self._samples.get(index)
         enabled = prev.get("enabled", True) if prev else True
+        is_paper = bool(prev.get("is_paper", False)) if prev else False
 
         self._samples[index] = {
             "index": index,
@@ -151,6 +163,7 @@ class LiveSampleModel:
             "sample_height": marker.get("sample_height", 10),
             "anchor": marker.get("anchor", "center"),
             "enabled": enabled,
+            "is_paper": is_paper,
             "rgb": None,
             "lab": None,
             "delta_e": None,
@@ -175,6 +188,24 @@ class LiveSampleModel:
         self._recompute_average_and_delta_e()
         self._notify(list(self._samples.keys()))
 
+    def set_paper(self, index: int, is_paper: bool) -> None:
+        """Tag a sample as paper (True) or ink (False).
+        
+        Drives the same ink/paper grouping the Results panel uses, so
+        the on-canvas ΔE HUD computes each marker's distance against
+        its own group's QC mean and ink samples don't pollute paper
+        readings (or vice-versa).
+        """
+        s = self._samples.get(index)
+        if not s:
+            return
+        new_val = bool(is_paper)
+        if bool(s.get("is_paper", False)) == new_val:
+            return
+        s["is_paper"] = new_val
+        self._recompute_average_and_delta_e()
+        self._notify(list(self._samples.keys()))
+
     # ----- accessors ----- #
 
     @property
@@ -189,8 +220,33 @@ class LiveSampleModel:
         s = self._samples.get(index)
         return s["delta_e"] if s else None
 
-    def get_average_lab(self) -> Optional[Tuple[float, float, float]]:
-        return self._avg_lab
+    def get_delta_components(self, index: int) -> Optional[Dict[str, float]]:
+        """Return the ΔL/ΔC/ΔH breakdown for a sample, or None.
+        
+        Same shape as ``utils.lab_difference.lab_difference_components``.
+        Useful for the canvas HUD and any UI that wants to show *which
+        axis* the difference is on (lightness, chroma, or hue) rather
+        than just the scalar ΔE.
+        """
+        s = self._samples.get(index)
+        if not s:
+            return None
+        return s.get("delta_components")
+
+    def get_average_lab(
+        self, is_paper: Optional[bool] = None,
+    ) -> Optional[Tuple[float, float, float]]:
+        """Return the cached QC mean for one role (or, by default, ink).
+        
+        ``is_paper=False`` -> ink mean, ``is_paper=True`` -> paper mean,
+        ``None`` (the default) -> ink mean if available, else paper.
+        """
+        if is_paper is None:
+            return (
+                self._avg_lab_by_role.get(False)
+                or self._avg_lab_by_role.get(True)
+            )
+        return self._avg_lab_by_role.get(bool(is_paper))
 
     # ----- optimisation ----- #
 
@@ -214,10 +270,17 @@ class LiveSampleModel:
         if not sample:
             return None
 
-        # Need at least one *other* enabled sample to define a target
+        # Need at least one *other* enabled sample IN THE SAME ROLE to
+        # define a target. Optimising a paper marker should pull it
+        # toward the paper-group mean, never toward ink (and vice-versa)
+        # — same grouping rule the canvas HUD and Results panel use.
+        sample_role = bool(sample.get("is_paper", False))
         other_labs = [
             s["lab"] for i, s in self._samples.items()
-            if i != index and s.get("enabled") and s.get("lab") is not None
+            if i != index
+            and bool(s.get("is_paper", False)) == sample_role
+            and s.get("enabled")
+            and s.get("lab") is not None
         ]
         if not other_labs:
             return None
@@ -299,43 +362,98 @@ class LiveSampleModel:
         s["rgb"], s["lab"] = rgb_lab
 
     def _recompute_average_and_delta_e(self) -> None:
-        enabled_labs = [
-            s["lab"] for s in self._samples.values()
-            if s.get("enabled") and s.get("lab") is not None
-        ]
-        if len(enabled_labs) < 2:
-            # ΔE is meaningless with 0 or 1 sample; clear all
-            self._avg_lab = None
-            self._avg_rgb = None
-            for s in self._samples.values():
-                s["delta_e"] = None
-            return
-
-        n = len(enabled_labs)
-        self._avg_lab = (
-            sum(l[0] for l in enabled_labs) / n,
-            sum(l[1] for l in enabled_labs) / n,
-            sum(l[2] for l in enabled_labs) / n,
-        )
-
-        enabled_rgbs = [
-            s["rgb"] for s in self._samples.values()
-            if s.get("enabled") and s.get("rgb") is not None
-        ]
-        if enabled_rgbs:
-            m = len(enabled_rgbs)
-            self._avg_rgb = (
-                sum(r[0] for r in enabled_rgbs) / m,
-                sum(r[1] for r in enabled_rgbs) / m,
-                sum(r[2] for r in enabled_rgbs) / m,
-            )
-
+        """Recompute per-role QC means and per-sample ΔE.
+        
+        Splits enabled samples into ink (``is_paper=False``) and paper
+        (``is_paper=True``) groups, then — for each group with at
+        least 2 enabled samples — runs the analyzer's
+        ``_calculate_quality_controlled_average`` (the same outlier
+        rule the Results panel uses) to get the group mean. Each
+        sample's ΔE is its distance from *its own* group's QC mean.
+        Groups with <2 enabled samples produce ``delta_e=None`` for
+        their members (ΔE isn't meaningful with one or zero peers).
+        
+        This guarantees the canvas HUD and the Results panel agree
+        sample-for-sample, and that ink samples don't pollute the
+        paper group's mean (or vice-versa).
+        """
+        # Bucket enabled samples by role.
+        by_role: Dict[bool, List[dict]] = {False: [], True: []}
+        for s in self._samples.values():
+            if not s.get("enabled") or s.get("lab") is None:
+                continue
+            by_role[bool(s.get("is_paper", False))].append(s)
+        
         analyzer = self._get_analyzer()
+        # Reset role caches; populate per group below.
+        self._avg_lab_by_role = {False: None, True: None}
+        self._avg_rgb_by_role = {False: None, True: None}
+        
+        for role, group_samples in by_role.items():
+            if len(group_samples) < 2:
+                continue
+            labs = [s["lab"] for s in group_samples]
+            rgbs = [
+                s["rgb"] for s in group_samples if s.get("rgb") is not None
+            ]
+            # Need matching length pairs for the QC helper. If RGB is
+            # missing for any sample (shouldn't happen in practice but
+            # defensive), fall back to a plain mean of the labs.
+            if len(rgbs) == len(labs):
+                try:
+                    qc = analyzer._calculate_quality_controlled_average(
+                        labs, rgbs,
+                    )
+                    self._avg_lab_by_role[role] = qc["avg_lab"]
+                    self._avg_rgb_by_role[role] = qc["avg_rgb"]
+                    continue
+                except Exception as e:
+                    print(
+                        f"LiveSampleModel: QC averaging failed for "
+                        f"role={'paper' if role else 'ink'}: {e}"
+                    )
+            n = len(labs)
+            self._avg_lab_by_role[role] = (
+                sum(l[0] for l in labs) / n,
+                sum(l[1] for l in labs) / n,
+                sum(l[2] for l in labs) / n,
+            )
+            if rgbs:
+                m = len(rgbs)
+                self._avg_rgb_by_role[role] = (
+                    sum(r[0] for r in rgbs) / m,
+                    sum(r[1] for r in rgbs) / m,
+                    sum(r[2] for r in rgbs) / m,
+                )
+        
+        # Per-sample ΔE vs. its own group's QC mean. We also stash the
+        # ΔL/ΔC/ΔH decomposition so the canvas HUD and Results panel
+        # can show *which axis* the disagreement is on — essential for
+        # interpreting near-neutral blues where a single ΔE scalar is
+        # often misleading.
+        from utils.lab_difference import lab_difference_components
         for s in self._samples.values():
             if s.get("lab") is None or not s.get("enabled"):
                 s["delta_e"] = None
+                s["delta_components"] = None
+                continue
+            role = bool(s.get("is_paper", False))
+            group_mean = self._avg_lab_by_role.get(role)
+            if group_mean is None:
+                s["delta_e"] = None
+                s["delta_components"] = None
             else:
-                s["delta_e"] = self._delta_e(s["lab"], self._avg_lab, analyzer)
+                s["delta_e"] = self._delta_e(s["lab"], group_mean, analyzer)
+                try:
+                    s["delta_components"] = lab_difference_components(
+                        s["lab"], group_mean,
+                    )
+                except Exception as e:
+                    print(
+                        f"LiveSampleModel: Δ components failed "
+                        f"for sample {s.get('index')}: {e}"
+                    )
+                    s["delta_components"] = None
 
     @staticmethod
     def _delta_e(lab1, lab2, analyzer) -> float:

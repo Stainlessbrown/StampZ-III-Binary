@@ -159,6 +159,19 @@ class SampleResultsManager(tk.Frame):
         """
         # Store the current file path 
         self.current_file_path = image_path
+        
+        # Reset the canvas live model's role flags so they start in lockstep
+        # with the freshly-built ``sample_points`` (which always start as
+        # ink). The back-ref — if wired — was set up by the caller
+        # before this method runs (see analysis_manager.compare_sample_to_library).
+        live_model = getattr(self, '_live_model_ref', None)
+        if live_model is not None:
+            try:
+                for sidx in list(live_model.samples.keys()):
+                    live_model.set_paper(sidx, False)
+            except Exception as e:
+                print(f"DEBUG: could not reset live model is_paper: {e}")
+        
         try:
             print(f"DEBUG: Setting analyzed data with {len(sample_data)} samples")
             
@@ -299,11 +312,15 @@ class SampleResultsManager(tk.Frame):
                           variable=sample['enabled'],
                           command=self._on_sample_toggle).pack(side=tk.LEFT)
             
-            # Paper toggle — marks this sample as paper-margin (vs ink)
+            # Paper toggle — marks this sample as paper-margin (vs ink).
+            # Wrapped so we can enforce the "min 2 ink samples" rule:
+            # turning P on is rejected if it would drop the ink-tagged
+            # count below 2 (which would leave the ink section empty
+            # and hide the Save / Compute coverage buttons).
             ttk.Checkbutton(frame,
                           text="P",
                           variable=sample['is_paper'],
-                          command=self._on_sample_toggle).pack(
+                          command=lambda s=sample: self._on_paper_toggle(s)).pack(
                               side=tk.LEFT, padx=(2, 8))
             
             # Color values with ΔE from this sample's group average
@@ -324,6 +341,21 @@ class SampleResultsManager(tk.Frame):
                     delta_e = analyzer.calculate_delta_e(lab, group_avg)
                     role_label = "paper" if is_paper else "ink"
                     value_text += f"\nΔE from {role_label} avg: {delta_e:.2f}"
+                    # ΔL/ΔC/ΔH breakdown directly under the ΔE line.
+                    # In low-chroma blues a single ΔE often disagrees
+                    # with what the eye sees; the breakdown shows which
+                    # axis the disagreement is on (lighter/darker,
+                    # more/less saturated, hue rotated which way).
+                    try:
+                        from utils.lab_difference import (
+                            lab_difference_components,
+                            format_lab_components_compact,
+                        )
+                        components = lab_difference_components(lab, group_avg)
+                        breakdown = format_lab_components_compact(components)
+                        value_text += f"\n  {breakdown}"
+                    except Exception as e:
+                        print(f"DEBUG: Δ breakdown failed: {e}")
             
             # Add StdDev if available (conditionally based on user preferences)
             stddev_text = get_conditional_stddev_text(rgb_stddev, lab_stddev)
@@ -507,6 +539,609 @@ class SampleResultsManager(tk.Frame):
             command=lambda: self._save_comparison_image(avg_rgb, avg_lab),
         )
         compare_button.pack(fill=tk.X, pady=2)
+        
+        # Coverage analysis (effective-tone) requires the user to have
+        # cropped the image and tagged at least one sample as paper.
+        # The button itself is always visible; the handler validates and
+        # complains if either pre-condition isn't met.
+        coverage_button = ttk.Button(
+            buttons_frame, text="Compute coverage…",
+            command=lambda mr=avg_rgb, ml=avg_lab: self._show_coverage_analysis(
+                marker_avg_rgb=mr, marker_avg_lab=ml,
+            ),
+        )
+        coverage_button.pack(fill=tk.X, pady=2)
+    
+    def _show_coverage_analysis(self, marker_avg_rgb=None, marker_avg_lab=None):
+        """Run the coverage / effective-tone analyzer and show the result.
+        
+        Resolves the paper-Lab reference through a 3-step chain (see
+        ``_resolve_paper_lab_for_coverage``), then delegates to
+        ``_run_coverage_with_tolerance`` for the actual analyze + show.
+        Splitting it this way lets the dialog's 'Recompute' button
+        re-run with a different paper-tolerance without re-walking the
+        paper-Lab resolution chain.
+        """
+        if not getattr(self, 'current_image', None):
+            messagebox.showerror(
+                "No Image",
+                "Load and crop an image, then run an analysis before "
+                "computing coverage.",
+            )
+            return
+        
+        paper_lab, paper_rgb, paper_source_desc, n_paper_samples = (
+            self._resolve_paper_lab_for_coverage()
+        )
+        if paper_lab is None:
+            return  # user cancelled the picker, or there was an error
+        
+        # First pass uses the analyzer's default tolerance (5.0 ΔE).
+        self._run_coverage_with_tolerance(
+            paper_lab=paper_lab,
+            paper_rgb=paper_rgb,
+            paper_source_desc=paper_source_desc,
+            n_paper_samples=n_paper_samples,
+            marker_avg_rgb=marker_avg_rgb,
+            marker_avg_lab=marker_avg_lab,
+            paper_tolerance=None,  # use default
+        )
+    
+    def _run_coverage_with_tolerance(
+        self, paper_lab, paper_rgb, paper_source_desc, n_paper_samples,
+        marker_avg_rgb, marker_avg_lab, paper_tolerance,
+    ):
+        """Run the coverage analyzer once and present its result dialog.
+        
+        Used both by the initial click on 'Compute coverage…' and by the
+        dialog's 'Recompute' button. The paper-Lab metadata is passed
+        through unchanged so we don't re-prompt the user.
+        
+        Args:
+            paper_tolerance: ΔE radius for the paper class. Pass ``None``
+                to use ``coverage_analyzer.DEFAULT_PAPER_TOLERANCE``.
+        """
+        try:
+            from utils.coverage_analyzer import (
+                analyze_coverage, DEFAULT_PAPER_TOLERANCE,
+            )
+        except ImportError as e:
+            messagebox.showerror(
+                "Missing Module",
+                f"Could not load coverage analyzer:\n\n{e}",
+            )
+            return
+        
+        if paper_tolerance is None:
+            paper_tolerance = DEFAULT_PAPER_TOLERANCE
+        
+        try:
+            self.config(cursor="watch")
+            self.update_idletasks()
+            result = analyze_coverage(
+                self.current_image,
+                paper_lab=paper_lab,
+                paper_tolerance=float(paper_tolerance),
+            )
+        except Exception as e:
+            self.config(cursor="")
+            messagebox.showerror(
+                "Coverage Analysis Failed",
+                f"Could not analyse coverage:\n\n{e}",
+            )
+            return
+        finally:
+            self.config(cursor="")
+        
+        # Stash the inputs so the dialog's Recompute button can call us
+        # again without re-resolving the paper Lab. We also stash the
+        # tolerance so the 'Save comparison image…' striped swatch can
+        # inherit it — otherwise that flow would silently revert to the
+        # default ΔE 5.0 and produce a mismatched coverage figure.
+        self._coverage_session = {
+            'paper_lab': paper_lab,
+            'paper_rgb': paper_rgb,
+            'paper_source_desc': paper_source_desc,
+            'n_paper_samples': n_paper_samples,
+            'marker_avg_rgb': marker_avg_rgb,
+            'marker_avg_lab': marker_avg_lab,
+            'paper_tolerance': float(paper_tolerance),
+        }
+        
+        self._show_coverage_results_dialog(
+            result=result,
+            paper_rgb=paper_rgb,
+            marker_avg_rgb=marker_avg_rgb,
+            marker_avg_lab=marker_avg_lab,
+            n_paper_samples=n_paper_samples,
+            paper_source_desc=paper_source_desc,
+        )
+    
+    def _resolve_paper_lab_for_coverage(self):
+        """Return ``(paper_lab, paper_rgb, source_desc, n_samples)``.
+        
+        Walks the 3-step chain described in ``_show_coverage_analysis``
+        and returns ``(None, None, None, 0)`` if the user cancels the
+        manual picker (so the caller bails out cleanly).
+        """
+        from utils.color_analyzer import ColorAnalyzer
+        analyzer = ColorAnalyzer()
+        
+        # --- 1) in-image P samples ---------------------------------- #
+        paper_samples = self._enabled_paper_samples()
+        if paper_samples:
+            paper_lab_values = []
+            paper_rgb_values = []
+            for s in paper_samples:
+                rgb = s['rgb']
+                lab = (self.library.rgb_to_lab(rgb)
+                       if self.library else analyzer.rgb_to_lab(rgb))
+                paper_lab_values.append(lab)
+                paper_rgb_values.append(rgb)
+            avg = analyzer._calculate_quality_controlled_average(
+                paper_lab_values, paper_rgb_values,
+            )
+            return (
+                avg['avg_lab'],
+                avg['avg_rgb'],
+                f"in-image samples ({len(paper_samples)})",
+                len(paper_samples),
+            )
+        
+        # --- 2) auto-detect from saved DB --------------------------- #
+        try:
+            from utils.paper_lab_lookup import find_saved_paper_lab
+        except Exception:
+            find_saved_paper_lab = None  # type: ignore[assignment]
+        
+        auto_source = None
+        if find_saved_paper_lab and getattr(self, 'current_file_path', None):
+            try:
+                auto_source = find_saved_paper_lab(self.current_file_path)
+            except Exception:
+                auto_source = None
+        
+        if auto_source is not None:
+            paper_rgb = self._lab_to_display_rgb(auto_source.lab)
+            return (
+                auto_source.lab,
+                paper_rgb,
+                f"auto-detected: {auto_source.describe()}",
+                auto_source.sample_count,
+            )
+        
+        # --- 3) manual picker (with explicit confirmation) --------- #
+        picked = self._prompt_for_saved_paper_set(
+            note=(
+                "This image has no paper-tagged samples and no saved "
+                "'-p' measurement set was found by filename.\n\n"
+                "Pick a saved paper measurement set to use as the "
+                "reference, or cancel and add a 'P' sample first.\n\n"
+                "Tip: For tightly-printed designs you can shrink the "
+                "sample size in Preferences → Sampling (e.g. 5×5 or "
+                "3×3 px) and place 'P' samples in small unprinted "
+                "areas inside the design."
+            ),
+        )
+        if picked is None:
+            return (None, None, None, 0)
+        
+        paper_rgb = self._lab_to_display_rgb(picked.lab)
+        return (
+            picked.lab,
+            paper_rgb,
+            f"manually selected: {picked.describe()}",
+            picked.sample_count,
+        )
+    
+    def _prompt_for_saved_paper_set(self, note=""):
+        """Modal picker that lists every saved ``-p`` set, newest-first.
+        
+        Returns the chosen ``PaperLabSource`` or ``None`` if cancelled.
+        """
+        try:
+            from utils.paper_lab_lookup import list_all_paper_sets
+        except Exception as e:
+            messagebox.showerror(
+                "Missing Module",
+                f"Could not load paper-lab lookup helper:\n\n{e}",
+            )
+            return None
+        
+        sources = list_all_paper_sets()
+        if not sources:
+            messagebox.showerror(
+                "No Saved Paper Data",
+                "No paper-tagged measurement sets were found in any "
+                "analysis database.\n\n"
+                "Place at least one 'P' sample on a stamp's margin and "
+                "click 'Save to DB' to create one.",
+            )
+            return None
+        
+        dialog = tk.Toplevel(self)
+        dialog.title("Select Saved Paper Measurement Set")
+        dialog.grab_set()
+        
+        outer = ttk.Frame(dialog, padding=12)
+        outer.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(
+            outer,
+            text="Select a saved '-p' measurement set to use as the "
+                 "paper reference:",
+            font=("Arial", 11, "bold"),
+        ).pack(anchor='w', pady=(0, 4))
+        
+        if note:
+            ttk.Label(
+                outer, text=note, font=("Arial", 9),
+                foreground='gray', justify=tk.LEFT, wraplength=540,
+            ).pack(anchor='w', pady=(0, 8))
+        
+        # Listbox of sources, newest-first
+        list_frame = ttk.Frame(outer)
+        list_frame.pack(fill=tk.BOTH, expand=True)
+        
+        listbox = tk.Listbox(
+            list_frame, height=12, width=72,
+            font=("Menlo", 11), exportselection=False,
+        )
+        scrollbar = ttk.Scrollbar(
+            list_frame, orient=tk.VERTICAL, command=listbox.yview,
+        )
+        listbox.configure(yscrollcommand=scrollbar.set)
+        listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        for src in sources:
+            L, a, b = src.lab
+            entry = (
+                f"{src.set_name:<24}  "
+                f"L*{L:6.1f} a*{a:6.1f} b*{b:6.1f}   "
+                f"n={src.sample_count}   "
+                f"{src.measurement_date or '(date n/a)'}   "
+                f"in {src.db_name}"
+            )
+            listbox.insert(tk.END, entry)
+        listbox.selection_set(0)
+        listbox.activate(0)
+        
+        # Centre on parent monitor
+        dialog.update_idletasks()
+        try:
+            parent = self.winfo_toplevel()
+            px = parent.winfo_x()
+            py = parent.winfo_y()
+            pw = parent.winfo_width()
+            ph = parent.winfo_height()
+            dw = max(620, dialog.winfo_reqwidth())
+            dh = max(380, dialog.winfo_reqheight())
+            x = px + max(0, (pw - dw) // 2)
+            y = py + max(0, (ph - dh) // 2)
+            dialog.geometry(f"{dw}x{dh}+{x}+{y}")
+        except Exception:
+            pass
+        
+        chosen = {'src': None}
+        
+        def on_use():
+            sel = listbox.curselection()
+            if not sel:
+                return
+            chosen['src'] = sources[sel[0]]
+            dialog.destroy()
+        
+        def on_cancel():
+            chosen['src'] = None
+            dialog.destroy()
+        
+        listbox.bind('<Double-Button-1>', lambda _e: on_use())
+        
+        btn_bar = ttk.Frame(outer, padding=(0, 8, 0, 0))
+        btn_bar.pack(fill=tk.X)
+        ttk.Button(btn_bar, text="Cancel", command=on_cancel).pack(side=tk.RIGHT)
+        ttk.Button(
+            btn_bar, text="Use this paper set",
+            command=on_use,
+        ).pack(side=tk.RIGHT, padx=(0, 6))
+        
+        dialog.wait_window()
+        return chosen['src']
+    
+    def _show_coverage_results_dialog(
+        self, result, paper_rgb, marker_avg_rgb, marker_avg_lab, n_paper_samples,
+        paper_source_desc=None,
+    ):
+        """Render the coverage analysis report in a Toplevel.
+        
+        Layout (top-down):
+          * Header with filename and tuning notes (including which
+            paper-Lab source was used — in-image, auto-detected, or
+            manually selected).
+          * Numeric panel: paper / ink (whole-region) / ink (markers) /
+            effective tone, each with a swatch and Lab triple.
+          * Coverage ratio + pixel-count breakdown.
+          * Classification preview image (scaled to fit the screen).
+          * Save preview / Close buttons.
+        """
+        from PIL import ImageTk
+        
+        viewer = tk.Toplevel(self)
+        viewer.title("Coverage Analysis")
+        
+        outer = ttk.Frame(viewer, padding=12)
+        outer.pack(fill=tk.BOTH, expand=True)
+        
+        # --- header --------------------------------------------------- #
+        title_text = "Coverage Analysis"
+        if getattr(self, 'current_file_path', None):
+            title_text += f" — {os.path.basename(self.current_file_path)}"
+        ttk.Label(
+            outer, text=title_text, font=("Arial", 14, "bold"),
+        ).pack(anchor='w', pady=(0, 2))
+        
+        tuning_text = (
+            f"paper tolerance ΔE {result.paper_tolerance:.1f}    "
+            f"edge band ×{result.edge_band_factor:.1f}    "
+            f"neutral-dark L*<{result.dark_l_threshold:.0f} ∧ "
+            f"C*<{result.dark_c_threshold:.0f}    "
+            f"paper samples: {n_paper_samples}"
+        )
+        ttk.Label(outer, text=tuning_text, font=("Arial", 9),
+                  foreground='gray').pack(anchor='w', pady=(0, 2))
+        
+        if paper_source_desc:
+            ttk.Label(
+                outer, text=f"paper Lab source: {paper_source_desc}",
+                font=("Arial", 9, "italic"), foreground='#444',
+            ).pack(anchor='w', pady=(0, 8))
+        else:
+            # Keep the spacing consistent with the no-source-line case.
+            ttk.Frame(outer, height=6).pack()
+        
+        # --- swatches + numbers --------------------------------------- #
+        swatch_frame = ttk.Frame(outer)
+        swatch_frame.pack(fill=tk.X, pady=(0, 8))
+        
+        def _add_swatch_row(parent, label, rgb, lab, *, big=False, note=""):
+            row = ttk.Frame(parent)
+            row.pack(fill=tk.X, pady=2)
+            sw_w, sw_h = (160, 56) if big else (100, 36)
+            canvas = tk.Canvas(
+                row, width=sw_w, height=sw_h,
+                highlightthickness=1, highlightbackground='gray',
+            )
+            canvas.pack(side=tk.LEFT, padx=(0, 10))
+            r, g, b = (max(0, min(255, int(round(c)))) for c in rgb)
+            canvas.create_rectangle(
+                0, 0, sw_w, sw_h, fill=f"#{r:02x}{g:02x}{b:02x}", outline='',
+            )
+            text = (
+                f"{label}\n"
+                f"  L* {lab[0]:6.2f}    a* {lab[1]:6.2f}    b* {lab[2]:6.2f}"
+            )
+            if note:
+                text += f"\n  {note}"
+            ttk.Label(
+                row, text=text, font=("Menlo", 11) if big else ("Menlo", 10),
+                justify=tk.LEFT,
+            ).pack(side=tk.LEFT, anchor='w')
+        
+        # Paper reference
+        _add_swatch_row(
+            swatch_frame, "Paper (reference)",
+            paper_rgb, result.paper_lab,
+        )
+        
+        # Ink (whole-region) — the primary readout
+        # Convert ink Lab to a display sRGB swatch via colorspacious if available;
+        # otherwise approximate. We only need this for the swatch fill.
+        ink_rgb = self._lab_to_display_rgb(result.ink_lab)
+        _add_swatch_row(
+            swatch_frame, "Ink (whole-region, primary)",
+            ink_rgb, result.ink_lab, big=True,
+            note="Mean Lab of every pixel classified as ink.",
+        )
+        
+        # Ink (markers, secondary) — only if markers exist
+        if marker_avg_rgb and marker_avg_lab:
+            _add_swatch_row(
+                swatch_frame, "Ink (markers, secondary)",
+                marker_avg_rgb, marker_avg_lab,
+                note="Average of the ink samples you placed on the canvas.",
+            )
+        
+        # Effective tone — what the eye fuses to at viewing distance
+        _add_swatch_row(
+            swatch_frame, "Effective tone (perceived)",
+            result.effective_tone_rgb, result.effective_tone_lab, big=True,
+            note="coverage·ink + (1−coverage)·paper, blended in linear RGB.",
+        )
+        
+        # --- coverage + counts ---------------------------------------- #
+        ratio_pct = result.coverage_ratio * 100.0
+        counts_text = (
+            f"Coverage ratio: {ratio_pct:.1f}%   "
+            f"(ink {result.n_ink:,}   cancel {result.n_cancel:,}   "
+            f"edge {result.n_edge:,}   paper {result.n_paper:,}   "
+            f"of {result.n_visible:,} visible px)"
+        )
+        ttk.Label(
+            outer, text=counts_text, font=("Arial", 11, "bold"),
+        ).pack(anchor='w', pady=(4, 8))
+        
+        # --- classification preview ----------------------------------- #
+        preview_frame = ttk.LabelFrame(
+            outer,
+            text=(
+                "Classification preview "
+                "(ink = original colour; paper = lightened; "
+                "edge = mid grey; cancel = darkened)"
+            ),
+            padding=6,
+        )
+        preview_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Scale the preview down if it's larger than ~700 px in either axis
+        # so the dialog stays usable on a laptop.
+        max_w, max_h = 800, 500
+        prev_img = result.classification_image
+        pw, ph = prev_img.size
+        scale = min(1.0, max_w / pw, max_h / ph)
+        if scale < 1.0:
+            prev_img_disp = prev_img.resize(
+                (max(1, int(pw * scale)), max(1, int(ph * scale))),
+                Image.LANCZOS,
+            )
+        else:
+            prev_img_disp = prev_img
+        
+        photo = ImageTk.PhotoImage(prev_img_disp)
+        prev_label = ttk.Label(preview_frame, image=photo, anchor='center')
+        prev_label.image = photo  # keep a reference
+        prev_label.pack(fill=tk.BOTH, expand=True)
+        
+        # --- buttons + tolerance control ------------------------------ #
+        btn_bar = ttk.Frame(outer, padding=(0, 8, 0, 0))
+        btn_bar.pack(fill=tk.X)
+        
+        # Tolerance spinbox — lets the user re-run with a different ΔE
+        # threshold without re-walking the paper-Lab chain. The session
+        # state was stashed on ``self._coverage_session`` by
+        # ``_run_coverage_with_tolerance``.
+        tol_frame = ttk.Frame(btn_bar)
+        tol_frame.pack(side=tk.LEFT)
+        
+        ttk.Label(tol_frame, text="Paper tolerance ΔE:").pack(side=tk.LEFT)
+        
+        tol_var = tk.DoubleVar(value=float(result.paper_tolerance))
+        tol_spin = ttk.Spinbox(
+            tol_frame, from_=1.0, to=30.0, increment=0.5,
+            textvariable=tol_var, width=6, justify='center',
+        )
+        tol_spin.pack(side=tk.LEFT, padx=(4, 6))
+        
+        def on_recompute():
+            try:
+                new_tol = float(tol_var.get())
+            except (tk.TclError, ValueError):
+                messagebox.showerror(
+                    "Invalid Tolerance",
+                    "Paper tolerance must be a positive number.",
+                )
+                return
+            if new_tol <= 0:
+                messagebox.showerror(
+                    "Invalid Tolerance",
+                    "Paper tolerance must be greater than zero.",
+                )
+                return
+            session = getattr(self, '_coverage_session', None)
+            if not session:
+                messagebox.showerror(
+                    "Recompute Failed",
+                    "Lost the paper Lab from the previous run. "
+                    "Close this window and click 'Compute coverage…' again.",
+                )
+                return
+            viewer.destroy()
+            self._run_coverage_with_tolerance(
+                paper_lab=session['paper_lab'],
+                paper_rgb=session['paper_rgb'],
+                paper_source_desc=session['paper_source_desc'],
+                n_paper_samples=session['n_paper_samples'],
+                marker_avg_rgb=session['marker_avg_rgb'],
+                marker_avg_lab=session['marker_avg_lab'],
+                paper_tolerance=new_tol,
+            )
+        
+        ttk.Button(
+            tol_frame, text="Recompute",
+            command=on_recompute,
+        ).pack(side=tk.LEFT)
+        
+        # Right-aligned actions
+        def on_save_preview():
+            self._save_classification_preview(result.classification_image)
+        
+        ttk.Button(btn_bar, text="Close", command=viewer.destroy).pack(side=tk.RIGHT)
+        ttk.Button(
+            btn_bar, text="Save preview image…",
+            command=on_save_preview,
+        ).pack(side=tk.RIGHT, padx=(0, 6))
+        
+        # --- centre on the parent's monitor (multi-display friendly) -- #
+        viewer.update_idletasks()
+        try:
+            parent_window = self.winfo_toplevel()
+            px = parent_window.winfo_x()
+            py = parent_window.winfo_y()
+            pw_ = parent_window.winfo_width()
+            ph_ = parent_window.winfo_height()
+            vw = viewer.winfo_width()
+            vh = viewer.winfo_height()
+            x = px + max(0, (pw_ - vw) // 2)
+            y = py + max(0, (ph_ - vh) // 2)
+            viewer.geometry(f"+{x}+{y}")
+        except Exception:
+            pass
+    
+    def _lab_to_display_rgb(self, lab):
+        """Convert a Lab tuple to a display-ready sRGB ``(r, g, b)`` triple.
+        
+        Used purely to fill the on-screen Tk swatches. Falls back to mid
+        grey if colorspacious is unavailable.
+        """
+        try:
+            from colorspacious import cspace_convert
+            import numpy as np
+            srgb = np.asarray(cspace_convert(np.asarray(lab), "CIELab", "sRGB1"))
+            srgb = np.clip(srgb, 0.0, 1.0)
+            return tuple(int(round(c * 255.0)) for c in srgb)
+        except Exception:
+            return (128, 128, 128)
+    
+    def _save_classification_preview(self, image):
+        """Save the classification preview image with an embedded sRGB ICC."""
+        from tkinter import filedialog
+        
+        default_dir = None
+        suggested_name = "coverage_classification"
+        if getattr(self, 'current_file_path', None):
+            default_dir = os.path.dirname(self.current_file_path)
+            base = os.path.splitext(os.path.basename(self.current_file_path))[0]
+            suggested_name = f"{base}_coverage_classification"
+        
+        filepath = filedialog.asksaveasfilename(
+            title="Save Classification Preview",
+            defaultextension=".png",
+            initialfile=f"{suggested_name}.png",
+            initialdir=default_dir,
+            filetypes=[
+                ("PNG (lossless, recommended)", "*.png"),
+                ("TIFF", "*.tif *.tiff"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not filepath:
+            return
+        
+        try:
+            from utils.icc_profiles import get_save_icc_profile
+            kwargs = {}
+            icc = get_save_icc_profile(image)
+            if icc:
+                kwargs["icc_profile"] = icc
+            image.save(filepath, **kwargs)
+        except Exception as e:
+            messagebox.showerror("Save Failed", f"Could not save image:\n\n{e}")
+            return
+        
+        messagebox.showinfo(
+            "Saved",
+            f"Classification preview saved:\n\n{os.path.basename(filepath)}",
+        )
     
     def _on_sample_toggle(self):
         """Handle sample toggle events (enable/disable, ink/paper).
@@ -517,6 +1152,60 @@ class SampleResultsManager(tk.Frame):
         """
         self._display_sample_points()
         self._update_average_display()
+    
+    # Minimum number of samples that must remain tagged as ink (not 'P')
+    # in any session. Keeping this >= 2 ensures the ink section always
+    # has content, so the Save / Compute coverage buttons stay visible.
+    MIN_INK_SAMPLES = 2
+    
+    def _on_paper_toggle(self, sample):
+        """Validate a 'P' tag toggle, then refresh the panes.
+        
+        Enforces ``MIN_INK_SAMPLES`` ink-tagged samples per session: if
+        the toggle that just fired would push the ink-tagged count below
+        the minimum, we revert the BooleanVar and show a brief notice.
+        Going the other way (paper → ink) is always allowed because it
+        can only increase the ink count.
+        
+        On a successful toggle we also push the new role into the canvas
+        live model (when one is wired) so the on-image ΔE HUD recomputes
+        each marker's distance against its own group's QC mean. Without
+        this, the HUD would still average ink + paper into one bucket
+        and never agree with the Results panel ΔE numbers.
+        """
+        becoming_paper = sample['is_paper'].get()
+        if becoming_paper:
+            ink_tagged_count = sum(
+                1 for s in self.sample_points if not s['is_paper'].get()
+            )
+            if ink_tagged_count < self.MIN_INK_SAMPLES:
+                # Snap the toggle back; refresh would be wasted work.
+                sample['is_paper'].set(False)
+                messagebox.showinfo(
+                    "Minimum Ink Samples",
+                    f"Each session must keep at least {self.MIN_INK_SAMPLES} "
+                    f"ink-tagged samples.\n\n"
+                    f"With the default six-sample maximum, you can tag up "
+                    f"to four samples as paper, leaving the ink set big "
+                    f"enough to compute a meaningful average.",
+                )
+                return
+        
+        # Mirror the new role into the canvas live model so the on-image
+        # HUD agrees with what the Results panel will show. Quietly skip
+        # if Results was populated outside the standard analyse flow
+        # (no back-ref wired) — the panel still works, just without
+        # live-canvas synchronisation.
+        live_model = getattr(self, '_live_model_ref', None)
+        if live_model is not None:
+            try:
+                live_model.set_paper(
+                    sample['index'], bool(sample['is_paper'].get()),
+                )
+            except Exception as e:
+                print(f"DEBUG: could not push P toggle to live model: {e}")
+        
+        self._on_sample_toggle()
     
     def _save_comparison_image(self, avg_rgb, avg_lab):
         """Export the current stamp image composed with the average swatch.
@@ -547,7 +1236,7 @@ class SampleResultsManager(tk.Frame):
         # Center relative to parent window so it appears on the correct
         # monitor in multi-display setups.
         dialog.update_idletasks()
-        dlg_w, dlg_h = 460, 320
+        dlg_w, dlg_h = 480, 430  # taller to fit the new Swatch colour section
         try:
             parent_window = self.winfo_toplevel()
             px = parent_window.winfo_x()
@@ -566,6 +1255,7 @@ class SampleResultsManager(tk.Frame):
         ).pack(pady=(12, 6))
         
         layout_var = tk.StringVar(value="swatch_behind")
+        swatch_source_var = tk.StringVar(value="marker")
         include_values_var = tk.BooleanVar(value=True)
         padding_var = tk.IntVar(value=60)
         
@@ -580,6 +1270,31 @@ class SampleResultsManager(tk.Frame):
             layout_frame,
             text="Side-by-side panel (stamp | swatch)",
             variable=layout_var, value="side_by_side",
+        ).pack(anchor="w")
+        
+        # --- Swatch colour source ---------------------------------------- #
+        # Marker average is the existing behaviour (the ink-sample mean
+        # the user already sees in the Results panel).
+        #
+        # Striped renders alternating paper / ink stripes at the actual
+        # coverage ratio measured by the coverage analyzer, so the
+        # swatch *behaves* the same way the stamp does as viewing
+        # distance changes: visible structure up close, fused tone at
+        # distance. That parallel behaviour is a more honest
+        # perceptual comparison than any flat coverage-weighted blend.
+        # Picking it triggers the same paper-Lab resolution chain as
+        # 'Compute coverage…' (in-image P samples → saved -p set → picker).
+        swatch_src_frame = ttk.LabelFrame(dialog, text="Swatch colour", padding=8)
+        swatch_src_frame.pack(fill=tk.X, padx=16, pady=6)
+        ttk.Radiobutton(
+            swatch_src_frame,
+            text="Marker average (ink samples on the canvas)",
+            variable=swatch_source_var, value="marker",
+        ).pack(anchor="w")
+        ttk.Radiobutton(
+            swatch_src_frame,
+            text="Striped pattern (paper + ink at coverage ratio) — runs coverage analysis",
+            variable=swatch_source_var, value="striped",
         ).pack(anchor="w")
         
         opts_frame = ttk.LabelFrame(dialog, text="Options", padding=8)
@@ -602,14 +1317,143 @@ class SampleResultsManager(tk.Frame):
         button_frame.pack(fill=tk.X, padx=16, pady=(10, 14))
         
         def _build():
-            """Build the composite image from the current dialog values."""
-            return self._build_comparison_image(
+            """Build the composite image from the current dialog values.
+            
+            When the user selects 'Striped pattern' as the swatch source,
+            we walk the coverage paper-Lab resolution chain (in-image
+            'P' samples → auto-detect saved '-p' set → manual picker),
+            run ``analyze_coverage`` once at the analyzer's default
+            tolerance, and render a small (period × period) tile of
+            ink-and-paper stripes at the measured coverage ratio. The
+            composer tiles that across the swatch panel / backdrop so
+            the swatch behaves perceptually like the stamp itself.
+            
+            For the side-by-side layout we also build a custom text
+            block listing both ink and paper Lab values plus the
+            coverage %, since a single 'Average' line wouldn't reflect
+            what the swatch actually shows.
+            
+            The output filename is suffixed ``_striped`` so it's
+            distinguishable from the flat marker-average composite.
+            """
+            swatch_source = swatch_source_var.get()
+            rgb_to_use = avg_rgb
+            lab_to_use = avg_lab
+            text_block = None
+            text_bg_rgb = None
+            suffix_extra = ""
+            
+            if swatch_source == "striped":
+                # 1) resolve paper Lab + tolerance.
+                # If the user has just run 'Compute coverage…' on this
+                # image, inherit the paper Lab AND the tolerance they
+                # settled on — otherwise this flow would silently fall
+                # back to the default ΔE 5.0 and the coverage figure on
+                # the saved swatch wouldn't match what they saw in the
+                # Coverage Analysis dialog. If there's no session, walk
+                # the existing 3-step chain and use the analyzer default.
+                session = getattr(self, '_coverage_session', None)
+                inherited_tol = None
+                if session and session.get('paper_lab') is not None:
+                    paper_lab = session['paper_lab']
+                    source_desc = (
+                        session.get('paper_source_desc')
+                        or 'last computed coverage'
+                    )
+                    inherited_tol = session.get('paper_tolerance')
+                else:
+                    paper_lab, _paper_rgb, source_desc, _n = (
+                        self._resolve_paper_lab_for_coverage()
+                    )
+                    if paper_lab is None:
+                        return None, None  # user cancelled the picker
+                
+                # 2) run the coverage analyzer to get ink Lab + coverage
+                try:
+                    from utils.coverage_analyzer import analyze_coverage
+                    from utils.comparison_image import make_striped_swatch
+                except ImportError as e:
+                    messagebox.showerror(
+                        "Missing Module",
+                        f"Could not load coverage helpers:\n\n{e}",
+                    )
+                    return None, None
+                
+                try:
+                    self.config(cursor="watch")
+                    self.update_idletasks()
+                    analyze_kwargs = {'paper_lab': paper_lab}
+                    if inherited_tol is not None:
+                        analyze_kwargs['paper_tolerance'] = float(inherited_tol)
+                    result = analyze_coverage(
+                        self.current_image, **analyze_kwargs,
+                    )
+                except Exception as e:
+                    self.config(cursor="")
+                    messagebox.showerror(
+                        "Coverage Analysis Failed",
+                        f"Could not analyse coverage:\n\n{e}",
+                    )
+                    return None, None
+                finally:
+                    self.config(cursor="")
+                
+                # 3) render the tile from the analyzer outputs
+                ink_rgb_disp = self._lab_to_display_rgb(result.ink_lab)
+                paper_rgb_disp = self._lab_to_display_rgb(paper_lab)
+                cov = max(0.0, min(1.0, float(result.coverage_ratio)))
+                tile = make_striped_swatch(
+                    ink_rgb=ink_rgb_disp,
+                    paper_rgb=paper_rgb_disp,
+                    coverage_ratio=cov,
+                    period=10,           # vertical 10-px stripe pair
+                )
+                
+                # 4) text-contrast colour: simple sRGB linear blend
+                # (good enough for picking black vs. white text;
+                # doesn't need to be perceptually exact).
+                text_bg_rgb = tuple(
+                    int(round(cov * ink_rgb_disp[i]
+                              + (1.0 - cov) * paper_rgb_disp[i]))
+                    for i in range(3)
+                )
+                
+                # 5) text block for the side-by-side panel
+                pct = cov * 100.0
+                text_block = [
+                    "Perceived (striped)",
+                    (f"Ink    L*{result.ink_lab[0]:5.1f}  "
+                     f"a*{result.ink_lab[1]:5.1f}  "
+                     f"b*{result.ink_lab[2]:5.1f}"),
+                    (f"Paper  L*{paper_lab[0]:5.1f}  "
+                     f"a*{paper_lab[1]:5.1f}  "
+                     f"b*{paper_lab[2]:5.1f}"),
+                    f"Coverage  {pct:.1f}%",
+                ]
+                
+                rgb_to_use = tile          # composer treats Image as tile
+                lab_to_use = None
+                suffix_extra = "_striped"
+                
+                # 6) one-line confirmation in the debug log
+                print(
+                    f"DEBUG comparison-image: striped swatch "
+                    f"(coverage {pct:.1f}%, paper from {source_desc}, "
+                    f"ΔE tol {result.paper_tolerance:.1f})"
+                )
+            
+            composite, suffix = self._build_comparison_image(
                 layout=layout_var.get(),
-                avg_rgb=avg_rgb,
-                avg_lab=avg_lab,
+                avg_rgb=rgb_to_use,
+                avg_lab=lab_to_use,
                 include_values=include_values_var.get(),
                 frame_padding=max(0, int(padding_var.get())),
+                text_block=text_block,
+                text_bg_rgb=text_bg_rgb,
             )
+            if composite is None:
+                return None, None
+            return composite, suffix + suffix_extra
         
         def do_preview():
             composite, suffix = _build()
@@ -641,11 +1485,19 @@ class SampleResultsManager(tk.Frame):
     
     def _build_comparison_image(
         self, layout, avg_rgb, avg_lab, include_values, frame_padding,
+        text_block=None, text_bg_rgb=None,
     ):
         """Return ``(composite_image, filename_suffix)`` or ``(None, None)``.
         
         Centralises the composer dispatch so Preview and Save go through
         the same code path with identical parameters.
+        
+        ``avg_rgb`` may be either a solid RGB triple (the marker
+        average) or a small PIL tile image which the composers tile
+        across the swatch backdrop / panel (the striped paper/ink
+        pattern). ``text_block`` and ``text_bg_rgb`` are forwarded to
+        ``compose_side_by_side`` and let the caller print custom text
+        (e.g. ink + paper Lab + coverage %) on a tiled panel.
         """
         try:
             from utils.comparison_image import (
@@ -670,6 +1522,8 @@ class SampleResultsManager(tk.Frame):
                     avg_rgb,
                     avg_lab=avg_lab,
                     include_values=include_values,
+                    text_block=text_block,
+                    text_bg_rgb=text_bg_rgb,
                 )
                 suffix = "_side_by_side"
         except Exception as e:
