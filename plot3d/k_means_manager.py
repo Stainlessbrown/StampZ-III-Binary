@@ -710,16 +710,20 @@ class KmeansManager:
             self.logger.error("No data loaded. Call load_data() first.")
             raise ValueError("No data loaded. Call load_data() first.")
         
-        # Find last non-empty row by checking each numeric column
-        numeric_cols = self.data.select_dtypes(include=[np.number]).columns
+        # Find the last row that contains real coordinate data.
+        # Use ONLY Xnorm/Ynorm/Znorm here; Centroid_X/Y/Z and Cluster
+        # are deliberately excluded so that parked centroid summaries
+        # or stale cluster IDs below the data don't inflate the bound
+        # and let users address rows that aren't actual data points.
+        norm_cols = [c for c in ('Xnorm', 'Ynorm', 'Znorm') if c in self.data.columns]
         last_valid_rows = []
-        for col in numeric_cols:
+        for col in norm_cols:
             valid_indices = self.data[col].notna().values.nonzero()[0]
             if len(valid_indices) > 0:
                 last_valid_rows.append(valid_indices[-1])
         
         if not last_valid_rows:
-            raise ValueError("No numeric data found in the file")
+            raise ValueError("No Xnorm/Ynorm/Znorm data found in the file")
         
         last_valid_row = max(last_valid_rows) + 1  # Add 1 for 1-based indexing
         

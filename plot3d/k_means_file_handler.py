@@ -10,6 +10,7 @@ import shutil
 import fcntl
 import errno
 import time
+from copy import deepcopy
 import pandas as pd
 from tkinter import messagebox
 import logging
@@ -282,6 +283,81 @@ class KMeansFileHandler:
             
             return None
         
+        def total_visual_rows(table):
+            """Count the total visual rows in a table, accounting for table:number-rows-repeated.
+            
+            ODS often compresses runs of identical/blank rows into a single
+            <table:table-row> element with a number-rows-repeated attribute. The
+            visual row count is the sum of those repeats.
+            """
+            total = 0
+            for row in table.findall(f'{TABLE_NS}table-row'):
+                repeat = row.get(f'{TABLE_NS}number-rows-repeated')
+                total += int(repeat) if repeat else 1
+            return total
+        
+        def get_row_at_index(table, target_row_idx):
+            """Get the row element at a specific visual row index, splitting repeated rows if needed.
+            
+            ODS files often compress runs of identical or blank rows into a single
+            <table:table-row> element with table:number-rows-repeated="N". A naive
+            rows[idx] lookup against table.findall(...) would silently miss this and
+            cause writes to land on the wrong visual row (or splatter across many
+            rows when the element is later expanded). This helper mirrors
+            get_cell_at_column for rows: it walks the row sequence, tracks visual
+            row position via the repeat count, and when the target falls inside a
+            repeated span, splits it into (before, target, after) so we can modify
+            exactly one visual row without affecting the others.
+            
+            Returns the row element corresponding to target_row_idx, or None if
+            target_row_idx is past the end of the table.
+            """
+            current_row = 0
+            for row in list(table.findall(f'{TABLE_NS}table-row')):
+                repeat = row.get(f'{TABLE_NS}number-rows-repeated')
+                repeat_count = int(repeat) if repeat else 1
+                
+                if current_row <= target_row_idx < current_row + repeat_count:
+                    if repeat_count == 1:
+                        return row
+                    
+                    # Split the repeated row into [before] [target] [after]
+                    offset = target_row_idx - current_row
+                    
+                    # The original element will become the single target row.
+                    if f'{TABLE_NS}number-rows-repeated' in row.attrib:
+                        del row.attrib[f'{TABLE_NS}number-rows-repeated']
+                    
+                    row_pos = list(table).index(row)
+                    style = row.get(f'{TABLE_NS}style-name')
+                    
+                    # Build a row with the same cell structure as the original.
+                    def make_sibling(repeats):
+                        sibling = etree.Element(f'{TABLE_NS}table-row')
+                        if style:
+                            sibling.set(f'{TABLE_NS}style-name', style)
+                        if repeats > 1:
+                            sibling.set(f'{TABLE_NS}number-rows-repeated', str(repeats))
+                        for child in row:
+                            sibling.append(deepcopy(child))
+                        return sibling
+                    
+                    if offset > 0:
+                        before_row = make_sibling(offset)
+                        table.insert(row_pos, before_row)
+                        row_pos += 1  # original (target) shifted right
+                    
+                    after_count = repeat_count - offset - 1
+                    if after_count > 0:
+                        after_row = make_sibling(after_count)
+                        table.insert(row_pos + 1, after_row)
+                    
+                    return row
+                
+                current_row += repeat_count
+            
+            return None
+        
         try:
             # Inform user of the process
             msg = (f"Saving cluster assignments for rows {start}-{end}:\\n\\n"
@@ -398,9 +474,16 @@ class KMeansFileHandler:
                     else:
                         table = tables[0]
                     
-                    # Get all rows (row 0 is header, row 1+ is data)
+                    # Account for ODS table:number-rows-repeated when computing
+                    # the visual row count and when looking up rows by visual index.
+                    # findall() returns one element per <table:table-row>, but a single
+                    # element can represent many visual rows.
                     rows = table.findall(f'{TABLE_NS}table-row')
-                    self.logger.info(f"Found {len(rows)} rows in table")
+                    visual_row_count = total_visual_rows(table)
+                    self.logger.info(
+                        f"Found {len(rows)} <table-row> elements representing "
+                        f"{visual_row_count} visual rows in table"
+                    )
                     
                     # Update cluster assignments in data rows
                     successful_writes = 0
@@ -409,8 +492,14 @@ class KMeansFileHandler:
                         if pd.notna(cluster_value):
                             # ODS row index = DataFrame index + 1 (for header)
                             ods_row_idx = idx + 1
-                            if ods_row_idx < len(rows):
-                                row = rows[ods_row_idx]
+                            if ods_row_idx < visual_row_count:
+                                row = get_row_at_index(table, ods_row_idx)
+                                if row is None:
+                                    self.logger.warning(
+                                        f"Could not resolve visual row {ods_row_idx} "
+                                        f"(past end of table)"
+                                    )
+                                    continue
                                 cell = get_cell_at_column(row, cluster_col_idx)
                                 if cell is not None:
                                     set_cell_value(cell, int(cluster_value))
@@ -424,8 +513,14 @@ class KMeansFileHandler:
                     # Update centroid rows (rows 1, 2, 3 in ODS for clusters 0, 1, 2)
                     for cluster_num, centroid in cluster_centroids.items():
                         ods_row_idx = int(cluster_num) + 1  # +1 for header
-                        if ods_row_idx < len(rows):
-                            row = rows[ods_row_idx]
+                        if ods_row_idx < visual_row_count:
+                            row = get_row_at_index(table, ods_row_idx)
+                            if row is None:
+                                self.logger.warning(
+                                    f"Could not resolve visual row {ods_row_idx} "
+                                    f"for centroid summary (past end of table)"
+                                )
+                                continue
                             
                             # Set cluster number
                             cell = get_cell_at_column(row, cluster_col_idx)
