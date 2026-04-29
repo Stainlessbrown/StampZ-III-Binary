@@ -704,6 +704,22 @@ class KmeansManager:
             traceback.print_exc()
             return False
     
+    def _is_xlsx_mode(self) -> bool:
+        """True when the manager is operating against an .xlsx external file.
+        
+        StampZ has historically treated .xlsx and the realtime worksheet with
+        a "header at Row 0" convention (first data row at Row 1), while .ods
+        uses LibreOffice's 1-indexed display where the header is at Row 1 and
+        the first data row is at Row 2. This 1-row offset is intentional and
+        long-standing -- a number of users are Windows-only and never run
+        LibreOffice, so the two formats stay deliberately separate.
+        
+        Note: when there is no file_path (DataFrame-only / internal worksheet
+        mode) we fall back to the .ods convention to preserve the previous
+        behavior of the file-based code path.
+        """
+        return bool(self.file_path) and self.file_path.lower().endswith('.xlsx')
+    
     def validate_row_range(self, start_row: int, end_row: int) -> Tuple[int, int]:
         """Validate that the row range is within bounds."""
         if self.data is None:
@@ -725,7 +741,41 @@ class KmeansManager:
         if not last_valid_rows:
             raise ValueError("No Xnorm/Ynorm/Znorm data found in the file")
         
-        last_valid_row = max(last_valid_rows) + 1  # Add 1 for 1-based indexing
+        # Convert the 0-based DataFrame index of the last data row to a 1-based
+        # DISPLAY row, since `start_row`/`end_row` are entered as display rows.
+        #
+        # The DataFrame index alone isn't enough because data_processor drops
+        # fully-blank rows during load (e.g., the reserved-but-empty row 7 above
+        # the data) and reset_indexes. To stay correct across:
+        #   - .ods / .xlsx external files (with possibly dropped blank rows), and
+        #   - realtime worksheet DataFrames,
+        # we use the row-tracking columns the loaders record:
+        #   - 'original_row'         : 0-based original DataFrame index BEFORE
+        #                              any blank-row drops; display = +2 (header).
+        #   - '_original_sheet_row'  : 0-based realtime sheet row;
+        #                              display = +1 (no separate header row
+        #                              maintained in the realtime DataFrame).
+        # Falling back to last_valid_idx+2 only matches the simple no-drop case.
+        last_valid_idx = max(last_valid_rows)
+        last_valid_row = None
+        # File-mode -> display offset:
+        #   .ods       : header at display Row 1 -> DataFrame idx 0 = display Row 2 (offset +2)
+        #   .xlsx      : header at "Row 0"      -> DataFrame idx 0 = display Row 1 (offset +1)
+        # Realtime worksheets are independently mapped via _original_sheet_row.
+        file_offset = 1 if self._is_xlsx_mode() else 2
+        try:
+            if '_original_sheet_row' in self.data.columns:
+                sheet_row = int(self.data.iloc[last_valid_idx]['_original_sheet_row'])
+                last_valid_row = sheet_row + 1
+            elif 'original_row' in self.data.columns:
+                orig = int(self.data.iloc[last_valid_idx]['original_row'])
+                last_valid_row = orig + file_offset
+        except (ValueError, TypeError):
+            last_valid_row = None
+        if last_valid_row is None:
+            # Last resort: no row-tracking column available; assume nothing was
+            # dropped on load and apply the format's nominal idx -> display offset.
+            last_valid_row = last_valid_idx + file_offset
         
         # Validate start_row - row 2 is the first valid data row (after header)
         min_valid_row = 2  # First row is header, so data starts at row 2
@@ -770,16 +820,19 @@ class KmeansManager:
         # Validate and get proper bounds
         start, end = self.validate_row_range(start, end)
         
-        # Convert to 0-based indexing
-        # Convert from 1-based (user visible) to 0-based (internal) indexing
-        # Convert from 1-based (user visible) to 0-based (internal) indexing
-        # The rows in the UI are 1-based but Python uses 0-based indexing
-        # First 6 rows are purposely blank for sequential indexing
-        # Actual data starts at row 8, which should map to index 6 in the data array
-        zero_based_start = start - 2  # Preserves the existing behavior
-        # (range is exclusive at the upper bound, so add 1 to make it inclusive)
-        # (range is exclusive at the upper bound, so add 1 to make it inclusive)
-        zero_based_end = end - 2 + 1  # +1 to make the range inclusive of the end row
+        # Convert from 1-based display row (what the user types) to 0-based
+        # DataFrame index. The conversion depends on the external file format:
+        #   .ods   : header lives at display Row 1, so first data row = Row 2,
+        #            and pd.read_excel consumes the header -> idx 0 = Row 2.
+        #            offset = 2  (start - 2 = idx)
+        #   .xlsx  : StampZ treats the header as "Row 0" (first data row = Row 1),
+        #            so idx 0 = Row 1.
+        #            offset = 1  (start - 1 = idx)
+        # Realtime worksheets go through _get_row_indices_realtime instead.
+        file_offset = 1 if self._is_xlsx_mode() else 2
+        zero_based_start = start - file_offset
+        # range is exclusive at the upper bound, so +1 makes the end row inclusive.
+        zero_based_end = end - file_offset + 1
         
         # Force special handling for the last row if it's being requested
         if self.data is not None and end >= len(self.data):
