@@ -1297,6 +1297,19 @@ class SampleResultsManager(tk.Frame):
             variable=swatch_source_var, value="striped",
         ).pack(anchor="w")
         
+        orientation_var = tk.StringVar(value="vertical")
+        orient_frame = ttk.Frame(swatch_src_frame)
+        orient_frame.pack(anchor="w", padx=(20, 0), pady=(4, 0))
+        ttk.Label(orient_frame, text="Stripe direction:").pack(side=tk.LEFT)
+        ttk.Radiobutton(
+            orient_frame, text="Vertical",
+            variable=orientation_var, value="vertical",
+        ).pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Radiobutton(
+            orient_frame, text="Horizontal",
+            variable=orientation_var, value="horizontal",
+        ).pack(side=tk.LEFT, padx=(6, 0))
+        
         opts_frame = ttk.LabelFrame(dialog, text="Options", padding=8)
         opts_frame.pack(fill=tk.X, padx=16, pady=6)
         ttk.Checkbutton(
@@ -1406,7 +1419,8 @@ class SampleResultsManager(tk.Frame):
                     ink_rgb=ink_rgb_disp,
                     paper_rgb=paper_rgb_disp,
                     coverage_ratio=cov,
-                    period=10,           # vertical 10-px stripe pair
+                    period=16,
+                    orientation=orientation_var.get(),
                 )
                 
                 # 4) text-contrast colour: simple sRGB linear blend

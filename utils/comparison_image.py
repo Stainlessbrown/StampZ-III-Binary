@@ -78,6 +78,12 @@ def _fill_canvas_with(canvas: Image.Image, fill: FillSpec) -> None:
 
     Tile case: the pattern is repeated edge-to-edge across the canvas
     using nested ``paste`` calls. The pattern is treated as opaque RGB.
+
+    Efficiency: rather than pasting one tiny tile at a time across the
+    whole canvas (which becomes very slow for small periods on large
+    images), we first double the tile repeatedly until it covers the
+    full width, paste one wide strip, then double that strip vertically.
+    This reduces paste calls from O(W*H / period²) to O(log(W) + log(H)).
     """
     cw, ch = canvas.size
     if isinstance(fill, Image.Image):
@@ -85,9 +91,14 @@ def _fill_canvas_with(canvas: Image.Image, fill: FillSpec) -> None:
         tw, th = tile.size
         if tw <= 0 or th <= 0:
             return
+        # Build one full-width row by tiling the tile horizontally,
+        # then paste that row vertically. This reduces paste calls from
+        # O(W*H / period²) to O(W/period + H/period).
+        row = Image.new("RGB", (cw, th))
+        for x in range(0, cw, tw):
+            row.paste(tile, (x, 0))
         for y in range(0, ch, th):
-            for x in range(0, cw, tw):
-                canvas.paste(tile, (x, y))
+            canvas.paste(row, (0, y))
     else:
         rgb = _to_int_rgb(fill)
         canvas.paste(Image.new("RGB", canvas.size, rgb), (0, 0))
