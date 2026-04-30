@@ -1414,6 +1414,13 @@ class Plot3DApp:
             self.fig = plt.figure(figsize=(14, 10))
             self.canvas.figure = self.fig
         
+        # The 3D renderer sets subplots_adjust(left=0.0, right=1.0, bottom=0.0, top=1.0)
+        # to maximize the 3D box. Those settings persist on figure.subplotpars after
+        # fig.clear(), so a fresh 2D axes would inherit zero margins and clip the
+        # y-axis tick labels on the left. Restore reasonable 2D margins so tick
+        # labels (and axis labels) have room to render and the plot is centered.
+        self.fig.subplots_adjust(left=0.10, right=0.95, bottom=0.10, top=0.92)
+        
         ax = self.fig.add_subplot(111)  # TRUE 2D axes – no projection='3d'
         self.current_ax = ax
         
@@ -1645,7 +1652,12 @@ class Plot3DApp:
             self.group_display_manager.update_references(self.df)
         
         # --- Final draw -----------------------------------------------------------
-        self.fig.tight_layout()
+        # NOTE: We intentionally do NOT call fig.tight_layout() here. tight_layout
+        # interacts poorly with set_aspect('equal', adjustable='box'): it computes
+        # axes positions before matplotlib shrinks the box to a square, which can
+        # push tick labels outside the figure on tall/narrow canvases. The
+        # explicit subplots_adjust() above gives stable margins for tick labels
+        # while the default anchor ('C') centers the square box within them.
         try:
             self.canvas.draw()
         except Exception:
