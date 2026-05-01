@@ -45,6 +45,7 @@ from .trendline_manager import TrendlineManager
 from .delta_e_manager import DeltaEManager
 from .pairwise_delta_e import PairwiseDeltaEManager
 from .sphere_manager import SphereManager
+from .ellipsoid_manager import EllipsoidManager
 from .reference_point_calculator import ReferencePointCalculator
 from .group_display_manager import GroupDisplayManager
 from .zoom_controls import ZoomControls
@@ -761,6 +762,15 @@ class Plot3DApp:
             self.sphere_manager.update_references(ax, self.canvas, self.df)
             self._update_sphere_toggles()  # Update sphere visibility toggles
             self.sphere_manager.render_spheres()
+            # Update + render ellipsoids (additive layer; does not affect spheres or scatter)
+            try:
+                if hasattr(self, 'ellipsoid_manager') and self.ellipsoid_manager is not None:
+                    self.ellipsoid_manager.update_references(ax, self.canvas, self.df)
+                    if hasattr(self, '_update_ellipsoid_toggles'):
+                        self._update_ellipsoid_toggles()
+                    self.ellipsoid_manager.render()
+            except Exception as _ell_e:
+                print(f"Warning: ellipsoid render failed: {_ell_e}")
             # Adjust layout and refresh
             self.fig.tight_layout()
             
@@ -1807,6 +1817,63 @@ class Plot3DApp:
             print(f"  Toggle completed")
         else:
             print(f"  ❌ No sphere manager found!")
+
+    # ------------------------------------------------------------------ #
+    # Ellipsoid visibility wiring (peer of the sphere panel above)
+    # ------------------------------------------------------------------ #
+
+    def _update_ellipsoid_toggles(self):
+        """Rebuild the per-stamp checkbox list to match current data."""
+        if not hasattr(self, 'ellipsoid_toggle_frame') or self.ellipsoid_toggle_frame is None:
+            return
+        try:
+            for w in self.ellipsoid_toggle_frame.winfo_children():
+                w.destroy()
+            stamps = self.ellipsoid_manager.get_active_stamps()
+            if not stamps:
+                ttk.Label(
+                    self.ellipsoid_toggle_frame,
+                    text="No stamps detected",
+                    foreground='gray',
+                ).grid(row=0, column=0, padx=5, pady=5)
+                return
+            counts = self.ellipsoid_manager.get_stamp_sample_counts()
+            for i, stamp in enumerate(stamps):
+                if stamp not in self.ellipsoid_toggle_vars:
+                    self.ellipsoid_toggle_vars[stamp] = tk.BooleanVar(value=True)
+                has_tones = self.ellipsoid_manager.stamp_has_tone_data(stamp)
+                tone_marker = "" if has_tones else "  (whole-stamp only)"
+                cb = ttk.Checkbutton(
+                    self.ellipsoid_toggle_frame,
+                    text=f"stamp {stamp}  (n={counts.get(stamp, '?')}){tone_marker}",
+                    variable=self.ellipsoid_toggle_vars[stamp],
+                    command=lambda s=stamp: self._on_ellipsoid_toggle(s),
+                    padding=5,
+                )
+                cb.grid(row=i, column=0, sticky='w', padx=5, pady=2)
+        except Exception as e:
+            print(f"Error updating ellipsoid toggles: {e}")
+
+    def _on_ellipsoid_toggle(self, stamp: str):
+        """Toggle a single stamp's ellipsoid visibility and re-render."""
+        if not hasattr(self, 'ellipsoid_manager') or self.ellipsoid_manager is None:
+            return
+        self.ellipsoid_manager.toggle_visibility(stamp)
+        self.ellipsoid_manager.render()
+
+    def _on_ellipsoid_master_toggle(self):
+        """Master on/off for the ellipsoid layer."""
+        if not hasattr(self, 'ellipsoid_manager') or self.ellipsoid_manager is None:
+            return
+        self.ellipsoid_manager.set_master_visible(self.ellipsoid_master_visible.get())
+        self.ellipsoid_manager.render()
+
+    def _on_ellipsoid_mode_change(self):
+        """Switch between whole-stamp and per-tone ellipsoid views."""
+        if not hasattr(self, 'ellipsoid_manager') or self.ellipsoid_manager is None:
+            return
+        self.ellipsoid_manager.set_mode(self.ellipsoid_mode_var.get())
+        self.ellipsoid_manager.render()
             
     def _init_ui(self):
         """
@@ -1859,6 +1926,13 @@ class Plot3DApp:
         
         # Initialize sphere manager now that figure exists
         self.sphere_manager = SphereManager(self.fig.gca(), self.canvas, self.df)
+        # Initialize ellipsoid manager (purely additive — sphere behaviour unchanged)
+        self.ellipsoid_manager = EllipsoidManager(self.fig.gca(), self.canvas, self.df)
+        # Tk variables backing the ellipsoid UI panel
+        self.ellipsoid_master_visible = tk.BooleanVar(value=False)
+        self.ellipsoid_mode_var = tk.StringVar(value=EllipsoidManager.MODE_WHOLE)
+        self.ellipsoid_toggle_vars = {}
+        self.ellipsoid_toggle_frame = None  # populated when the panel is built
         
         # NOW create controls container
         controls_container = ttk.Frame(main_container)
@@ -2195,6 +2269,40 @@ class Plot3DApp:
         # Force frame updates
         sphere_frame.update()
         sphere_frame.update_idletasks()
+
+        # ------------------------------------------------------------------ #
+        # Ellipsoid Visibility section (peer of the Sphere Visibility panel)
+        # ------------------------------------------------------------------ #
+        ellipsoid_section = CollapsibleSection(self.control_frame, "🥚 Ellipsoid Visibility", expanded=False)
+        ellipsoid_section.grid(row=10, column=0, sticky='ew', padx=5, pady=5)
+        ell_frame = ttk.Frame(ellipsoid_section.content_frame)
+        ell_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        # Master on/off
+        ttk.Checkbutton(
+            ell_frame,
+            text="Show Ellipsoids",
+            variable=self.ellipsoid_master_visible,
+            command=self._on_ellipsoid_master_toggle,
+        ).grid(row=0, column=0, sticky='w', padx=5, pady=(2, 6))
+        # Mode selector: whole-stamp vs per-tone
+        mode_frame = ttk.LabelFrame(ell_frame, text="Mode")
+        mode_frame.grid(row=1, column=0, sticky='ew', padx=5, pady=(0, 6))
+        ttk.Radiobutton(
+            mode_frame, text="Whole stamp",
+            variable=self.ellipsoid_mode_var, value=EllipsoidManager.MODE_WHOLE,
+            command=self._on_ellipsoid_mode_change,
+        ).grid(row=0, column=0, sticky='w', padx=5, pady=2)
+        ttk.Radiobutton(
+            mode_frame, text="Per tone (uses Cluster column)",
+            variable=self.ellipsoid_mode_var, value=EllipsoidManager.MODE_TONE,
+            command=self._on_ellipsoid_mode_change,
+        ).grid(row=1, column=0, sticky='w', padx=5, pady=2)
+        # Per-stamp toggles container — populated dynamically on each render.
+        toggles_label = ttk.Label(ell_frame, text="Per-stamp visibility:", foreground='gray')
+        toggles_label.grid(row=2, column=0, sticky='w', padx=5, pady=(4, 2))
+        self.ellipsoid_toggle_frame = ttk.Frame(ell_frame)
+        self.ellipsoid_toggle_frame.grid(row=3, column=0, sticky='ew', padx=5, pady=2)
+        self._update_ellipsoid_toggles()
         
         # No duplicate zoom controls needed - already initialized after rotation controls
         
