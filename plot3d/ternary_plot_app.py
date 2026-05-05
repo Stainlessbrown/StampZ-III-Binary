@@ -1086,24 +1086,57 @@ class TernaryPlotWindow:
             self.canvas.draw_idle()
             return
 
-        # Convert L*, a*, b* to normalized proportions for ternary display
+        # The L*/a*/b* columns of self.df can hold either real Lab values
+        # (L ∈ [0, 100], a/b ∈ [-128, 127]) or already-normalised values in
+        # [0, 1] depending on how the file was loaded. Detect which and shift
+        # to a common 0-1 frame before barycentric projection. The previous
+        # implementation called clip(lower=0) on raw Lab values, which
+        # collapsed every negative a*/b* (greens, blues) to zero — projecting
+        # those points onto a single triangle edge (the "straight line" bug).
         df = self.df.copy()
-        
-        # Get L*a*b* values and handle missing data
-        L = pd.to_numeric(df['L*'], errors='coerce').fillna(50.0)  # Default to mid-gray
-        A = pd.to_numeric(df['a*'], errors='coerce').fillna(0.0)
-        B = pd.to_numeric(df['b*'], errors='coerce').fillna(0.0)
-        
-        print(f"DEBUG: Ternary plot L*a*b* ranges before conversion:")
-        print(f"  L*: {L.min():.2f} to {L.max():.2f}")
-        print(f"  a*: {A.min():.2f} to {A.max():.2f}")
-        print(f"  b*: {B.min():.2f} to {B.max():.2f}")
-        
-        # Ternary normalisation: values are already 0-1 (Xnorm/Ynorm/Znorm used directly).
-        # Simply normalise each triplet to sum to 1.
-        L_component = L.clip(lower=0.0)
-        A_component = A.clip(lower=0.0)
-        B_component = B.clip(lower=0.0)
+
+        L_raw = pd.to_numeric(df['L*'], errors='coerce')
+        A_raw = pd.to_numeric(df['a*'], errors='coerce')
+        B_raw = pd.to_numeric(df['b*'], errors='coerce')
+
+        # Decide whether values look already-normalised (0-1) or are raw Lab.
+        # Use only finite values for the check; defaults err on the side of
+        # treating data as raw Lab so the conversion is always applied when
+        # the range is ambiguous.
+        def _looks_normalised(s):
+            v = s.dropna()
+            if v.empty:
+                return True
+            return float(v.min()) >= -1e-6 and float(v.max()) <= 1.0 + 1e-6
+
+        is_normalised = (
+            _looks_normalised(L_raw)
+            and _looks_normalised(A_raw)
+            and _looks_normalised(B_raw)
+        )
+
+        if is_normalised:
+            L = L_raw.fillna(0.5)
+            A = A_raw.fillna(0.5)
+            B = B_raw.fillna(0.5)
+            print("DEBUG: Ternary input detected as already-normalised (0-1)")
+        else:
+            # Real CIE Lab → 0-1 using the same formulas the rest of StampZ uses.
+            L = (L_raw / 100.0).fillna(0.5)
+            A = ((A_raw + 128.0) / 255.0).fillna(0.5)
+            B = ((B_raw + 128.0) / 255.0).fillna(0.5)
+            print("DEBUG: Ternary input detected as raw Lab; converted to 0-1")
+
+        print(f"DEBUG: Ternary normalised input ranges:")
+        print(f"  L: {L.min():.3f} to {L.max():.3f}")
+        print(f"  A: {A.min():.3f} to {A.max():.3f}")
+        print(f"  B: {B.min():.3f} to {B.max():.3f}")
+
+        # Final defensive clip into [0, 1]; safe because we've already shifted
+        # negatives by the +128 offset above when needed.
+        L_component = L.clip(lower=0.0, upper=1.0)
+        A_component = A.clip(lower=0.0, upper=1.0)
+        B_component = B.clip(lower=0.0, upper=1.0)
         
         # Normalize to create ternary coordinates (sum = 1)
         total = (L_component + A_component + B_component).replace(0, np.nan)
@@ -1120,47 +1153,19 @@ class TernaryPlotWindow:
         # Project to 2D Cartesian in an equilateral triangle
         pts = self._barycentric_to_cartesian(Lp.values, Ap.values, Bp.values)
         x, y = pts[:, 0], pts[:, 1]
-        
-        # Constrain points to stay within triangle boundaries (add small inward margin)
+
+        # NOTE: The previous version applied an in-place "triangle clamp" here
+        # using `x = 1 - 2*y` for the right edge and `x = 2*y` for the left.
+        # Those formulas describe a 45° right triangle, NOT the equilateral
+        # triangle this plot uses (whose edges follow `x = y/√3` and
+        # `x = 1 - y/√3`). The mistake squeezed every point with x > 1–2y
+        # onto the wrong line — producing the "5 rows at the same point" and
+        # "straight line" symptoms across data sets, regardless of input.
+        # Since `_barycentric_to_cartesian` already maps valid (non-negative,
+        # summing-to-1) barycentric coordinates strictly inside the triangle,
+        # no clamping is needed; the upstream `Lp + Ap + Bp = 1` enforcement
+        # already keeps every point within the triangle's interior.
         h = math.sqrt(3) / 2.0
-        margin = 0.002  # Small inward margin to prevent edge overlap
-        
-        # Triangle vertices with margin
-        A = (margin, margin)  # Bottom left  
-        B = (1.0 - margin, margin)  # Bottom right
-        C = (0.5, h - margin)  # Top
-        
-        # Clamp points to stay within the triangle with margin
-        for i in range(len(x)):
-            # Ensure point is within the triangle by checking barycentric coordinates
-            # and adjusting if necessary
-            px, py = x[i], y[i]
-            
-            # Convert back to barycentric to check bounds
-            # Solve: px = B_coord * 1.0 + C_coord * 0.5, py = C_coord * h
-            if py < margin:
-                y[i] = margin
-            elif py > h - margin:
-                y[i] = h - margin
-                
-            if px < margin:
-                x[i] = margin
-            elif px > 1.0 - margin:
-                x[i] = 1.0 - margin
-                
-            # Additional constraint for the slanted edges of the triangle
-            # Left edge: points to the left of the line from A to C
-            # Right edge: points to the right of the line from B to C
-            
-            # Left edge constraint: x >= (2*y - margin) (approximately)
-            left_bound = 2 * (y[i] - margin) + margin
-            if x[i] < left_bound:
-                x[i] = left_bound
-                
-            # Right edge constraint: x <= 1 - 2*(y - margin) (approximately)
-            right_bound = 1.0 - 2 * (y[i] - margin) - margin
-            if x[i] > right_bound:
-                x[i] = right_bound
 
         # Plot points with appropriate marker size based on position
         markers = df.get('Marker', pd.Series(['.'] * len(df))).fillna('.')
@@ -1180,15 +1185,25 @@ class TernaryPlotWindow:
         base_marker_size = 25  # Base size
         marker_size = base_marker_size * self.zoom_level.get()
         
-        # Only plot rows with actual measurement data (Xnorm non-NaN).
-        # This skips both centroid rows and empty placeholder rows.
+        # Only plot rows with actual measurement data. A row is "real" only if:
+        #   * its raw L*/a*/b* values are all present (not NaN), and
+        #   * it has a non-empty DataID (centroid-metadata and header rows lack one), and
+        #   * any present `_has_data` flag agrees.
+        #
+        # Note: we do NOT exclude rows with Centroid_X populated. Centroid rows
+        # can appear anywhere in the worksheet (multiple cluster sets in a large
+        # file aren't confined to the first few rows), and a measurement row may
+        # legitimately also have a sphere attached. The sphere renderer
+        # (`_render_sphere_circles`) does its own column-based detection and
+        # draws spheres independently of scatter — they layer correctly.
+        # Pure centroid metadata rows (no DataID, no measurement) are still
+        # filtered out by the L*/a*/b* and DataID checks above.
+        plot_mask = L_raw.notna() & A_raw.notna() & B_raw.notna()
+        if 'DataID' in df.columns:
+            data_ids = df['DataID'].astype(str).str.strip()
+            plot_mask = plot_mask & data_ids.ne('') & data_ids.str.lower().ne('nan')
         if '_has_data' in df.columns:
-            plot_mask = df['_has_data'].fillna(False)
-        else:
-            # Fallback for non-normalized files: skip rows with NaN L*
-            plot_mask = df['L*'].notna()
-            if 'Centroid_X' in df.columns:
-                plot_mask = plot_mask & df['Centroid_X'].isna()
+            plot_mask = plot_mask & df['_has_data'].fillna(False).astype(bool)
         
         for i in range(len(df)):
             if not plot_mask.iloc[i]:

@@ -208,12 +208,21 @@ class EllipsoidManager:
             sub["_excluded"] = False
         included = sub[~sub["_excluded"]]
 
+        # Plot_3D plots in normalized [0, 1] space. The default `prior_variance`
+        # in `fit_ellipsoid` is 4.0 — calibrated for Lab units (ΔE ~2 stddev),
+        # which is 10000× too large here. With small per-tone clusters (n<10)
+        # shrinkage kicks in and produces ellipsoids the size of the whole
+        # plot. Use a normalized-space prior of ~(0.03)² per axis instead.
+        norm_prior_variance = 0.001
+
         for stamp, group in included.groupby("_stamp"):
             pts = group[["Xnorm", "Ynorm", "Znorm"]].to_numpy(dtype=float)
             if pts.shape[0] < 2:
                 continue
             try:
-                self._fits_whole[stamp] = fit_ellipsoid(pts)
+                self._fits_whole[stamp] = fit_ellipsoid(
+                    pts, prior_variance=norm_prior_variance,
+                )
             except Exception as e:
                 self.logger.warning("Whole-stamp fit failed for %s: %s", stamp, e)
 
@@ -228,7 +237,9 @@ class EllipsoidManager:
                     except (TypeError, ValueError):
                         c_int = hash(str(cluster_val)) & 0xFFFF
                     try:
-                        self._fits_tone[(stamp, c_int)] = fit_ellipsoid(cpts)
+                        self._fits_tone[(stamp, c_int)] = fit_ellipsoid(
+                            cpts, prior_variance=norm_prior_variance,
+                        )
                     except Exception as e:
                         self.logger.warning(
                             "Per-tone fit failed for %s cluster %s: %s",
