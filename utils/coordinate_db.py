@@ -651,6 +651,53 @@ class CoordinateDB:
         except Exception as e:
             print(f"DEBUG: Error creating README file: {e}")
     
+    def rename_coordinate_set(self, old_name: str, new_name: str) -> bool:
+        """Rename a coordinate set in-place.
+
+        Args:
+            old_name: Current name of the coordinate set.
+            new_name: New name; will be standardized before storage.
+
+        Returns:
+            True if a row was renamed, False if ``old_name`` didn't
+            exist or ``new_name`` is already in use by a different row.
+        """
+        from .naming_utils import standardize_name, validate_name
+
+        is_valid, _ = validate_name(new_name)
+        if not is_valid:
+            return False
+        standardized_new = standardize_name(new_name)
+        if not standardized_new:
+            return False
+
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                # Source must exist.
+                src = conn.execute(
+                    "SELECT id FROM coordinate_sets WHERE name = ?",
+                    (old_name,),
+                ).fetchone()
+                if not src:
+                    return False
+                src_id = src[0]
+
+                # Refuse to clobber an unrelated existing row.
+                clash = conn.execute(
+                    "SELECT id FROM coordinate_sets WHERE name = ? AND id != ?",
+                    (standardized_new, src_id),
+                ).fetchone()
+                if clash:
+                    return False
+
+                conn.execute(
+                    "UPDATE coordinate_sets SET name = ? WHERE id = ?",
+                    (standardized_new, src_id),
+                )
+                return True
+        except sqlite3.Error:
+            return False
+
     def delete_coordinate_set(self, name: str) -> bool:
         """Delete a coordinate set by name.
         

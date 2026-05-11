@@ -2,7 +2,7 @@
 """Database viewer for StampZ color analysis data."""
 
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox, filedialog, simpledialog
 import os
 import sqlite3
 import csv
@@ -163,17 +163,32 @@ class DatabaseViewer:
         ttk.Radiobutton(source_frame, text="Color Libraries", variable=self.data_source, 
                        value="color_libraries", command=self._on_source_changed).pack(side=tk.LEFT, padx=5)
         
-        # Top controls - two rows
+        # Top controls - three stacked rows so the button bar fits without
+        # overflowing the window. Row 1: sample-set selector + safe/quick
+        # ops. Row 2: filter/sort. Row 3: management/destructive ops.
         controls_frame = ttk.Frame(main_frame)
         controls_frame.pack(fill=tk.X, pady=(0, 5))
         
-        # Top row - Sample set and basic controls
+        # Row 1 - Sample set selector + view/data ops
         top_row = ttk.Frame(controls_frame)
         top_row.pack(fill=tk.X, pady=(0, 5))
         
-        # Bottom row - Filtering and sorting
+        ttk.Label(top_row, text="Sample Set:").pack(side=tk.LEFT, padx=(0, 5))
+        self.sample_set_combo = ttk.Combobox(top_row, state="readonly", width=30)
+        self.sample_set_combo.pack(side=tk.LEFT, padx=(0, 2))
+        self.sample_set_combo.bind("<<ComboboxSelected>>", self._on_sample_set_changed)
+        ttk.Button(top_row, text="Browse…", command=self._browse_databases).pack(side=tk.LEFT, padx=(0, 8))
+        
+        ttk.Button(top_row, text="Columns...", command=self._toggle_columns).pack(side=tk.LEFT, padx=5)
+        ttk.Button(top_row, text="Refresh", command=self._refresh_data).pack(side=tk.LEFT, padx=5)
+        ttk.Button(top_row, text="Export CSV", command=self._export_to_csv).pack(side=tk.LEFT, padx=5)
+        ttk.Button(top_row, text="Import CSV", command=self._import_from_csv).pack(side=tk.LEFT, padx=5)
+        self.resample_btn = ttk.Button(top_row, text="Resample...", command=self._resample_measurements)
+        self.resample_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Row 2 - Filtering and sorting
         filter_frame = ttk.Frame(controls_frame)
-        filter_frame.pack(fill=tk.X)
+        filter_frame.pack(fill=tk.X, pady=(0, 5))
         
         # Filter controls
         ttk.Label(filter_frame, text="Filter:").pack(side=tk.LEFT, padx=(0, 5))
@@ -196,25 +211,29 @@ class DatabaseViewer:
         ttk.Radiobutton(filter_frame, text="Asc", variable=self.sort_order, value=True, command=self._apply_sort).pack(side=tk.LEFT)
         ttk.Radiobutton(filter_frame, text="Desc", variable=self.sort_order, value=False, command=self._apply_sort).pack(side=tk.LEFT, padx=(0, 10))
         
-        # Sample set selection
-        ttk.Label(controls_frame, text="Sample Set:").pack(side=tk.LEFT, padx=(0, 5))
-        self.sample_set_combo = ttk.Combobox(controls_frame, state="readonly", width=30)
-        self.sample_set_combo.pack(side=tk.LEFT, padx=(0, 2))
-        self.sample_set_combo.bind("<<ComboboxSelected>>", self._on_sample_set_changed)
-        ttk.Button(controls_frame, text="Browse…", command=self._browse_databases).pack(side=tk.LEFT, padx=(0, 8))
+        # Row 3 - Management / destructive ops
+        bottom_row = ttk.Frame(controls_frame)
+        bottom_row.pack(fill=tk.X)
         
-        # Buttons
-        ttk.Button(controls_frame, text="Columns...", command=self._toggle_columns).pack(side=tk.LEFT, padx=5)
-        ttk.Button(controls_frame, text="Refresh", command=self._refresh_data).pack(side=tk.LEFT, padx=5)
-        ttk.Button(controls_frame, text="Export CSV", command=self._export_to_csv).pack(side=tk.LEFT, padx=5)
-        ttk.Button(controls_frame, text="Import CSV", command=self._import_from_csv).pack(side=tk.LEFT, padx=5)
-        ttk.Button(controls_frame, text="Manage Backups", command=self._manage_backups).pack(side=tk.LEFT, padx=5)
-        ttk.Button(controls_frame, text="Delete Selected", command=self._delete_selected).pack(side=tk.LEFT, padx=5)
-        ttk.Button(controls_frame, text="Clear All", command=self._clear_all_data).pack(side=tk.LEFT, padx=5)
-        ttk.Button(controls_frame, text="Delete Database", command=self._delete_sample_set).pack(side=tk.LEFT, padx=5)
-        ttk.Button(controls_frame, text="Manage Templates", command=self._open_template_manager).pack(side=tk.LEFT, padx=5)
-        self.resample_btn = ttk.Button(controls_frame, text="Resample...", command=self._resample_measurements)
-        self.resample_btn.pack(side=tk.LEFT, padx=5)
+        # New cross-DB management buttons (color-analysis only). Tracked
+        # on self so _on_source_changed can enable/disable them.
+        self.rename_btn = ttk.Button(bottom_row, text="Rename…", command=self._rename_database)
+        self.rename_btn.pack(side=tk.LEFT, padx=5)
+        self.move_btn = ttk.Button(bottom_row, text="Move…", command=self._move_measurement_set)
+        self.move_btn.pack(side=tk.LEFT, padx=5)
+        self.merge_btn = ttk.Button(bottom_row, text="Merge…", command=self._merge_databases)
+        self.merge_btn.pack(side=tk.LEFT, padx=5)
+        
+        ttk.Separator(bottom_row, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=8)
+        
+        ttk.Button(bottom_row, text="Manage Backups", command=self._manage_backups).pack(side=tk.LEFT, padx=5)
+        ttk.Button(bottom_row, text="Manage Templates", command=self._open_template_manager).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Separator(bottom_row, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=8)
+        
+        ttk.Button(bottom_row, text="Delete Selected", command=self._delete_selected).pack(side=tk.LEFT, padx=5)
+        ttk.Button(bottom_row, text="Clear All", command=self._clear_all_data).pack(side=tk.LEFT, padx=5)
+        ttk.Button(bottom_row, text="Delete Database", command=self._delete_sample_set).pack(side=tk.LEFT, padx=5)
         
         # Create treeview with scrollbars
         tree_frame = ttk.Frame(main_frame)
@@ -362,7 +381,8 @@ class DatabaseViewer:
         """Handle data source change."""
         self._load_sample_sets()
         # Update column headings based on source
-        if self.data_source.get() == "color_libraries":
+        is_color_libs = self.data_source.get() == "color_libraries"
+        if is_color_libs:
             self.tree.heading("image_name", text="Color Name")
             self.tree.heading("measurement_date", text="")
             self.tree.heading("point", text="")
@@ -372,6 +392,11 @@ class DatabaseViewer:
             self.tree.heading("measurement_date", text="Date/Time")
             self.tree.heading("point", text="Point")
             self.resample_btn.configure(state="normal")
+        # Rename / Move / Merge currently only support the color-analysis
+        # schema; grey them out when the user is looking at color libraries.
+        cross_db_state = "disabled" if is_color_libs else "normal"
+        for btn in (self.rename_btn, self.move_btn, self.merge_btn):
+            btn.configure(state=cross_db_state)
     
     def _on_sample_set_changed(self, event):
         """Handle database selection change."""
@@ -677,6 +702,537 @@ class DatabaseViewer:
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to delete color library: {str(e)}")
     
+    # --------------------------------------------------------------- #
+    # Rename / Move / Merge — cross-DB management ops
+    # --------------------------------------------------------------- #
+
+    def _color_analysis_dir(self) -> Optional[str]:
+        """Return the color-analysis data dir, or None on import failure."""
+        try:
+            from utils.path_utils import get_color_analysis_dir
+            return get_color_analysis_dir()
+        except Exception as e:
+            messagebox.showerror(
+                "Error",
+                f"Could not locate color analysis data directory:\n{e}",
+                parent=self.dialog,
+            )
+            return None
+
+    def _other_databases(self) -> List[str]:
+        """List sibling sample-set DBs excluding the currently selected one."""
+        try:
+            from utils.color_analysis_db import ColorAnalysisDB
+            data_dir = self._color_analysis_dir()
+            if not data_dir:
+                return []
+            all_dbs = ColorAnalysisDB.get_all_sample_set_databases(data_dir)
+            return [d for d in all_dbs if d != self.current_sample_set]
+        except Exception:
+            return []
+
+    def _rename_database(self):
+        """Rename the currently selected color-analysis database file.
+
+        Renames the .db on disk and the matching coordinate template so
+        Plot_3D, Resample and template-driven re-analysis keep finding
+        their template. Refuses to overwrite an existing DB; the user
+        is asked to pick a unique name (we never auto-suffix).
+        """
+        if self.data_source.get() != "color_analysis":
+            messagebox.showinfo(
+                "Not Supported",
+                "Rename is currently available for Color Analysis databases only.",
+                parent=self.dialog,
+            )
+            return
+        if not self.current_sample_set:
+            messagebox.showinfo(
+                "No Database Selected",
+                "Please select a database first.",
+                parent=self.dialog,
+            )
+            return
+
+        data_dir = self._color_analysis_dir()
+        if not data_dir:
+            return
+
+        from utils.naming_utils import standardize_name, validate_name
+
+        new_name = simpledialog.askstring(
+            "Rename Database",
+            f"Rename '{self.current_sample_set}' to:",
+            initialvalue=self.current_sample_set,
+            parent=self.dialog,
+        )
+        if not new_name:
+            return
+
+        ok, err = validate_name(new_name)
+        if not ok:
+            messagebox.showerror("Invalid Name", err, parent=self.dialog)
+            return
+
+        standardized = standardize_name(new_name)
+        if not standardized:
+            messagebox.showerror(
+                "Invalid Name",
+                "Name could not be standardized.",
+                parent=self.dialog,
+            )
+            return
+        if standardized == self.current_sample_set:
+            return  # no-op
+
+        old_path = os.path.join(data_dir, f"{self.current_sample_set}.db")
+        new_path = os.path.join(data_dir, f"{standardized}.db")
+
+        if os.path.exists(new_path):
+            messagebox.showerror(
+                "Name In Use",
+                f"A database named '{standardized}' already exists.\n"
+                "Please pick a different name.",
+                parent=self.dialog,
+            )
+            return
+        if not os.path.exists(old_path):
+            messagebox.showerror(
+                "Not Found",
+                f"Database file not found:\n{old_path}",
+                parent=self.dialog,
+            )
+            return
+
+        try:
+            os.rename(old_path, new_path)
+        except OSError as e:
+            messagebox.showerror(
+                "Rename Failed",
+                f"Could not rename database file:\n{e}",
+                parent=self.dialog,
+            )
+            return
+
+        # Best-effort: keep the matching coordinate template in sync.
+        try:
+            from utils.coordinate_db import CoordinateDB
+            coord_db = CoordinateDB()
+            coord_db.rename_coordinate_set(self.current_sample_set, standardized)
+        except Exception as e:
+            print(f"DEBUG: Coordinate-template rename skipped: {e}")
+
+        # Reload the combobox and reselect the renamed DB.
+        self._load_sample_sets()
+        try:
+            self.sample_set_combo.set(standardized)
+            self.current_sample_set = standardized
+            self._refresh_data()
+        except Exception:
+            pass
+        messagebox.showinfo(
+            "Renamed",
+            f"Database renamed to '{standardized}'.",
+            parent=self.dialog,
+        )
+
+    def _move_measurement_set(self):
+        """Move one image's measurement set from the current DB to another.
+
+        A measurement set in StampZ corresponds to one image (one row in
+        ``measurement_sets``). The user picks which image_name to move
+        and which destination DB receives it. If the destination already
+        holds the same image_name, a rename-on-arrival prompt fires so
+        nothing is silently merged.
+        """
+        if self.data_source.get() != "color_analysis":
+            messagebox.showinfo(
+                "Not Supported",
+                "Move is currently available for Color Analysis databases only.",
+                parent=self.dialog,
+            )
+            return
+        if not self.current_sample_set:
+            messagebox.showinfo(
+                "No Database Selected",
+                "Please select a source database first.",
+                parent=self.dialog,
+            )
+            return
+
+        data_dir = self._color_analysis_dir()
+        if not data_dir:
+            return
+
+        from utils import db_operations
+
+        src_path = os.path.join(data_dir, f"{self.current_sample_set}.db")
+        image_names = db_operations.list_image_names(src_path)
+        if not image_names:
+            messagebox.showinfo(
+                "Nothing to Move",
+                "The current database contains no measurement sets.",
+                parent=self.dialog,
+            )
+            return
+
+        targets = self._other_databases()
+        if not targets:
+            messagebox.showinfo(
+                "No Destination",
+                "There are no other color analysis databases to move into.\n"
+                "Create a second sample set first.",
+                parent=self.dialog,
+            )
+            return
+
+        dialog = tk.Toplevel(self.dialog)
+        dialog.title("Move Measurement Set")
+        dialog.transient(self.dialog)
+        dialog.grab_set()
+        dialog.geometry("+{}+{}".format(
+            self.dialog.winfo_rootx() + 80,
+            self.dialog.winfo_rooty() + 80,
+        ))
+
+        frame = ttk.Frame(dialog, padding=15)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(
+            frame,
+            text=f"Move from: {self.current_sample_set}",
+            font=("Arial", 11, "bold"),
+        ).pack(anchor=tk.W, pady=(0, 8))
+
+        ttk.Label(frame, text="Measurement set (image):").pack(anchor=tk.W)
+        image_var = tk.StringVar(value=image_names[0])
+        image_combo = ttk.Combobox(
+            frame, values=image_names, textvariable=image_var,
+            state="readonly", width=40,
+        )
+        image_combo.pack(fill=tk.X, pady=(2, 10))
+
+        ttk.Label(frame, text="Destination database:").pack(anchor=tk.W)
+        target_var = tk.StringVar(value=targets[0])
+        target_combo = ttk.Combobox(
+            frame, values=targets, textvariable=target_var,
+            state="readonly", width=40,
+        )
+        target_combo.pack(fill=tk.X, pady=(2, 10))
+
+        def do_move():
+            image_name = image_var.get()
+            target_name = target_var.get()
+            if not image_name or not target_name:
+                return
+
+            dst_path = os.path.join(data_dir, f"{target_name}.db")
+            if not os.path.exists(dst_path):
+                messagebox.showerror(
+                    "Destination Missing",
+                    f"Destination database not found:\n{dst_path}",
+                    parent=dialog,
+                )
+                return
+
+            # Collision check against the destination.
+            rename_to = None
+            existing = db_operations.list_image_names(dst_path)
+            if image_name in existing:
+                new_name = simpledialog.askstring(
+                    "Image Name In Use",
+                    f"'{target_name}' already contains '{image_name}'.\n"
+                    "Enter a new image_name to use on arrival\n"
+                    "(or Cancel to abort the move):",
+                    initialvalue=f"{image_name}_2",
+                    parent=dialog,
+                )
+                if not new_name:
+                    return
+                rename_to = new_name.strip()
+                if not rename_to or rename_to in existing:
+                    messagebox.showerror(
+                        "Invalid Name",
+                        "That name is empty or already used in the destination.",
+                        parent=dialog,
+                    )
+                    return
+
+            try:
+                moved = db_operations.move_measurement_set(
+                    src_path, dst_path, image_name, rename_to=rename_to,
+                )
+            except Exception as e:
+                messagebox.showerror(
+                    "Move Failed",
+                    f"Could not move measurement set:\n{e}",
+                    parent=dialog,
+                )
+                return
+
+            dialog.destroy()
+            self._refresh_data()
+            shown_name = rename_to or image_name
+            messagebox.showinfo(
+                "Move Complete",
+                f"Moved '{image_name}' to '{target_name}' "
+                f"({moved} measurement{'s' if moved != 1 else ''})"
+                + (f" as '{shown_name}'." if rename_to else "."),
+                parent=self.dialog,
+            )
+
+        btn_row = ttk.Frame(frame)
+        btn_row.pack(fill=tk.X, pady=(5, 0))
+        ttk.Button(btn_row, text="Move", command=do_move).pack(side=tk.RIGHT, padx=(5, 0))
+        ttk.Button(btn_row, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT)
+
+    def _merge_databases(self):
+        """Non-destructively merge the current DB with one or more others.
+
+        Creates a brand-new sample-set DB containing every measurement
+        set from each source. The source files are opened read-only via
+        ATTACH and never mutated.
+        """
+        if self.data_source.get() != "color_analysis":
+            messagebox.showinfo(
+                "Not Supported",
+                "Merge is currently available for Color Analysis databases only.",
+                parent=self.dialog,
+            )
+            return
+        if not self.current_sample_set:
+            messagebox.showinfo(
+                "No Database Selected",
+                "Please select the first source database first.",
+                parent=self.dialog,
+            )
+            return
+
+        data_dir = self._color_analysis_dir()
+        if not data_dir:
+            return
+
+        from utils import db_operations
+        from utils.color_analysis_db import ColorAnalysisDB
+        from utils.naming_utils import standardize_name, validate_name
+
+        others = self._other_databases()
+        if not others:
+            messagebox.showinfo(
+                "No Second Source",
+                "Merge needs a second source database.\n"
+                "Create or import another sample set first.",
+                parent=self.dialog,
+            )
+            return
+
+        dialog = tk.Toplevel(self.dialog)
+        dialog.title("Merge Databases")
+        dialog.transient(self.dialog)
+        dialog.grab_set()
+        dialog.geometry("+{}+{}".format(
+            self.dialog.winfo_rootx() + 80,
+            self.dialog.winfo_rooty() + 80,
+        ))
+
+        frame = ttk.Frame(dialog, padding=15)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(
+            frame,
+            text=f"First source: {self.current_sample_set}",
+            font=("Arial", 11, "bold"),
+        ).pack(anchor=tk.W, pady=(0, 8))
+
+        ttk.Label(frame, text="Second source database:").pack(anchor=tk.W)
+        other_var = tk.StringVar(value=others[0])
+        ttk.Combobox(
+            frame, values=others, textvariable=other_var,
+            state="readonly", width=40,
+        ).pack(fill=tk.X, pady=(2, 10))
+
+        ttk.Label(frame, text="New merged database name:").pack(anchor=tk.W)
+        default_name = f"{self.current_sample_set}_merged"
+        name_var = tk.StringVar(value=default_name)
+        ttk.Entry(frame, textvariable=name_var, width=40).pack(
+            fill=tk.X, pady=(2, 10),
+        )
+
+        ttk.Label(
+            frame,
+            text="Both source databases are left untouched.\n"
+                 "If they share image_names you'll be asked to rename\n"
+                 "the conflicting ones before the merge runs.",
+            font=("Arial", 9), foreground="gray",
+        ).pack(anchor=tk.W, pady=(0, 10))
+
+        def do_merge():
+            target_name = name_var.get().strip()
+            other_name = other_var.get()
+            if not target_name or not other_name:
+                return
+
+            ok, err = validate_name(target_name)
+            if not ok:
+                messagebox.showerror("Invalid Name", err, parent=dialog)
+                return
+            std_target = standardize_name(target_name)
+            target_path = os.path.join(data_dir, f"{std_target}.db")
+            if os.path.exists(target_path):
+                messagebox.showerror(
+                    "Name In Use",
+                    f"A database named '{std_target}' already exists.\n"
+                    "Pick a different name.",
+                    parent=dialog,
+                )
+                return
+
+            src_a = os.path.join(data_dir, f"{self.current_sample_set}.db")
+            src_b = os.path.join(data_dir, f"{other_name}.db")
+
+            # Pre-flight collision check; collect a rename_map from the user.
+            collisions = db_operations.find_collisions([src_a, src_b])
+            rename_map: Dict[tuple, str] = {}
+            if collisions:
+                if not self._resolve_merge_collisions(
+                    dialog, collisions, src_a, src_b, rename_map,
+                ):
+                    return  # user cancelled
+
+            # Create the destination DB with the canonical schema.
+            try:
+                ColorAnalysisDB(std_target)
+            except Exception as e:
+                messagebox.showerror(
+                    "Create Failed",
+                    f"Could not create new database:\n{e}",
+                    parent=dialog,
+                )
+                return
+
+            try:
+                rows = db_operations.merge_databases(
+                    [src_a, src_b], target_path, rename_map=rename_map,
+                )
+            except Exception as e:
+                # Roll back the empty file we just created.
+                try:
+                    if os.path.exists(target_path):
+                        os.remove(target_path)
+                except OSError:
+                    pass
+                messagebox.showerror(
+                    "Merge Failed",
+                    f"Could not merge databases:\n{e}",
+                    parent=dialog,
+                )
+                return
+
+            dialog.destroy()
+            self._load_sample_sets()
+            try:
+                self.sample_set_combo.set(std_target)
+                self.current_sample_set = std_target
+                self._refresh_data()
+            except Exception:
+                pass
+            messagebox.showinfo(
+                "Merge Complete",
+                f"Created '{std_target}' with {rows} measurement"
+                f"{'s' if rows != 1 else ''}.\n"
+                "Source databases were not modified.",
+                parent=self.dialog,
+            )
+
+        btn_row = ttk.Frame(frame)
+        btn_row.pack(fill=tk.X, pady=(5, 0))
+        ttk.Button(btn_row, text="Merge", command=do_merge).pack(side=tk.RIGHT, padx=(5, 0))
+        ttk.Button(btn_row, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT)
+
+    def _resolve_merge_collisions(
+        self,
+        parent_dialog: tk.Toplevel,
+        collisions: Dict[str, List[str]],
+        src_a: str,
+        src_b: str,
+        rename_map: Dict[tuple, str],
+    ) -> bool:
+        """Prompt the user to rename every colliding image_name.
+
+        Mutates ``rename_map`` in place with the entries needed by
+        ``db_operations.merge_databases``. The first source keeps the
+        original name; the user is asked to provide a replacement for
+        the second source.
+
+        Returns True on OK, False if the user cancels.
+        """
+        dialog = tk.Toplevel(parent_dialog)
+        dialog.title("Resolve Name Collisions")
+        dialog.transient(parent_dialog)
+        dialog.grab_set()
+        dialog.geometry("+{}+{}".format(
+            parent_dialog.winfo_rootx() + 30,
+            parent_dialog.winfo_rooty() + 30,
+        ))
+
+        frame = ttk.Frame(dialog, padding=15)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(
+            frame,
+            text="These image_names appear in both source databases.\n"
+                 "Provide a new name for the second source's copy:",
+            justify=tk.LEFT,
+        ).pack(anchor=tk.W, pady=(0, 10))
+
+        entries: Dict[str, tk.StringVar] = {}
+        for name in sorted(collisions):
+            row = ttk.Frame(frame)
+            row.pack(fill=tk.X, pady=2)
+            ttk.Label(row, text=name, width=24, anchor=tk.W).pack(side=tk.LEFT)
+            ttk.Label(row, text="→").pack(side=tk.LEFT, padx=4)
+            var = tk.StringVar(value=f"{name}_2")
+            ttk.Entry(row, textvariable=var, width=28).pack(
+                side=tk.LEFT, fill=tk.X, expand=True,
+            )
+            entries[name] = var
+
+        result = {"ok": False}
+
+        def on_ok():
+            # Validate the new names: non-empty and unique within this dialog.
+            chosen = {}
+            for name, var in entries.items():
+                new = var.get().strip()
+                if not new:
+                    messagebox.showerror(
+                        "Empty Name",
+                        f"Please provide a replacement for '{name}'.",
+                        parent=dialog,
+                    )
+                    return
+                if new in chosen.values():
+                    messagebox.showerror(
+                        "Duplicate",
+                        f"Replacement '{new}' is used more than once.",
+                        parent=dialog,
+                    )
+                    return
+                chosen[name] = new
+            # Only the second source gets renamed; the first keeps its name.
+            for name, new in chosen.items():
+                rename_map[(src_b, name)] = new
+            result["ok"] = True
+            dialog.destroy()
+
+        btn_row = ttk.Frame(frame)
+        btn_row.pack(fill=tk.X, pady=(10, 0))
+        ttk.Button(btn_row, text="OK", command=on_ok).pack(side=tk.RIGHT, padx=(5, 0))
+        ttk.Button(btn_row, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT)
+
+        dialog.wait_window()
+        return result["ok"]
+
     def _open_template_manager(self):
         """Open the Template Manager window."""
         from gui.template_manager import TemplateManager
