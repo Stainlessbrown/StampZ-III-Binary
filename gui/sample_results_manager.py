@@ -329,23 +329,26 @@ class SampleResultsManager(tk.Frame):
             lab_stddev = sample.get('lab_stddev', None)
             lab = self.library.rgb_to_lab(rgb) if self.library else None
             
-            value_text = get_conditional_color_values_text(rgb, lab, compact=True)
-            
-            # Add blank line for separation
-            value_text += "\n"
-            
+            top_text = get_conditional_color_values_text(rgb, lab, compact=True)
+
+            # Compute ΔE + breakdown so we can render the ΔE line in its own
+            # widget with a threshold-driven foreground colour. The colour
+            # bands match user expectations for stamp-colour assessment:
+            #   ≤ 1.0   → green   — imperceptible / well within tolerance
+            #   ≤ 2.3   → blue    — noticeable but still acceptable
+            #   > 2.3   → red     — clearly different
+            delta_e = None
+            role_label = None
+            breakdown = None
             if lab and sample['enabled'].get():
                 is_paper = sample['is_paper'].get()
                 group_avg = paper_avg_lab if is_paper else ink_avg_lab
                 if group_avg:
                     delta_e = analyzer.calculate_delta_e(lab, group_avg)
                     role_label = "paper" if is_paper else "ink"
-                    value_text += f"\nΔE from {role_label} avg: {delta_e:.2f}"
-                    # ΔL/ΔC/ΔH breakdown directly under the ΔE line.
-                    # In low-chroma blues a single ΔE often disagrees
-                    # with what the eye sees; the breakdown shows which
-                    # axis the disagreement is on (lighter/darker,
-                    # more/less saturated, hue rotated which way).
+                    # ΔL/ΔC/ΔH breakdown shows *which axis* the disagreement
+                    # is on — essential for low-chroma blues where a scalar
+                    # ΔE famously disagrees with what the eye reports.
                     try:
                         from utils.lab_difference import (
                             lab_difference_components,
@@ -353,17 +356,43 @@ class SampleResultsManager(tk.Frame):
                         )
                         components = lab_difference_components(lab, group_avg)
                         breakdown = format_lab_components_compact(components)
-                        value_text += f"\n  {breakdown}"
                     except Exception as e:
                         print(f"DEBUG: Δ breakdown failed: {e}")
-            
+
             # Add StdDev if available (conditionally based on user preferences)
             stddev_text = get_conditional_stddev_text(rgb_stddev, lab_stddev)
+
+            # Render the readout column. The ΔE line lives in its own label
+            # so we can colour it independently; the rest stay in plain ttk
+            # labels stacked above and below it.
+            value_col = ttk.Frame(frame)
+            value_col.pack(side=tk.LEFT, padx=20, anchor='nw')
+            ttk.Label(
+                value_col, text=top_text, font=("Arial", 12), justify=tk.LEFT,
+            ).pack(anchor='w')
+            if delta_e is not None:
+                # Threshold-banded colour for the headline ΔE.
+                if delta_e <= 1.0:
+                    de_color = "#008800"   # green
+                elif delta_e <= 2.3:
+                    de_color = "#0066CC"   # blue
+                else:
+                    de_color = "#CC0000"   # red
+                ttk.Label(
+                    value_col,
+                    text=f"ΔE from {role_label} avg: {delta_e:.2f}",
+                    font=("Arial", 12, "bold"),
+                    foreground=de_color,
+                ).pack(anchor='w', pady=(6, 0))
+                if breakdown:
+                    ttk.Label(
+                        value_col, text=f"  {breakdown}",
+                        font=("Arial", 12),
+                    ).pack(anchor='w')
             if stddev_text:
-                value_text += f"\n{stddev_text}"
-            
-            ttk.Label(frame, text=value_text, font=("Arial", 12)).pack(
-                side=tk.LEFT, padx=20)
+                ttk.Label(
+                    value_col, text=stddev_text, font=("Arial", 12),
+                ).pack(anchor='w', pady=(6, 0))
             
             # Color swatch using canvas - increased height to accommodate multi-line text
             canvas = tk.Canvas(

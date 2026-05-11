@@ -15,7 +15,7 @@ def create_plotly_visualization(df, show_trendline=False, show_polynomial=False,
                                 show_green_trendline=False, show_blue_trendline=False,
                                 trendline_manager=None, show_spheres=False, 
                                 sphere_data=None, initial_elev=30, initial_azim=-60, initial_roll=0, 
-                                axis_ranges=None):
+                                axis_ranges=None, ellipsoid_traces=None):
     """Create an interactive Plotly 3D scatter plot from DataFrame.
     
     Args:
@@ -250,6 +250,12 @@ def create_plotly_visualization(df, show_trendline=False, show_polynomial=False,
     # Add spheres if requested
     if show_spheres and sphere_data is not None:
         _add_spheres_to_plot(fig, sphere_data)
+
+    # Add ellipsoids (whole-stamp or per-tone, depending on what the manager
+    # has been told to render). Each trace dict was already prepared by
+    # `EllipsoidManager.get_render_traces()` so we just hand it off.
+    if ellipsoid_traces:
+        _add_ellipsoids_to_plot(fig, ellipsoid_traces)
     
     # Convert matplotlib angles to Plotly camera position
     # Matplotlib: elev (elevation), azim (azimuth), roll
@@ -405,7 +411,7 @@ def open_interactive_view(df, show_trendline=True, show_polynomial=False, show_c
                          show_green_trendline=False, show_blue_trendline=False,
                          trendline_manager=None, show_spheres=True, 
                          sphere_data=None, initial_elev=30, initial_azim=-60, initial_roll=0, 
-                         axis_ranges=None):
+                         axis_ranges=None, ellipsoid_traces=None):
     """Open an interactive Plotly view of the data in the browser.
     
     Args:
@@ -431,10 +437,91 @@ def open_interactive_view(df, show_trendline=True, show_polynomial=False, show_c
                                          show_green_trendline, show_blue_trendline,
                                          trendline_manager, show_spheres, 
                                          sphere_data, initial_elev, initial_azim, initial_roll, 
-                                         axis_ranges)
+                                         axis_ranges, ellipsoid_traces=ellipsoid_traces)
         fig.show()
         print("Opened interactive Plotly view in browser")
     except Exception as e:
         print(f"Error opening Plotly view: {e}")
         import traceback
         traceback.print_exc()
+
+
+def _add_ellipsoids_to_plot(fig, traces):
+    """Add ellipsoid renderings (1σ shell + 2σ shell + centroid + major axis).
+
+    Each ellipsoid becomes 4 traces grouped under a single ``legendgroup`` so
+    clicking the legend entry toggles the whole ellipsoid (inner + outer +
+    centroid marker + axis line). Only the inner shell shows in the legend;
+    the other three carry ``showlegend=False`` to keep the legend tidy while
+    still inheriting the group toggle.
+
+    Args:
+        fig: Plotly Figure to mutate
+        traces: list of dicts as produced by ``EllipsoidManager.get_render_traces()``
+    """
+    for t in traces:
+        label = t.get('label', 'ellipsoid')
+        colour = t.get('colour', 'gray')
+        n_samples = t.get('n_samples', 0)
+        group = label   # legendgroup tag — ties the 4 traces together
+
+        # 1σ inner shell (denser fill, shown in legend) — matches the
+        # matplotlib alpha (0.18) so the two views look consistent.
+        Xi, Yi, Zi = t['mesh_inner']
+        fig.add_trace(go.Surface(
+            x=Xi, y=Yi, z=Zi,
+            colorscale=[[0, colour], [1, colour]],
+            showscale=False,
+            opacity=0.18,
+            name=f"{label} (n={n_samples})",
+            legendgroup=group,
+            showlegend=True,
+            hovertemplate=(
+                f"<b>{label}</b><br>n={n_samples}<br>1σ contour<extra></extra>"
+            ),
+        ))
+
+        # 2σ outer shell (lighter; hidden from legend but inherits the toggle)
+        Xo, Yo, Zo = t['mesh_outer']
+        fig.add_trace(go.Surface(
+            x=Xo, y=Yo, z=Zo,
+            colorscale=[[0, colour], [1, colour]],
+            showscale=False,
+            opacity=0.07,
+            name=f"{label} (2σ)",
+            legendgroup=group,
+            showlegend=False,
+            hoverinfo='skip',
+        ))
+
+        # Centroid marker — the "middle tone" of the group, X-shaped to match
+        # the matplotlib renderer.
+        cx, cy, cz = t['centroid']
+        fig.add_trace(go.Scatter3d(
+            x=[cx], y=[cy], z=[cz],
+            mode='markers',
+            marker=dict(
+                symbol='x', size=6, color=colour,
+                line=dict(width=1, color='black'),
+            ),
+            name=f"{label} centroid",
+            legendgroup=group,
+            showlegend=False,
+            hovertemplate=(
+                f"<b>{label}</b><br>centroid: "
+                f"({cx:.4f}, {cy:.4f}, {cz:.4f})<extra></extra>"
+            ),
+        ))
+
+        # Major-axis trend line through the centroid along the longest
+        # principal direction — same 3σ extent as the matplotlib version.
+        p0, p1 = t['axis_line']
+        fig.add_trace(go.Scatter3d(
+            x=[p0[0], p1[0]], y=[p0[1], p1[1]], z=[p0[2], p1[2]],
+            mode='lines',
+            line=dict(color=colour, width=3),
+            name=f"{label} axis",
+            legendgroup=group,
+            showlegend=False,
+            hoverinfo='skip',
+        ))

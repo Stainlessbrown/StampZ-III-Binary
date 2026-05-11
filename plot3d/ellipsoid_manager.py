@@ -18,7 +18,7 @@ belongs in StampZ's existing k-means manager, not here.
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -37,6 +37,13 @@ DEFAULT_ALPHA_INNER = 0.18
 DEFAULT_SIGMA_OUTER = 2.0
 DEFAULT_ALPHA_OUTER = 0.07
 
+# How far the major-axis trend line extends from the centroid, expressed
+# in sigmas of the longest principal axis. The 2σ outer shell ends at
+# `DEFAULT_SIGMA_OUTER`; setting this higher (3.0) makes the line poke
+# visibly *beyond* the ellipsoid surface so the elongation direction
+# stays readable even when the ellipsoid is dense or viewed end-on.
+DEFAULT_AXIS_EXTENT = 3.0
+
 # Distinct colours for stamps. Cycled deterministically by sort order
 # so the same stamp always gets the same colour across renders.
 _STAMP_COLOUR_CYCLE = [
@@ -52,10 +59,23 @@ class EllipsoidManager:
     MODE_WHOLE = "whole"
     MODE_TONE = "tone"
 
-    def __init__(self, ax, canvas, data_df: pd.DataFrame):
+    def __init__(
+        self,
+        ax,
+        canvas,
+        data_df: pd.DataFrame,
+        is_color_visible: Optional[Callable[[str], bool]] = None,
+    ):
         self.ax = ax
         self.canvas = canvas
         self.data_df = data_df
+        # Optional callback: given a raw colour name from the worksheet's
+        # Color/Sphere column (e.g. 'red', 'green'), return True if it
+        # should currently be rendered. Plot_3D wires this to the sphere
+        # visibility panel so toggling a sphere colour hides the matching
+        # ellipsoids too — unified per-colour visibility without adding
+        # a second checkbox panel for ellipsoids.
+        self.is_color_visible: Optional[Callable[[str], bool]] = is_color_visible
 
         # Render state.
         self._artists: List = []                                      # mpl objects to clear on next render
@@ -66,6 +86,10 @@ class EllipsoidManager:
         # Cached fits (lazy, invalidated by update_references()).
         self._fits_whole: Optional[Dict[str, EllipsoidFit]] = None
         self._fits_tone: Optional[Dict[Tuple[str, int], EllipsoidFit]] = None
+        # Per-tone sphere colour, harvested from the data rows' Color
+        # column at fit time. None when no explicit colour is set in the
+        # worksheet — callers fall back to the per-stamp cycling colour.
+        self._tone_colour: Dict[Tuple[str, int], Optional[str]] = {}
 
         self.logger = logging.getLogger(__name__)
 
@@ -121,6 +145,81 @@ class EllipsoidManager:
             return {}
         return {s: f.n_samples for s, f in self._fits_whole.items()}
 
+    def get_render_traces(self) -> List[Dict]:
+        """Return serializable trace specs for the currently visible ellipsoids.
+
+        Each dict describes one ellipsoid in a renderer-agnostic form so that
+        downstream code (matplotlib, Plotly, Plot_3D's exports, ad-hoc scripts)
+        can lay it out however it likes. Reflects all current state: master
+        toggle, mode (whole/per-tone), per-stamp toggles, and the optional
+        ``is_color_visible`` callback.
+
+        Keys per trace:
+            ``label``       — human-readable name ("stamp 170", "stamp 174 cluster 2")
+            ``colour``      — colour name / hex compatible with matplotlib & Plotly
+            ``centroid``    — (x, y, z) tuple in plot space
+            ``mesh_inner``  — (X, Y, Z) grids for the 1σ surface
+            ``mesh_outer``  — (X, Y, Z) grids for the 2σ surface
+            ``axis_line``   — ((x0,y0,z0), (x1,y1,z1)) for the major-axis segment
+            ``n_samples``   — included-sample count for hover labels
+        Returns an empty list when the master toggle is off or there are no
+        ellipsoids to render in the current mode.
+        """
+        if not self._master_visible:
+            return []
+        self._ensure_fits()
+        traces: List[Dict] = []
+        if self._mode == self.MODE_WHOLE:
+            for stamp, fit in (self._fits_whole or {}).items():
+                if not self.visibility_states.get(stamp, True):
+                    continue
+                colour = self._stamp_colour(stamp)
+                traces.append(self._make_trace_spec(
+                    f"stamp {stamp}", fit, colour,
+                ))
+        else:
+            for (stamp, cluster), fit in (self._fits_tone or {}).items():
+                if not self.visibility_states.get(stamp, True):
+                    continue
+                raw_colour = self._tone_colour.get((stamp, cluster))
+                if raw_colour and self.is_color_visible is not None:
+                    try:
+                        if not self.is_color_visible(raw_colour):
+                            continue
+                    except Exception:
+                        pass
+                colour = raw_colour or self._stamp_colour(stamp)
+                traces.append(self._make_trace_spec(
+                    f"stamp {stamp} cluster {cluster}", fit, colour,
+                ))
+        return traces
+
+    def _make_trace_spec(self, label: str, fit: EllipsoidFit, colour: str) -> Dict:
+        """Build the renderer-agnostic dict described in ``get_render_traces``."""
+        with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+            Xi, Yi, Zi = ellipsoid_mesh(fit, sigma=DEFAULT_SIGMA_INNER)
+            Xo, Yo, Zo = ellipsoid_mesh(
+                fit, sigma=DEFAULT_SIGMA_OUTER, n_u=22, n_v=12,
+            )
+            vals, vecs = principal_axes(fit)
+            major = vecs[:, 0]
+            half = DEFAULT_AXIS_EXTENT * float(np.sqrt(max(vals[0], 0.0)))
+            centre = fit.centroid
+            p0 = centre - half * major
+            p1 = centre + half * major
+        return {
+            "label": label,
+            "colour": colour,
+            "centroid": tuple(float(v) for v in fit.centroid),
+            "mesh_inner": (Xi, Yi, Zi),
+            "mesh_outer": (Xo, Yo, Zo),
+            "axis_line": (
+                tuple(float(v) for v in p0),
+                tuple(float(v) for v in p1),
+            ),
+            "n_samples": int(fit.n_samples),
+        }
+
     def clear(self) -> None:
         """Remove all ellipsoid artists from the current axis."""
         for art in self._artists:
@@ -154,6 +253,7 @@ class EllipsoidManager:
     def _invalidate(self) -> None:
         self._fits_whole = None
         self._fits_tone = None
+        self._tone_colour = {}
 
     def _ensure_fits(self) -> None:
         if self._fits_whole is None or self._fits_tone is None:
@@ -240,6 +340,26 @@ class EllipsoidManager:
                         self._fits_tone[(stamp, c_int)] = fit_ellipsoid(
                             cpts, prior_variance=norm_prior_variance,
                         )
+                        # Harvest the colour the user assigned to this
+                        # cluster's data points (mirrors the Sphere colour
+                        # on the centroid row when one exists). Mode value
+                        # is robust to occasional inconsistencies.
+                        try:
+                            colours = (
+                                cgroup["Color"].dropna().astype(str).str.strip()
+                                if "Color" in cgroup.columns else None
+                            )
+                            if colours is not None and not colours.empty:
+                                mode_series = colours.mode()
+                                if not mode_series.empty:
+                                    self._tone_colour[(stamp, c_int)] = (
+                                        str(mode_series.iloc[0])
+                                    )
+                        except Exception as ce:
+                            self.logger.debug(
+                                "Colour harvest failed for %s/%s: %s",
+                                stamp, cluster_val, ce,
+                            )
                     except Exception as e:
                         self.logger.warning(
                             "Per-tone fit failed for %s cluster %s: %s",
@@ -265,10 +385,24 @@ class EllipsoidManager:
             self._draw_one(fit, self._stamp_colour(stamp))
 
     def _render_tone(self) -> None:
-        for (stamp, _cluster), fit in (self._fits_tone or {}).items():
+        for (stamp, cluster), fit in (self._fits_tone or {}).items():
             if not self.visibility_states.get(stamp, True):
                 continue
-            self._draw_one(fit, self._stamp_colour(stamp))
+            # Prefer the cluster's own Sphere/Color (matches the sphere
+            # rendering); fall back to the per-stamp cycling colour when
+            # the worksheet doesn't specify one for this cluster.
+            raw_colour = self._tone_colour.get((stamp, cluster))
+            if raw_colour and self.is_color_visible is not None:
+                try:
+                    if not self.is_color_visible(raw_colour):
+                        continue   # respect the sphere-panel toggle
+                except Exception as e:
+                    self.logger.debug(
+                        "is_color_visible callback failed for %r: %s",
+                        raw_colour, e,
+                    )
+            colour = raw_colour or self._stamp_colour(stamp)
+            self._draw_one(fit, colour)
 
     def _draw_one(self, fit: EllipsoidFit, colour: str) -> None:
         # Suppress matplotlib's divide/overflow warnings on near-degenerate
@@ -309,12 +443,14 @@ class EllipsoidManager:
                 self.logger.warning("Centroid marker failed: %s", e)
 
             # Major-axis line: short segment through the centroid along the
-            # ellipsoid's longest principal eigenvector, length = 2σ extent.
-            # Makes the elongation direction unambiguous at any view angle.
+            # ellipsoid's longest principal eigenvector, length controlled
+            # by ``DEFAULT_AXIS_EXTENT`` (sigmas). With the default of 3σ
+            # the line extends past the 2σ outer surface so the
+            # elongation direction stays readable from any view angle.
             try:
                 vals, vecs = principal_axes(fit)
                 major = vecs[:, 0]
-                half = DEFAULT_SIGMA_OUTER * float(np.sqrt(max(vals[0], 0.0)))
+                half = DEFAULT_AXIS_EXTENT * float(np.sqrt(max(vals[0], 0.0)))
                 centre = fit.centroid
                 p0 = centre - half * major
                 p1 = centre + half * major

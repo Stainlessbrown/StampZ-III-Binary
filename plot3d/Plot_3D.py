@@ -1926,8 +1926,21 @@ class Plot3DApp:
         
         # Initialize sphere manager now that figure exists
         self.sphere_manager = SphereManager(self.fig.gca(), self.canvas, self.df)
-        # Initialize ellipsoid manager (purely additive — sphere behaviour unchanged)
-        self.ellipsoid_manager = EllipsoidManager(self.fig.gca(), self.canvas, self.df)
+        # Initialize ellipsoid manager (purely additive — sphere behaviour unchanged).
+        # Wire its colour-visibility callback to the sphere panel so toggling a
+        # sphere colour hides the matching per-tone ellipsoids too. We map the
+        # raw worksheet colour name through the same `_get_color` used by the
+        # sphere renderer, then look it up in `visibility_states`.
+        def _is_ellipsoid_color_visible(raw_color: str) -> bool:
+            try:
+                mapped = self.sphere_manager._get_color(raw_color)
+                return bool(self.sphere_manager.visibility_states.get(mapped, True))
+            except Exception:
+                return True
+        self.ellipsoid_manager = EllipsoidManager(
+            self.fig.gca(), self.canvas, self.df,
+            is_color_visible=_is_ellipsoid_color_visible,
+        )
         # Tk variables backing the ellipsoid UI panel
         self.ellipsoid_master_visible = tk.BooleanVar(value=False)
         self.ellipsoid_mode_var = tk.StringVar(value=EllipsoidManager.MODE_WHOLE)
@@ -2442,6 +2455,18 @@ class Plot3DApp:
                 except Exception as e:
                     print(f"Could not get axis limits: {e}")
             
+            # Gather ellipsoid traces (a snapshot of the manager's current
+            # state — master toggle, mode, per-stamp + per-colour visibility).
+            # The manager returns a renderer-agnostic list which plotly_viewer
+            # turns into go.Surface/Scatter3d traces.
+            ellipsoid_traces = []
+            if hasattr(self, 'ellipsoid_manager') and self.ellipsoid_manager is not None:
+                try:
+                    ellipsoid_traces = self.ellipsoid_manager.get_render_traces()
+                    print(f"DEBUG: Exporting {len(ellipsoid_traces)} ellipsoid trace(s) to Plotly")
+                except Exception as e:
+                    print(f"Warning: could not fetch ellipsoid traces for Plotly: {e}")
+            
             # Open the interactive view
             print(f"Opening Plotly interactive view... show_spheres={show_spheres}, sphere_data is None: {sphere_data is None}")
             if sphere_data is not None:
@@ -2461,7 +2486,8 @@ class Plot3DApp:
                                 initial_elev=initial_elev, 
                                 initial_azim=initial_azim, 
                                 initial_roll=initial_roll,
-                                axis_ranges=axis_ranges)
+                                axis_ranges=axis_ranges,
+                                ellipsoid_traces=ellipsoid_traces)
             
         except Exception as e:
             print(f"Error opening Plotly view: {e}")

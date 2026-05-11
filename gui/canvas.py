@@ -998,10 +998,10 @@ class CropCanvas(tk.Canvas):
         )
         
         # ΔE HUD: only meaningful once we have ≥2 enabled samples (so there is
-        # an average to compare against). Placed below the marker so it doesn't
-        # overlap the sample-number label above, rendered at 12pt bold on a
-        # white background with a status-coloured border for readability
-        # regardless of what's under it on the stamp.
+        # an average to compare against). Placed **above** the marker so the
+        # mouse cursor sitting on the sample point doesn't cover it. Rendered
+        # at 12pt bold on a white background with a status-coloured border for
+        # readability regardless of what's under it on the stamp.
         # 
         # The HUD is two lines: the scalar ΔE on top (the headline
         # number, status-coloured), and the ΔL/ΔC/ΔH decomposition
@@ -1010,7 +1010,10 @@ class CropCanvas(tk.Canvas):
         # famously unreliable).
         if delta_e is not None and self._live_delta_e_enabled():
             max_half = max(screen_width, screen_height) / 2
-            label_offset = int(max(18, max_half + 14))
+            # Slightly larger clearance than the previous below-marker
+            # placement so the HUD doesn't brush against the sample-number
+            # label drawn at (screen_x + 12, screen_y - 12).
+            label_offset = int(max(22, max_half + 18))
             hud_font = ("Arial", 12, "bold")
             
             # Try to fetch the Δ components from the live model. If
@@ -1035,12 +1038,17 @@ class CropCanvas(tk.Canvas):
                 except Exception:
                     pass
             
+            # anchor='s' (south) anchors the text by its bottom-centre, so
+            # the bottom of the HUD sits at ``screen_y - label_offset`` and
+            # the text grows upward. This keeps the HUD a fixed gap above
+            # the marker regardless of how many lines it has.
             text_id = self.create_text(
-                screen_x, screen_y + label_offset,
+                screen_x, screen_y - label_offset,
                 text=hud_text,
                 fill=outline_color,
                 font=hud_font,
                 justify="center",
+                anchor="s",
                 tags=(marker["tag"], hud_tag),
             )
             # Put a white rounded-ish background behind the text and re-raise
