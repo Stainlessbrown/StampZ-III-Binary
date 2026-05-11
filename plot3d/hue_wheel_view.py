@@ -206,10 +206,67 @@ class HueWheelViewer:
             print(f"DEBUG: Error during Hue Wheel cleanup: {e}")
     
     def _reset_zoom(self, ax):
-        """Reset zoom to original view."""
+        """Reset zoom to original view (both radius and theta)."""
         if hasattr(self, 'original_r_lim'):
             ax.set_ylim(self.original_r_lim)
-            self.canvas.draw()
+        if hasattr(self, 'original_theta_lim'):
+            ax.set_xlim(self.original_theta_lim)
+        # Restore the full-wheel tick set after reset so the named
+        # anchors (Red/Yellow/Green/Blue) come back.
+        self._update_hue_ticks(ax)
+        self.canvas.draw()
+
+    def _update_hue_ticks(self, ax):
+        """Refresh polar tick positions/labels based on the current theta range.
+
+        Matplotlib only draws polar tick labels at angles that fall inside
+        ``ax.get_xlim()``. When the user box-zooms to a narrow angular slice,
+        the wide 30° default tick grid often has *no* ticks in the visible
+        range and the user loses their hue reference. This helper picks an
+        adaptive interval based on the current visible range and stamps
+        labels every N degrees so a few hue values are always on screen.
+
+        The named anchors (Red/Yellow/Green/Blue at 0/90/180/270°) are
+        included whenever they land on a tick at the chosen interval and
+        the range is wide enough that the longer two-line label fits.
+        """
+        import math
+        xlim = ax.get_xlim()
+        theta_min_deg = np.rad2deg(xlim[0])
+        theta_max_deg = np.rad2deg(xlim[1])
+        range_deg = theta_max_deg - theta_min_deg
+
+        # Adaptive tick interval: more ticks on tighter zooms.
+        if range_deg >= 180:
+            interval = 30          # 12 ticks across the full wheel
+        elif range_deg >= 90:
+            interval = 15
+        elif range_deg >= 30:
+            interval = 5
+        elif range_deg >= 10:
+            interval = 2
+        else:
+            interval = 1
+
+        # Round bounds to the interval and build the tick array.
+        first = math.floor(theta_min_deg / interval) * interval
+        last = math.ceil(theta_max_deg / interval) * interval
+        ticks_deg = np.arange(first, last + interval, interval)
+
+        # Build labels. Named anchors get the two-line decoration when
+        # the visible range is wide enough that the extra text doesn't
+        # collide with neighbouring ticks.
+        named = {0: 'Red', 90: 'Yellow', 180: 'Green', 270: 'Blue'}
+        labels = []
+        for d in ticks_deg:
+            d_mod = int(round(d)) % 360
+            if d_mod in named and range_deg >= 60:
+                labels.append(f"{d_mod}°\n({named[d_mod]})")
+            else:
+                labels.append(f"{int(round(d))}°")
+
+        ax.set_xticks(np.deg2rad(ticks_deg))
+        ax.set_xticklabels(labels)
     
     def _setup_interactive_zoom(self, ax):
         """Setup interactive box zoom with mouse click and drag."""
@@ -323,6 +380,8 @@ class HueWheelViewer:
                 # Set new limits
                 ax.set_ylim(r_min, r_max)
                 ax.set_xlim(theta_min, theta_max)
+                # Refresh ticks so hue labels stay visible at the new zoom.
+                self._update_hue_ticks(ax)
                 print(f"DEBUG: Zooming to selected region")
                 self.canvas.draw()
             else:
@@ -638,10 +697,10 @@ class HueWheelViewer:
         ax.set_ylim(0, max_chroma)
         ax.set_ylabel('Chroma (C*)', fontsize=12, labelpad=30)
         
-        # Add hue angle labels
-        ax.set_xticks(np.deg2rad([0, 45, 90, 135, 180, 225, 270, 315]))
-        ax.set_xticklabels(['0°\n(Red)', '45°', '90°\n(Yellow)', '135°', 
-                           '180°\n(Green)', '225°', '270°\n(Blue)', '315°'])
+        # Add hue angle labels. The helper picks an adaptive density (every
+        # 30° at the full wheel, finer when zoomed in) so hue values are
+        # always visible regardless of zoom level.
+        self._update_hue_ticks(ax)
         
         # Title
         ax.set_title(
@@ -671,9 +730,11 @@ class HueWheelViewer:
         ttk.Label(controls_left, text="Click & drag to zoom |").pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(controls_left, text="🏠 Reset View", command=lambda: self._reset_zoom(ax), width=12).pack(side=tk.LEFT, padx=2)
         
-        # Store axis and original limits for zoom
+        # Store axis and original limits for zoom (both axes, so the
+        # reset button can restore theta as well as radius).
         self.current_ax = ax
         self.original_r_lim = ax.get_ylim()
+        self.original_theta_lim = ax.get_xlim()
         
         # Enable interactive box zoom with mouse (left-click drag)
         self._setup_interactive_zoom(ax)
