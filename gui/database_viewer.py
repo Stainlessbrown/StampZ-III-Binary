@@ -836,14 +836,31 @@ class DatabaseViewer:
             parent=self.dialog,
         )
 
-    def _move_measurement_set(self):
-        """Move one image's measurement set from the current DB to another.
+    @staticmethod
+    def _next_free_name(base: str, taken: set) -> str:
+        """Return ``base`` if free, otherwise ``base(2)``, ``base(3)``, …
 
-        A measurement set in StampZ corresponds to one image (one row in
-        ``measurement_sets``). The user picks which image_name to move
-        and which destination DB receives it. If the destination already
-        holds the same image_name, a rename-on-arrival prompt fires so
-        nothing is silently merged.
+        ``taken`` is treated as a live set of names already in use; the
+        caller is expected to add the returned name back to ``taken``
+        before computing the next one so a batch produces unique names.
+        """
+        if base not in taken:
+            return base
+        n = 2
+        while f"{base}({n})" in taken:
+            n += 1
+        return f"{base}({n})"
+
+    def _move_measurement_set(self):
+        """Move one or more measurement sets from the current DB to another.
+
+        Each measurement set in StampZ corresponds to one image (one row
+        in ``measurement_sets``). The user picks any number of image_names
+        to move — the list supports shift/cmd-click for multi-select —
+        plus the destination DB. Collisions with the destination are
+        resolved automatically by appending ``(2)``, ``(3)``, … to the
+        DataID so nothing is silently merged. A summary of what was
+        renamed is shown in the success message.
         """
         if self.data_source.get() != "color_analysis":
             messagebox.showinfo(
@@ -887,7 +904,7 @@ class DatabaseViewer:
             return
 
         dialog = tk.Toplevel(self.dialog)
-        dialog.title("Move Measurement Set")
+        dialog.title("Move Measurement Sets")
         dialog.transient(self.dialog)
         dialog.grab_set()
         dialog.geometry("+{}+{}".format(
@@ -904,26 +921,60 @@ class DatabaseViewer:
             font=("Arial", 11, "bold"),
         ).pack(anchor=tk.W, pady=(0, 8))
 
-        ttk.Label(frame, text="Measurement set (image):").pack(anchor=tk.W)
-        image_var = tk.StringVar(value=image_names[0])
-        image_combo = ttk.Combobox(
-            frame, values=image_names, textvariable=image_var,
-            state="readonly", width=40,
+        ttk.Label(
+            frame,
+            text="Measurement sets to move (shift/cmd-click for multiple):",
+        ).pack(anchor=tk.W)
+
+        # Listbox with scrollbar so very long DBs stay navigable.
+        list_frame = ttk.Frame(frame)
+        list_frame.pack(fill=tk.BOTH, expand=True, pady=(2, 10))
+        listbox = tk.Listbox(
+            list_frame, selectmode=tk.EXTENDED, height=10,
+            exportselection=False,
         )
-        image_combo.pack(fill=tk.X, pady=(2, 10))
+        list_scroll = ttk.Scrollbar(
+            list_frame, orient=tk.VERTICAL, command=listbox.yview,
+        )
+        listbox.configure(yscrollcommand=list_scroll.set)
+        listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        list_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        for name in image_names:
+            listbox.insert(tk.END, name)
+        listbox.selection_set(0)
+
+        # Convenience: Select-All / Clear buttons under the list.
+        list_btns = ttk.Frame(frame)
+        list_btns.pack(fill=tk.X, pady=(0, 10))
+        ttk.Button(
+            list_btns, text="Select All",
+            command=lambda: listbox.selection_set(0, tk.END),
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            list_btns, text="Clear",
+            command=lambda: listbox.selection_clear(0, tk.END),
+        ).pack(side=tk.LEFT, padx=(5, 0))
 
         ttk.Label(frame, text="Destination database:").pack(anchor=tk.W)
         target_var = tk.StringVar(value=targets[0])
-        target_combo = ttk.Combobox(
+        ttk.Combobox(
             frame, values=targets, textvariable=target_var,
             state="readonly", width=40,
-        )
-        target_combo.pack(fill=tk.X, pady=(2, 10))
+        ).pack(fill=tk.X, pady=(2, 10))
 
         def do_move():
-            image_name = image_var.get()
+            selected_indices = listbox.curselection()
+            if not selected_indices:
+                messagebox.showinfo(
+                    "Nothing Selected",
+                    "Please select at least one measurement set to move.",
+                    parent=dialog,
+                )
+                return
+            selected_names = [image_names[i] for i in selected_indices]
+
             target_name = target_var.get()
-            if not image_name or not target_name:
+            if not target_name:
                 return
 
             dst_path = os.path.join(data_dir, f"{target_name}.db")
@@ -935,51 +986,48 @@ class DatabaseViewer:
                 )
                 return
 
-            # Collision check against the destination.
-            rename_to = None
-            existing = db_operations.list_image_names(dst_path)
-            if image_name in existing:
-                new_name = simpledialog.askstring(
-                    "Image Name In Use",
-                    f"'{target_name}' already contains '{image_name}'.\n"
-                    "Enter a new image_name to use on arrival\n"
-                    "(or Cancel to abort the move):",
-                    initialvalue=f"{image_name}_2",
-                    parent=dialog,
-                )
-                if not new_name:
-                    return
-                rename_to = new_name.strip()
-                if not rename_to or rename_to in existing:
-                    messagebox.showerror(
-                        "Invalid Name",
-                        "That name is empty or already used in the destination.",
-                        parent=dialog,
-                    )
-                    return
+            # Live view of what's in the destination; we append each
+            # final name as it gets used so a batch of N items with the
+            # same base all get unique suffixes.
+            taken = set(db_operations.list_image_names(dst_path))
+            total_moved = 0
+            renamed: List[tuple] = []  # (original, final)
+            errors: List[str] = []
 
-            try:
-                moved = db_operations.move_measurement_set(
-                    src_path, dst_path, image_name, rename_to=rename_to,
-                )
-            except Exception as e:
-                messagebox.showerror(
-                    "Move Failed",
-                    f"Could not move measurement set:\n{e}",
-                    parent=dialog,
-                )
-                return
+            for image_name in selected_names:
+                final_name = self._next_free_name(image_name, taken)
+                rename_to = final_name if final_name != image_name else None
+                try:
+                    moved = db_operations.move_measurement_set(
+                        src_path, dst_path, image_name, rename_to=rename_to,
+                    )
+                except Exception as e:
+                    errors.append(f"{image_name}: {e}")
+                    continue
+                total_moved += moved
+                taken.add(final_name)
+                if rename_to:
+                    renamed.append((image_name, final_name))
 
             dialog.destroy()
             self._refresh_data()
-            shown_name = rename_to or image_name
-            messagebox.showinfo(
-                "Move Complete",
-                f"Moved '{image_name}' to '{target_name}' "
-                f"({moved} measurement{'s' if moved != 1 else ''})"
-                + (f" as '{shown_name}'." if rename_to else "."),
-                parent=self.dialog,
+
+            msg = (
+                f"Moved {len(selected_names) - len(errors)} measurement set"
+                f"{'s' if len(selected_names) - len(errors) != 1 else ''} "
+                f"({total_moved} rows) to '{target_name}'."
             )
+            if renamed:
+                rename_lines = "\n".join(
+                    f"  • {orig} → {new}" for orig, new in renamed
+                )
+                msg += (
+                    f"\n\nDataID collisions auto-renamed:\n{rename_lines}"
+                )
+            if errors:
+                err_lines = "\n".join(f"  • {e}" for e in errors)
+                msg += f"\n\nErrors:\n{err_lines}"
+            messagebox.showinfo("Move Complete", msg, parent=self.dialog)
 
         btn_row = ttk.Frame(frame)
         btn_row.pack(fill=tk.X, pady=(5, 0))
@@ -1061,8 +1109,8 @@ class DatabaseViewer:
         ttk.Label(
             frame,
             text="Both source databases are left untouched.\n"
-                 "If they share image_names you'll be asked to rename\n"
-                 "the conflicting ones before the merge runs.",
+                 "If they share DataIDs, the duplicates from the second\n"
+                 "source are auto-renamed with (2), (3), … suffixes.",
             font=("Arial", 9), foreground="gray",
         ).pack(anchor=tk.W, pady=(0, 10))
 
@@ -1090,14 +1138,20 @@ class DatabaseViewer:
             src_a = os.path.join(data_dir, f"{self.current_sample_set}.db")
             src_b = os.path.join(data_dir, f"{other_name}.db")
 
-            # Pre-flight collision check; collect a rename_map from the user.
-            collisions = db_operations.find_collisions([src_a, src_b])
+            # Auto-resolve collisions by appending (2), (3), … to the
+            # second source's duplicate DataIDs. Source A keeps its
+            # original names; source B yields where they overlap.
+            names_a = db_operations.list_image_names(src_a)
+            names_b = db_operations.list_image_names(src_b)
+            taken = set(names_a)
             rename_map: Dict[tuple, str] = {}
-            if collisions:
-                if not self._resolve_merge_collisions(
-                    dialog, collisions, src_a, src_b, rename_map,
-                ):
-                    return  # user cancelled
+            renamed: List[tuple] = []  # (original, final) for the summary
+            for name in names_b:
+                final = self._next_free_name(name, taken)
+                taken.add(final)
+                if final != name:
+                    rename_map[(src_b, name)] = final
+                    renamed.append((name, final))
 
             # Create the destination DB with the canonical schema.
             try:
@@ -1136,102 +1190,26 @@ class DatabaseViewer:
                 self._refresh_data()
             except Exception:
                 pass
-            messagebox.showinfo(
-                "Merge Complete",
+
+            msg = (
                 f"Created '{std_target}' with {rows} measurement"
                 f"{'s' if rows != 1 else ''}.\n"
-                "Source databases were not modified.",
-                parent=self.dialog,
+                "Source databases were not modified."
             )
+            if renamed:
+                rename_lines = "\n".join(
+                    f"  • {orig} → {new}" for orig, new in renamed
+                )
+                msg += (
+                    f"\n\nDataID collisions auto-renamed "
+                    f"(from '{other_name}'):\n{rename_lines}"
+                )
+            messagebox.showinfo("Merge Complete", msg, parent=self.dialog)
 
         btn_row = ttk.Frame(frame)
         btn_row.pack(fill=tk.X, pady=(5, 0))
         ttk.Button(btn_row, text="Merge", command=do_merge).pack(side=tk.RIGHT, padx=(5, 0))
         ttk.Button(btn_row, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT)
-
-    def _resolve_merge_collisions(
-        self,
-        parent_dialog: tk.Toplevel,
-        collisions: Dict[str, List[str]],
-        src_a: str,
-        src_b: str,
-        rename_map: Dict[tuple, str],
-    ) -> bool:
-        """Prompt the user to rename every colliding image_name.
-
-        Mutates ``rename_map`` in place with the entries needed by
-        ``db_operations.merge_databases``. The first source keeps the
-        original name; the user is asked to provide a replacement for
-        the second source.
-
-        Returns True on OK, False if the user cancels.
-        """
-        dialog = tk.Toplevel(parent_dialog)
-        dialog.title("Resolve Name Collisions")
-        dialog.transient(parent_dialog)
-        dialog.grab_set()
-        dialog.geometry("+{}+{}".format(
-            parent_dialog.winfo_rootx() + 30,
-            parent_dialog.winfo_rooty() + 30,
-        ))
-
-        frame = ttk.Frame(dialog, padding=15)
-        frame.pack(fill=tk.BOTH, expand=True)
-
-        ttk.Label(
-            frame,
-            text="These image_names appear in both source databases.\n"
-                 "Provide a new name for the second source's copy:",
-            justify=tk.LEFT,
-        ).pack(anchor=tk.W, pady=(0, 10))
-
-        entries: Dict[str, tk.StringVar] = {}
-        for name in sorted(collisions):
-            row = ttk.Frame(frame)
-            row.pack(fill=tk.X, pady=2)
-            ttk.Label(row, text=name, width=24, anchor=tk.W).pack(side=tk.LEFT)
-            ttk.Label(row, text="→").pack(side=tk.LEFT, padx=4)
-            var = tk.StringVar(value=f"{name}_2")
-            ttk.Entry(row, textvariable=var, width=28).pack(
-                side=tk.LEFT, fill=tk.X, expand=True,
-            )
-            entries[name] = var
-
-        result = {"ok": False}
-
-        def on_ok():
-            # Validate the new names: non-empty and unique within this dialog.
-            chosen = {}
-            for name, var in entries.items():
-                new = var.get().strip()
-                if not new:
-                    messagebox.showerror(
-                        "Empty Name",
-                        f"Please provide a replacement for '{name}'.",
-                        parent=dialog,
-                    )
-                    return
-                if new in chosen.values():
-                    messagebox.showerror(
-                        "Duplicate",
-                        f"Replacement '{new}' is used more than once.",
-                        parent=dialog,
-                    )
-                    return
-                chosen[name] = new
-            # Only the second source gets renamed; the first keeps its name.
-            for name, new in chosen.items():
-                rename_map[(src_b, name)] = new
-            result["ok"] = True
-            dialog.destroy()
-
-        btn_row = ttk.Frame(frame)
-        btn_row.pack(fill=tk.X, pady=(10, 0))
-        ttk.Button(btn_row, text="OK", command=on_ok).pack(side=tk.RIGHT, padx=(5, 0))
-        ttk.Button(btn_row, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT)
-
-        dialog.wait_window()
-        return result["ok"]
 
     def _open_template_manager(self):
         """Open the Template Manager window."""
