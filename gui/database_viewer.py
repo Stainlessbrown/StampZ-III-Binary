@@ -186,6 +186,16 @@ class DatabaseViewer:
         self.resample_btn = ttk.Button(top_row, text="Resample...", command=self._resample_measurements)
         self.resample_btn.pack(side=tk.LEFT, padx=5)
         
+        # Workspace filter toggle (packed on the right edge of row 1).
+        # The button's label always describes the current mode so a user
+        # can never be confused about why they see fewer or more DBs than
+        # they expect. Click to flip between workspace-only and show-all.
+        self.show_workspace_only = self._load_workspace_filter_pref()
+        self.workspace_toggle_btn = ttk.Button(
+            top_row, text="…", command=self._toggle_workspace_filter,
+        )
+        self.workspace_toggle_btn.pack(side=tk.RIGHT, padx=5)
+        
         # Row 2 - Filtering and sorting
         filter_frame = ttk.Frame(controls_frame)
         filter_frame.pack(fill=tk.X, pady=(0, 5))
@@ -300,6 +310,89 @@ class DatabaseViewer:
         status_bar = ttk.Label(main_frame, textvariable=self.status_var, anchor=tk.W)
         status_bar.pack(fill=tk.X, pady=(5, 0))
     
+    # --------------------------------------------------------------- #
+    # Workspace filter helpers
+    # --------------------------------------------------------------- #
+
+    _WORKSPACE_FILTER_PREF_KEY = "database_viewer_show_workspace_only"
+
+    def _load_workspace_filter_pref(self) -> bool:
+        """Restore the persisted toggle state, defaulting to ON.
+
+        Defaults to True so returning users with a workspace immediately
+        see the curated list. The Show-All button is one click away if
+        they want everything; that mode is also remembered for next time.
+        """
+        try:
+            from utils.user_preferences import get_preferences_manager
+            mgr = get_preferences_manager()
+            return bool(mgr.get(self._WORKSPACE_FILTER_PREF_KEY, True))
+        except Exception:
+            return True
+
+    def _save_workspace_filter_pref(self, value: bool) -> None:
+        """Persist the toggle state across sessions."""
+        try:
+            from utils.user_preferences import get_preferences_manager
+            mgr = get_preferences_manager()
+            mgr.set(self._WORKSPACE_FILTER_PREF_KEY, bool(value))
+        except Exception as e:
+            print(f"DEBUG: Could not persist workspace filter pref: {e}")
+
+    def _active_workspace_db_basenames(self) -> Optional[List[str]]:
+        """Return the active workspace's DB basenames (no ``.db``).
+
+        Returns ``None`` if there's no active workspace at all (which
+        means there's nothing to filter against — the toggle will be
+        disabled). Returns ``[]`` when an active workspace exists but
+        contains zero databases (caller falls back to Show-All so the
+        user never sees an empty combobox).
+        """
+        try:
+            from utils.user_preferences import get_preferences_manager
+            mgr = get_preferences_manager()
+            if not mgr.get_active_workspace():
+                return None
+            # workspace stores filenames *with* .db, viewer uses basenames
+            with_ext = mgr.get_active_databases()
+            return [
+                f[:-3] if f.endswith(".db") else f for f in with_ext
+            ]
+        except Exception:
+            return None
+
+    def _toggle_workspace_filter(self) -> None:
+        """Flip the workspace-only / show-all mode and reload."""
+        self.show_workspace_only = not self.show_workspace_only
+        self._save_workspace_filter_pref(self.show_workspace_only)
+        self._load_sample_sets()
+
+    def _update_workspace_toggle_label(
+        self, shown: int, total: int, workspace_active: bool,
+    ) -> None:
+        """Refresh the button text + enabled state from the live counts."""
+        if not workspace_active:
+            # No workspace at all — there's nothing to toggle.
+            self.workspace_toggle_btn.configure(
+                text=f"All databases ({total})", state="disabled",
+            )
+            return
+        self.workspace_toggle_btn.configure(state="normal")
+        if self.show_workspace_only:
+            try:
+                from utils.user_preferences import get_preferences_manager
+                ws_name = get_preferences_manager().get_active_workspace()
+            except Exception:
+                ws_name = ""
+            ws_label = ws_name or "workspace"
+            self.workspace_toggle_btn.configure(
+                text=f"Workspace: {ws_label} ({shown}) \u2014 Show All",
+            )
+        else:
+            self.workspace_toggle_btn.configure(
+                text=f"Showing all ({total}) \u2014 Use Workspace",
+            )
+
     def _load_sample_sets(self):
         """Load available databases into the combobox based on selected data source."""
         try:
@@ -308,31 +401,71 @@ class DatabaseViewer:
             if self.data_source.get() == "color_analysis":
                 from utils.color_analysis_db import ColorAnalysisDB
                 data_dir = get_color_analysis_dir()
-                databases = ColorAnalysisDB.get_all_sample_set_databases(data_dir)
+                all_databases = ColorAnalysisDB.get_all_sample_set_databases(data_dir)
                 source_type = "sample sets"
             else:  # color_libraries
                 data_dir = get_color_libraries_dir()
                 if os.path.exists(data_dir):
                     # Color libraries have different naming - look for _library.db files
-                    databases = []
+                    all_databases = []
                     for f in os.listdir(data_dir):
                         if f.endswith('_library.db'):
                             # Remove _library.db suffix to get library name
-                            databases.append(f[:-11])
+                            all_databases.append(f[:-11])
                         elif f.endswith('.db') and not f.endswith('_library.db'):
                             # Also include other .db files without suffix
-                            databases.append(f[:-3])
+                            all_databases.append(f[:-3])
                 else:
-                    databases = []
+                    all_databases = []
                 source_type = "color libraries"
             
+            # Apply the workspace filter when:
+            #   1. We're looking at color-analysis sample sets (workspaces
+            #      currently track those), and
+            #   2. The user has the toggle on, and
+            #   3. There's an active workspace with at least one DB in it.
+            # If the workspace happens to be empty, we silently fall back
+            # to Show-All so the user doesn't panic over an empty combo.
+            workspace_basenames = None
+            if self.data_source.get() == "color_analysis":
+                workspace_basenames = self._active_workspace_db_basenames()
+            workspace_active = workspace_basenames is not None
+            
+            if (
+                self.show_workspace_only
+                and workspace_basenames
+            ):
+                ws_set = set(workspace_basenames)
+                databases = [d for d in all_databases if d in ws_set]
+            else:
+                databases = all_databases
+            
             print(f"DEBUG: Loading {source_type} from: {data_dir}")
-            print(f"DEBUG: Found {len(databases)} {source_type}: {databases}")
+            print(
+                f"DEBUG: Found {len(databases)}/{len(all_databases)} "
+                f"{source_type} after workspace filter "
+                f"(workspace_active={workspace_active}, "
+                f"show_workspace_only={self.show_workspace_only}): "
+                f"{databases}"
+            )
+            
+            self._update_workspace_toggle_label(
+                shown=len(databases),
+                total=len(all_databases),
+                workspace_active=workspace_active,
+            )
             
             if databases:
+                # Preserve the current selection if it's still in the new
+                # filtered list — avoids yanking the user away when they
+                # flip the toggle while inspecting a particular DB.
+                current = self.sample_set_combo.get()
                 self.sample_set_combo["values"] = databases
-                self.sample_set_combo.set(databases[0])
-                self._on_sample_set_changed(None)  # Load first database
+                if current in databases:
+                    self.sample_set_combo.set(current)
+                else:
+                    self.sample_set_combo.set(databases[0])
+                    self._on_sample_set_changed(None)  # Load first database
             else:
                 # Clear the dropdown and show appropriate message
                 self.sample_set_combo["values"] = []
@@ -340,7 +473,21 @@ class DatabaseViewer:
                 self.current_sample_set = None
                 # Clear any existing data in the tree
                 self.tree.delete(*self.tree.get_children())
-                self.status_var.set(f"No {source_type} found. Please run color analysis first.")
+                if (
+                    self.show_workspace_only
+                    and workspace_active
+                    and all_databases
+                ):
+                    # Workspace exists but the filter hides everything
+                    # currently on disk. Give a clear, non-alarming hint.
+                    self.status_var.set(
+                        "Current workspace has no matching databases — "
+                        "click the button above to Show All."
+                    )
+                else:
+                    self.status_var.set(
+                        f"No {source_type} found. Please run color analysis first."
+                    )
         
         except Exception as e:
             print(f"DEBUG: Error loading sample sets: {str(e)}")
