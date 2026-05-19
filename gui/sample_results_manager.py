@@ -1458,8 +1458,13 @@ class SampleResultsManager(tk.Frame):
                 finally:
                     self.config(cursor="")
                 
-                # 3) render the tile from the analyzer outputs
-                ink_rgb_disp = self._lab_to_display_rgb(result.ink_lab)
+                # 3) render the tile from the analyzer outputs.
+                # Use the marker average (avg_rgb) for the ink stripe
+                # colour — it is the hand-placed, quality-controlled
+                # measurement and is more accurate than the classifier-
+                # derived result.ink_lab, which can be pulled grey by
+                # boundary pixels.
+                ink_rgb_disp = tuple(int(round(c)) for c in avg_rgb)
                 paper_rgb_disp = self._lab_to_display_rgb(paper_lab)
                 cov = max(0.0, min(1.0, float(result.coverage_ratio)))
                 tile = make_striped_swatch(
