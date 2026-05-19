@@ -15,7 +15,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: windows-latest
+          - os: windows-2022
             name: windows-x64
             ext: .exe
             python-version: '3.12'
@@ -101,7 +101,7 @@ jobs:
         ls -la dist/
         
     - name: Build Windows executable
-      if: matrix.os == 'windows-latest'
+      if: matrix.os == 'windows-2022'
       shell: pwsh
       run: |
         # Windows: Use stampz.spec (onedir mode - for Inno Setup installer packaging)
@@ -160,7 +160,7 @@ jobs:
         fi
         
     - name: Package Windows output
-      if: matrix.os == 'windows-latest'
+      if: matrix.os == 'windows-2022'
       run: |
         cd dist
         echo "Current dist contents:"
@@ -199,7 +199,7 @@ jobs:
         path: dist/StampZ-III_${{ matrix.name }}.zip
         
     - name: Upload Windows artifact
-      if: matrix.os == 'windows-latest'
+      if: matrix.os == 'windows-2022'
       uses: actions/upload-artifact@v6
       with:
         name: StampZ-III_${{ matrix.name }}

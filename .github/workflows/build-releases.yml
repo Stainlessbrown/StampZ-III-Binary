@@ -37,7 +37,7 @@ jobs:
 
   build-windows:
     needs: setup-release
-    runs-on: windows-latest
+    runs-on: windows-2022
     permissions:
       contents: write
 

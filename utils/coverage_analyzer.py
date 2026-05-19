@@ -25,9 +25,11 @@ just the design region (perforated margins excluded). Behaviour:
    — the share of the cropped design that is "covered" by ink.
 
 4. ``effective_tone_lab`` is the perceptual fusion the eye sees:
-   ``coverage·ink + (1 − coverage)·paper`` blended in **linear RGB**
-   (not sRGB), then converted back to Lab. Doing the blend in sRGB
-   directly is noticeably wrong for greens and blues.
+   ``coverage·ink + (1 − coverage)·paper`` blended directly in **Lab**
+   space. Lab is perceptually uniform — equal steps look equal to the
+   eye — so this produces correct-looking midpoints. Linear-RGB blending
+   models additive light mixing (correct for screens, wrong for ink on
+   paper) and produces visually dingy, desaturated results.
 
 5. ``classification_image`` is a flat-coloured PIL image you can show
    alongside the original to sanity-check whether the segmentation
@@ -334,13 +336,19 @@ def analyze_coverage(
     coverage_ratio = (n_ink + n_cancel + 0.5 * n_edge) / float(n_visible)
     coverage_ratio = float(np.clip(coverage_ratio, 0.0, 1.0))
 
-    # ---- effective-tone Lab (linear-RGB blend) --------------------------- #
-    paper_lin = _lab_to_linear_rgb(paper_lab_t)
-    ink_lin = _lab_to_linear_rgb(ink_lab)
-    eff_lin = coverage_ratio * ink_lin + (1.0 - coverage_ratio) * paper_lin
-    effective_tone_lab = _linear_rgb_to_lab(eff_lin)
+    # ---- effective-tone Lab (Lab-space blend) --------------------------- #
+    # Blend coverage in Lab space, not linear RGB. Lab is perceptually
+    # uniform so equal steps look equal to the eye. Linear-RGB blending
+    # models additive light mixing (correct for screens) but ink-on-paper
+    # is subtractive — the linear blend produces visually dingy,
+    # desaturated midpoints that do not match what a trained eye sees.
+    eff_L = coverage_ratio * ink_lab[0] + (1.0 - coverage_ratio) * paper_lab_t[0]
+    eff_a = coverage_ratio * ink_lab[1] + (1.0 - coverage_ratio) * paper_lab_t[1]
+    eff_b = coverage_ratio * ink_lab[2] + (1.0 - coverage_ratio) * paper_lab_t[2]
+    effective_tone_lab = (eff_L, eff_a, eff_b)
 
     # sRGB triple for the swatch (rounded to int for Tk colour codes).
+    eff_lin = _lab_to_linear_rgb(effective_tone_lab)
     eff_srgb01 = _linear_to_srgb(np.clip(eff_lin, 0.0, 1.0))
     effective_tone_rgb = tuple(int(round(c * 255.0)) for c in eff_srgb01)
 
