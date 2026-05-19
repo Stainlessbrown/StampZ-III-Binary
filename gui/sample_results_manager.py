@@ -981,12 +981,30 @@ class SampleResultsManager(tk.Frame):
                 note="Average of the ink samples you placed on the canvas.",
             )
         
-        # Effective tone — what the eye fuses to at viewing distance
+        # Effective tone (classifier-derived ink)
         _add_swatch_row(
-            swatch_frame, "Effective tone (perceived)",
-            result.effective_tone_rgb, result.effective_tone_lab, big=True,
-            note="coverage·ink + (1−coverage)·paper, blended in linear RGB.",
+            swatch_frame, "Effective tone (classifier ink)",
+            result.effective_tone_rgb, result.effective_tone_lab,
+            note="coverage·ink + (1−coverage)·paper, blended in Lab space. "
+                 "Ink colour derived from pixel classification.",
         )
+
+        # Effective tone (marker ink) — more reliable when markers exist
+        if marker_avg_rgb and marker_avg_lab:
+            pL, pa, pb = result.paper_lab
+            mL, ma, mb = marker_avg_lab
+            cr = result.coverage_ratio
+            meff_L = cr * mL + (1.0 - cr) * pL
+            meff_a = cr * ma + (1.0 - cr) * pa
+            meff_b = cr * mb + (1.0 - cr) * pb
+            meff_lab = (meff_L, meff_a, meff_b)
+            meff_rgb = self._lab_to_display_rgb(meff_lab)
+            _add_swatch_row(
+                swatch_frame, "Effective tone (marker ink)  ★",
+                meff_rgb, meff_lab, big=True,
+                note="coverage·marker_ink + (1−coverage)·paper, blended in Lab space. "
+                     "Uses your hand-placed samples — most reliable readout.",
+            )
         
         # --- coverage + counts ---------------------------------------- #
         ratio_pct = result.coverage_ratio * 100.0
