@@ -138,6 +138,32 @@ CREATE TABLE IF NOT EXISTS library_colors (
                 )
             """)
             
+            # Stamp references — links a library colour to one or more
+            # catalog entries. Multiple rows per color_id are expected
+            # (many stamps can share the same colour). Links to
+            # StampZ_Interface.db via (country, catalog_system, catalog_number).
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS stamp_references (
+                    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                    color_id       INTEGER NOT NULL,
+                    country        TEXT    NOT NULL,
+                    catalog_system TEXT,
+                    catalog_number TEXT,
+                    notes          TEXT,
+                    FOREIGN KEY (color_id) REFERENCES library_colors(id)
+                        ON DELETE CASCADE,
+                    UNIQUE(color_id, country, catalog_system, catalog_number)
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_stamp_ref_color "
+                "ON stamp_references(color_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_stamp_ref_lookup "
+                "ON stamp_references(country, catalog_system, catalog_number)"
+            )
+
             # Create indexes for faster searching
             conn.execute("CREATE INDEX IF NOT EXISTS idx_category ON library_colors(category)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_source ON library_colors(source)")

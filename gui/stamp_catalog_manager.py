@@ -22,8 +22,9 @@ STAMP_TYPES = [
 ]
 
 CATALOG_SYSTEMS = [
-    'Scott', 'SG', 'Michel', 'Yvert', 'Sassone',
-    'AFA', 'FACIT', 'Zumstein', 'Minkus', 'Maury'
+    'Scott', 'SG', 'Michel', 'Yvert & Tellier', 'Sassone',
+    'AFA', 'FACIT', 'Spink|Maury', 'Unitrade', 'J. Barefoot',
+    'Brusden White','Yang', 'Ma', 'Zumstein', 'Mundfil'
 ]
 
 
@@ -119,6 +120,7 @@ class StampCatalogManager:
         sb.pack(side=tk.RIGHT, fill=tk.Y)
         self.stamp_list.pack(fill=tk.BOTH, expand=True)
         self.stamp_list.bind("<<ListboxSelect>>", self._on_stamp_select)
+        self.stamp_list.bind("<ButtonRelease-1>", self._on_stamp_click)
 
         btn_row = tk.Frame(left)
         btn_row.pack(fill=tk.X, pady=4)
@@ -143,8 +145,7 @@ class StampCatalogManager:
             ("Date Issued",    "date_issued_var",    "entry", None),
             ("Date Withdrawn", "date_withdrawn_var", "entry", None),
             ("Denomination",   "denom_var",          "entry", None),
-            ("Color",          "color_var",          "entry", None),
-            ("Perf",           "perf_var",           "entry", None),
+            ("Perf/Imperf",    "perf_var",           "entry", None),
             ("Description",    "desc_var",           "entry", None),
         ]
 
@@ -179,15 +180,19 @@ class StampCatalogManager:
                                   padx=6, pady=6)
         cat_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=(2, 4))
 
-        cols = ("System", "Number", "Notes")
+        cols = ("System", "Edition", "Number", "Color", "Notes")
         self.cat_tree = ttk.Treeview(cat_frame, columns=cols,
                                      show="headings", height=5)
-        self.cat_tree.heading("System", text="Catalog System")
-        self.cat_tree.heading("Number", text="Number")
-        self.cat_tree.heading("Notes",  text="Notes")
-        self.cat_tree.column("System", width=140)
-        self.cat_tree.column("Number", width=100)
-        self.cat_tree.column("Notes",  width=200)
+        self.cat_tree.heading("System",  text="Catalog System")
+        self.cat_tree.heading("Edition", text="Edition")
+        self.cat_tree.heading("Number",  text="Number")
+        self.cat_tree.heading("Color",   text="Described Color")
+        self.cat_tree.heading("Notes",   text="Notes")
+        self.cat_tree.column("System",  width=140)
+        self.cat_tree.column("Edition", width=70)
+        self.cat_tree.column("Number",  width=70)
+        self.cat_tree.column("Color",   width=120)
+        self.cat_tree.column("Notes",   width=140)
 
         cat_sb = tk.Scrollbar(cat_frame, orient=tk.VERTICAL,
                               command=self.cat_tree.yview)
@@ -246,14 +251,12 @@ class StampCatalogManager:
         if filtered:
             self.country_combo.set(filtered[0])
             self._load_stamps(filtered[0])
-            self._clear_form()
 
     # ── Stamp list ────────────────────────────────────────────────
 
     def _on_country_select(self, event=None):
         self.search_var.set("")
         self._load_stamps(self.country_var.get())
-        self._clear_form()
 
     def _load_stamps(self, country, search=""):
         self.stamp_list.delete(0, tk.END)
@@ -283,12 +286,27 @@ class StampCatalogManager:
             self.stamp_list.insert(tk.END, label)
             self._stamp_ids.append(row["id"])
 
+        # Auto-select and load the first stamp
+        if self._stamp_ids:
+            self.stamp_list.selection_set(0)
+            self.stamp_list.activate(0)
+            self._load_stamp(self._stamp_ids[0])
+        else:
+            self._clear_form()
+
     def _filter_stamps(self, *args):
         country = self.country_var.get()
         if not country:
             return
         self._load_stamps(country, self.search_var.get())
-        self._clear_form()
+
+    def _on_stamp_click(self, event):
+        """Reliable macOS click handler using pixel position."""
+        idx = self.stamp_list.nearest(event.y)
+        if 0 <= idx < len(self._stamp_ids):
+            self.stamp_list.selection_clear(0, tk.END)
+            self.stamp_list.selection_set(idx)
+            self._load_stamp(self._stamp_ids[idx])
 
     def _on_stamp_select(self, event=None):
         sel = self.stamp_list.curselection()
@@ -306,7 +324,6 @@ class StampCatalogManager:
         self.field_vars["date_issued_var"].set(row["date_issued"] or "")
         self.field_vars["date_withdrawn_var"].set(row["date_withdrawn"] or "")
         self.field_vars["denom_var"].set(row["denomination"] or "")
-        self.field_vars["color_var"].set(row["color"] or "")
         self.field_vars["perf_var"].set(row["perf"] or "")
         self.field_vars["desc_var"].set(row["description"] or "")
         self.notes_text.delete("1.0", tk.END)
@@ -319,14 +336,17 @@ class StampCatalogManager:
         for row in self.cat_tree.get_children():
             self.cat_tree.delete(row)
         cur = self.conn.execute(
-            "SELECT catalog_system, catalog_number, catalog_notes "
+            "SELECT catalog_system, catalog_edition, catalog_number, "
+            "       described_color, catalog_notes "
             "FROM Catalog_Numbers WHERE stamp_id=? "
-            "ORDER BY catalog_system", (stamp_id,))
+            "ORDER BY catalog_system, catalog_edition, catalog_number", (stamp_id,))
         for row in cur.fetchall():
             self.cat_tree.insert("", tk.END, values=(
                 row["catalog_system"],
+                row["catalog_edition"]  or "",
                 row["catalog_number"],
-                row["catalog_notes"] or ""))
+                row["described_color"]  or "",
+                row["catalog_notes"]    or ""))
 
     # ── Form actions ──────────────────────────────────────────────
 
@@ -377,7 +397,6 @@ class StampCatalogManager:
             "date_issued":    self.field_vars["date_issued_var"].get() or None,
             "date_withdrawn": self.field_vars["date_withdrawn_var"].get() or None,
             "denomination":   self.field_vars["denom_var"].get() or None,
-            "color":          self.field_vars["color_var"].get() or None,
             "perf":           self.field_vars["perf_var"].get() or None,
             "description":    self.field_vars["desc_var"].get() or None,
             "notes":          self.notes_text.get("1.0", tk.END).strip() or None,
@@ -389,7 +408,7 @@ class StampCatalogManager:
                     UPDATE Stamps SET
                         stamp_type=:stamp_type, date_issued=:date_issued,
                         date_withdrawn=:date_withdrawn,
-                        denomination=:denomination, color=:color,
+                        denomination=:denomination,
                         perf=:perf, description=:description, notes=:notes
                     WHERE id=:id
                 """, {**data, "id": self.current_stamp_id})
@@ -398,10 +417,10 @@ class StampCatalogManager:
                 cur = self.conn.execute("""
                     INSERT INTO Stamps
                         (country, stamp_type, date_issued, date_withdrawn,
-                         denomination, color, perf, description, notes)
+                         denomination, perf, description, notes)
                     VALUES
                         (:country, :stamp_type, :date_issued, :date_withdrawn,
-                         :denomination, :color, :perf, :description, :notes)
+                         :denomination, :perf, :description, :notes)
                 """, data)
                 self.conn.commit()
                 self.current_stamp_id = cur.lastrowid
@@ -480,13 +499,17 @@ class StampCatalogManager:
                                    "Select a catalog entry to remove.")
             return
         values = self.cat_tree.item(sel[0])["values"]
-        system, number = str(values[0]), str(values[1])
+        system  = str(values[0])
+        edition = str(values[1])
+        number  = str(values[2])
+        # values[3] = described_color, values[4] = notes
         if not messagebox.askyesno("Confirm", f"Remove {system} #{number}?"):
             return
         self.conn.execute(
             "DELETE FROM Catalog_Numbers "
-            "WHERE stamp_id=? AND catalog_system=? AND catalog_number=?",
-            (self.current_stamp_id, system, number))
+            "WHERE stamp_id=? AND catalog_system=? "
+            "AND catalog_edition=? AND catalog_number=?",
+            (self.current_stamp_id, system, edition, number))
         self.conn.commit()
         self._load_catalog_numbers(self.current_stamp_id)
 
