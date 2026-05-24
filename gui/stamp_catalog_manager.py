@@ -133,18 +133,21 @@ class StampCatalogManager:
         self.stamp_list.bind("<<ListboxSelect>>", self._on_stamp_select)
         self.stamp_list.bind("<ButtonRelease-1>", self._on_stamp_click)
 
-        btn_row = tk.Frame(left)
-        btn_row.pack(fill=tk.X, pady=4)
-        tk.Button(btn_row, text="+ New",
+        btn_row1 = tk.Frame(left)
+        btn_row1.pack(fill=tk.X, pady=(4, 1))
+        tk.Button(btn_row1, text="+ New",
                   command=self._new_stamp,
                   font=("", 10, "bold")).pack(side=tk.LEFT, padx=(0, 4))
-        tk.Button(btn_row, text="Duplicate",
-                  command=self._duplicate_stamp).pack(side=tk.LEFT, padx=(0, 4))
-        tk.Button(btn_row, text="Delete",
+        tk.Button(btn_row1, text="Duplicate",
+                  command=self._duplicate_stamp).pack(side=tk.LEFT)
+        btn_row2 = tk.Frame(left)
+        btn_row2.pack(fill=tk.X, pady=(0, 4))
+        tk.Button(btn_row2, text="Delete",
                   command=self._delete_stamp,
                   font=("", 10, "bold")).pack(side=tk.LEFT, padx=(0, 4))
-        tk.Button(btn_row, text="Merge…",
-                  command=self._merge_stamps).pack(side=tk.LEFT)
+        tk.Button(btn_row2, text="Merge…",
+                  command=self._merge_stamps,
+                  font=("", 10, "bold")).pack(side=tk.LEFT)
 
         # ── Right: detail form ────────────────────────────────────
         right = tk.Frame(main)
