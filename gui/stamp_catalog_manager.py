@@ -67,35 +67,45 @@ class StampCatalogManager:
     # ── UI construction ───────────────────────────────────────────
 
     def _build_ui(self):
-        # ── Country / filter bar ──────────────────────────────────
-        top = tk.Frame(self.root, pady=6, padx=8, bg="#f0f0f0")
-        top.pack(fill=tk.X)
-
-        tk.Label(top, text="Country:", font=("", 12, "bold"),
-                 bg="#f0f0f0").pack(side=tk.LEFT)
-        self.country_var = tk.StringVar()
-        self.country_combo = ttk.Combobox(
-            top, textvariable=self.country_var, width=36, state="readonly")
-        self.country_combo.pack(side=tk.LEFT, padx=6)
-        self.country_combo.bind("<<ComboboxSelected>>", self._on_country_select)
-
-        tk.Label(top, text="  Filter:", bg="#f0f0f0").pack(side=tk.LEFT)
-        self.filter_var = tk.StringVar()
-        self.filter_var.trace("w", self._filter_countries)
-        tk.Entry(top, textvariable=self.filter_var, width=16).pack(
-            side=tk.LEFT, padx=2)
-
         # ── Main pane ─────────────────────────────────────────────
         main = tk.PanedWindow(self.root, orient=tk.HORIZONTAL,
                               sashwidth=5, sashrelief=tk.RAISED)
         main.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
 
-        # ── Left: stamp list ──────────────────────────────────────
-        left = tk.Frame(main, width=240)
+        # ── Left panel: countries + stamps ────────────────────────
+        left = tk.Frame(main, width=260)
         main.add(left, minsize=200)
+        left.pack_propagate(False)
 
-        tk.Label(left, text="Stamps", font=("", 10, "bold")).pack(
-            anchor=tk.W, pady=(4, 0))
+        # Countries section
+        tk.Label(left, text="Countries",
+                 font=("", 10, "bold")).pack(anchor=tk.W, pady=(4, 0))
+
+        clist_frame = tk.Frame(left)
+        clist_frame.pack(fill=tk.BOTH, expand=True)
+
+        self.country_list = tk.Listbox(clist_frame, selectmode=tk.SINGLE,
+                                       activestyle="dotbox",
+                                       font=("", 10), height=8)
+        csb = tk.Scrollbar(clist_frame, orient=tk.VERTICAL,
+                           command=self.country_list.yview)
+        self.country_list.config(yscrollcommand=csb.set)
+        csb.pack(side=tk.RIGHT, fill=tk.Y)
+        self.country_list.pack(fill=tk.BOTH, expand=True)
+        self.country_list.bind("<ButtonRelease-1>", self._on_country_click)
+
+        # Add-country row
+        add_country_row = tk.Frame(left)
+        add_country_row.pack(fill=tk.X, pady=(2, 4))
+        tk.Button(add_country_row, text="+ Country",
+                  command=self._pick_new_country).pack(side=tk.LEFT)
+
+        ttk.Separator(left, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=4)
+
+        # Stamps section
+        self.stamps_label = tk.Label(left, text="Stamps",
+                                     font=("", 10, "bold"))
+        self.stamps_label.pack(anchor=tk.W)
 
         # Search box
         search_row = tk.Frame(left)
@@ -104,7 +114,7 @@ class StampCatalogManager:
         self.search_var = tk.StringVar()
         self.search_var.trace("w", self._filter_stamps)
         tk.Entry(search_row, textvariable=self.search_var,
-                 width=18).pack(side=tk.LEFT, padx=2)
+                 width=14).pack(side=tk.LEFT, padx=2)
         tk.Button(search_row, text="✕", width=2,
                   command=lambda: self.search_var.set("")).pack(side=tk.LEFT)
 
@@ -236,27 +246,89 @@ class StampCatalogManager:
         tk.Button(add_row, text="Remove Selected",
                   command=self._remove_catalog_number).pack(side=tk.LEFT)
 
-    # ── Country loading & filtering ───────────────────────────────
+    # ── Country loading ───────────────────────────────────────────
 
     def _load_countries(self):
+        """Populate country list with only countries that have stamps."""
+        self.country_list.delete(0, tk.END)
         cur = self.conn.execute(
+            "SELECT DISTINCT country FROM Stamps "
+            "ORDER BY country")
+        self._listed_countries = [r[0] for r in cur.fetchall()]
+        for c in self._listed_countries:
+            self.country_list.insert(tk.END, c)
+        # Also keep the full directory list for _pick_new_country
+        cur2 = self.conn.execute(
             "SELECT Country FROM Directory ORDER BY Country")
-        self._all_countries = [r[0] for r in cur.fetchall()]
-        self.country_combo["values"] = self._all_countries
+        self._all_countries = [r[0] for r in cur2.fetchall()]
 
-    def _filter_countries(self, *args):
-        term = self.filter_var.get().lower()
-        filtered = [c for c in self._all_countries if term in c.lower()]
-        self.country_combo["values"] = filtered
-        if filtered:
-            self.country_combo.set(filtered[0])
-            self._load_stamps(filtered[0])
+    def _on_country_click(self, event):
+        idx = self.country_list.nearest(event.y)
+        if 0 <= idx < len(self._listed_countries):
+            self.country_list.selection_clear(0, tk.END)
+            self.country_list.selection_set(idx)
+            country = self._listed_countries[idx]
+            self.stamps_label.config(text=f"Stamps — {country}")
+            self.search_var.set("")
+            self._load_stamps(country)
+
+    def _pick_new_country(self):
+        """Open a simple dialog to pick any country from the Directory."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Select Country")
+        dialog.geometry("320x460")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        tk.Label(dialog, text="Filter:").pack(anchor=tk.W, padx=8, pady=(8,0))
+        fvar = tk.StringVar()
+        fentry = tk.Entry(dialog, textvariable=fvar, width=30)
+        fentry.pack(padx=8, pady=2)
+
+        lb_frame = tk.Frame(dialog)
+        lb_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
+        lb = tk.Listbox(lb_frame, font=("", 10))
+        lbsb = tk.Scrollbar(lb_frame, command=lb.yview)
+        lb.config(yscrollcommand=lbsb.set)
+        lbsb.pack(side=tk.RIGHT, fill=tk.Y)
+        lb.pack(fill=tk.BOTH, expand=True)
+
+        def refresh(*_):
+            term = fvar.get().lower()
+            lb.delete(0, tk.END)
+            for c in self._all_countries:
+                if term in c.lower():
+                    lb.insert(tk.END, c)
+        fvar.trace("w", refresh)
+        refresh()
+        fentry.focus_set()
+
+        chosen = [None]
+        def on_select(event=None):
+            sel = lb.curselection()
+            if sel:
+                chosen[0] = lb.get(sel[0])
+                dialog.destroy()
+        lb.bind("<Double-Button-1>", on_select)
+        tk.Button(dialog, text="Select", command=on_select).pack(pady=6)
+        dialog.wait_window()
+
+        if chosen[0]:
+            self.stamps_label.config(text=f"Stamps — {chosen[0]}")
+            self.search_var.set("")
+            self._load_stamps(chosen[0])
+            # Add to country list if not already there
+            if chosen[0] not in self._listed_countries:
+                self._listed_countries.append(chosen[0])
+                self._listed_countries.sort()
+                self.country_list.delete(0, tk.END)
+                for c in self._listed_countries:
+                    self.country_list.insert(tk.END, c)
 
     # ── Stamp list ────────────────────────────────────────────────
 
     def _on_country_select(self, event=None):
-        self.search_var.set("")
-        self._load_stamps(self.country_var.get())
+        pass  # kept for compatibility
 
     def _load_stamps(self, country, search=""):
         self.stamp_list.delete(0, tk.END)
@@ -295,9 +367,11 @@ class StampCatalogManager:
             self._clear_form()
 
     def _filter_stamps(self, *args):
-        country = self.country_var.get()
-        if not country:
+        # Get country from the listbox selection
+        sel = self.country_list.curselection()
+        if not sel:
             return
+        country = self._listed_countries[sel[0]]
         self._load_stamps(country, self.search_var.get())
 
     def _on_stamp_click(self, event):
@@ -360,7 +434,8 @@ class StampCatalogManager:
             self.cat_tree.delete(row)
 
     def _new_stamp(self):
-        if not self.country_var.get():
+        sel = self.country_list.curselection()
+        if not sel:
             messagebox.showwarning("No Country",
                                    "Please select a country first.")
             return
@@ -385,7 +460,8 @@ class StampCatalogManager:
                             "a new entry.")
 
     def _save_stamp(self):
-        country = self.country_var.get()
+        sel = self.country_list.curselection()
+        country = self._listed_countries[sel[0]] if sel else None
         if not country:
             messagebox.showwarning("No Country",
                                    "Please select a country first.")
@@ -447,7 +523,10 @@ class StampCatalogManager:
             (self.current_stamp_id,))
         self.conn.commit()
         self._clear_form()
-        self._load_stamps(self.country_var.get(), self.search_var.get())
+        sel = self.country_list.curselection()
+        if sel:
+            self._load_stamps(self._listed_countries[sel[0]], self.search_var.get())
+        self._load_countries()
 
     def _add_catalog_number(self):
         if not self.current_stamp_id:
