@@ -142,7 +142,9 @@ class StampCatalogManager:
                   command=self._duplicate_stamp).pack(side=tk.LEFT, padx=(0, 4))
         tk.Button(btn_row, text="Delete",
                   command=self._delete_stamp,
-                  font=("", 10, "bold")).pack(side=tk.LEFT)
+                  font=("", 10, "bold")).pack(side=tk.LEFT, padx=(0, 4))
+        tk.Button(btn_row, text="Merge…",
+                  command=self._merge_stamps).pack(side=tk.LEFT)
 
         # ── Right: detail form ────────────────────────────────────
         right = tk.Frame(main)
@@ -226,6 +228,19 @@ class StampCatalogManager:
             col_num = (i % 5) + 1
             tk.Checkbutton(cb_frame, text=system, variable=var).grid(
                 row=row_num, column=col_num, sticky=tk.W, padx=4)
+
+        # "Other" catalog row — free-text for catalogs not in the checkbox list
+        other_row = tk.Frame(cat_frame)
+        other_row.pack(fill=tk.X, pady=(4, 0))
+        self.cat_other_var = tk.BooleanVar()
+        tk.Checkbutton(other_row, text="Other catalog:",
+                       variable=self.cat_other_var,
+                       command=self._toggle_other_catalog).pack(side=tk.LEFT)
+        self.cat_other_name_var = tk.StringVar()
+        self.cat_other_entry = tk.Entry(other_row,
+                                        textvariable=self.cat_other_name_var,
+                                        width=22, state=tk.DISABLED)
+        self.cat_other_entry.pack(side=tk.LEFT, padx=4)
 
         # Number / notes / buttons row
         add_row = tk.Frame(cat_frame)
@@ -343,9 +358,11 @@ class StampCatalogManager:
                 "FROM Stamps WHERE country=? "
                 "AND (LOWER(description) LIKE ? "
                 "  OR LOWER(denomination) LIKE ? "
-                "  OR date_issued LIKE ?) "
+                "  OR date_issued LIKE ? "
+                "  OR LOWER(COALESCE(stamp_type,'')) LIKE ? "
+                "  OR LOWER(COALESCE(perf,'')) LIKE ?) "
                 "ORDER BY id",
-                (country, term, term, term))
+                (country, term, term, term, term, term))
         else:
             cur = self.conn.execute(
                 "SELECT id, denomination, description, date_issued "
@@ -525,6 +542,15 @@ class StampCatalogManager:
             self._load_stamps(self._listed_countries[sel[0]], self.search_var.get())
         self._load_countries()
 
+    def _toggle_other_catalog(self):
+        """Enable/disable the free-text catalog name entry."""
+        if self.cat_other_var.get():
+            self.cat_other_entry.config(state=tk.NORMAL)
+            self.cat_other_entry.focus_set()
+        else:
+            self.cat_other_entry.config(state=tk.DISABLED)
+            self.cat_other_name_var.set("")
+
     def _add_catalog_number(self):
         if not self.current_stamp_id:
             messagebox.showwarning(
@@ -532,6 +558,17 @@ class StampCatalogManager:
                 "Please save the stamp before adding catalog numbers.")
             return
         checked = [s for s, v in self.cat_system_vars.items() if v.get()]
+
+        # Include Other catalog if checked and named
+        if self.cat_other_var.get():
+            other_name = self.cat_other_name_var.get().strip()
+            if other_name:
+                checked.append(other_name)
+            else:
+                messagebox.showwarning("Other Catalog",
+                                       "Please enter the catalog name in the Other field.")
+                return
+
         number  = self.cat_num_var.get().strip()
         notes   = self.cat_notes_var.get().strip() or None
 
@@ -588,6 +625,136 @@ class StampCatalogManager:
             (self.current_stamp_id, system, edition, number))
         self.conn.commit()
         self._load_catalog_numbers(self.current_stamp_id)
+
+    def _merge_stamps(self):
+        """Merge other stamps into the currently selected canonical stamp."""
+        if not self.current_stamp_id:
+            messagebox.showwarning("No Selection",
+                                   "Select the CANONICAL stamp first, then click Merge.")
+            return
+        if not self._current_country:
+            return
+
+        # Load all stamps for this country except the current one
+        cur = self.conn.execute(
+            "SELECT id, denomination, description, date_issued "
+            "FROM Stamps WHERE country=? AND id != ? ORDER BY id",
+            (self._current_country, self.current_stamp_id))
+        others = cur.fetchall()
+
+        if not others:
+            messagebox.showinfo("No Other Stamps",
+                                "No other stamps to merge for this country.")
+            return
+
+        # Build dialog
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Merge Stamps")
+        dialog.geometry("480x420")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # Show canonical stamp
+        canon_row = self.conn.execute(
+            "SELECT denomination, description, date_issued FROM Stamps WHERE id=?",
+            (self.current_stamp_id,)).fetchone()
+        tk.Label(dialog,
+                 text=f"Canonical stamp (keep this):  "
+                      f"{canon_row['denomination'] or ''}  "
+                      f"{canon_row['date_issued'] or ''}  "
+                      f"{canon_row['description'] or ''}",
+                 font=("", 10, "bold"), fg="#003366",
+                 wraplength=460, justify=tk.LEFT).pack(
+            anchor=tk.W, padx=10, pady=(10, 4))
+
+        tk.Label(dialog,
+                 text="Check stamps to absorb into the canonical "
+                      "(their catalog entries will move over, then they are deleted):",
+                 wraplength=460, justify=tk.LEFT).pack(
+            anchor=tk.W, padx=10, pady=(0, 6))
+
+        # Scrollable checklist
+        outer = tk.Frame(dialog)
+        outer.pack(fill=tk.BOTH, expand=True, padx=10)
+        canvas = tk.Canvas(outer, borderwidth=0)
+        vsb = tk.Scrollbar(outer, orient=tk.VERTICAL, command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        inner = tk.Frame(canvas)
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        check_vars = {}
+        for row in others:
+            cat_count = self.conn.execute(
+                "SELECT COUNT(*) FROM Catalog_Numbers WHERE stamp_id=?",
+                (row['id'],)).fetchone()[0]
+            var = tk.BooleanVar()
+            check_vars[row['id']] = var
+            label = (f"ID {row['id']:>5}  "
+                     f"{row['denomination'] or '':>6}  "
+                     f"{row['date_issued'] or '':<8}  "
+                     f"{row['description'] or ''}  "
+                     f"({cat_count} catalog entries)")
+            tk.Checkbutton(inner, text=label, variable=var,
+                           anchor=tk.W).pack(anchor=tk.W, pady=1)
+
+        inner.update_idletasks()
+        canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def do_merge():
+            to_merge = [sid for sid, v in check_vars.items() if v.get()]
+            if not to_merge:
+                messagebox.showwarning("Nothing Selected",
+                                       "Check at least one stamp to merge.")
+                return
+            if not messagebox.askyesno(
+                    "Confirm Merge",
+                    f"Move all catalog entries from {len(to_merge)} stamp(s) "
+                    f"into stamp ID {self.current_stamp_id}, "
+                    f"then delete the merged stamps?\n\nThis cannot be undone."):
+                return
+
+            moved = 0
+            for sid in to_merge:
+                # Move catalog numbers — skip duplicates silently
+                rows = self.conn.execute(
+                    "SELECT catalog_system, catalog_edition, catalog_number, "
+                    "       described_color, catalog_notes "
+                    "FROM Catalog_Numbers WHERE stamp_id=?", (sid,)).fetchall()
+                for r in rows:
+                    try:
+                        self.conn.execute(
+                            "INSERT INTO Catalog_Numbers "
+                            "(stamp_id, catalog_system, catalog_edition, "
+                            " catalog_number, described_color, catalog_notes) "
+                            "VALUES (?,?,?,?,?,?)",
+                            (self.current_stamp_id,
+                             r['catalog_system'], r['catalog_edition'],
+                             r['catalog_number'], r['described_color'],
+                             r['catalog_notes']))
+                        moved += 1
+                    except sqlite3.IntegrityError:
+                        pass  # duplicate — already on canonical
+                self.conn.execute(
+                    "DELETE FROM Catalog_Numbers WHERE stamp_id=?", (sid,))
+                self.conn.execute(
+                    "DELETE FROM Stamps WHERE id=?", (sid,))
+
+            self.conn.commit()
+            dialog.destroy()
+            self._load_stamps(self._current_country)
+            self._load_catalog_numbers(self.current_stamp_id)
+            messagebox.showinfo("Merged",
+                                f"Merged {len(to_merge)} stamp(s). "
+                                f"{moved} catalog entries moved.")
+
+        btn_bar = tk.Frame(dialog)
+        btn_bar.pack(fill=tk.X, padx=10, pady=8)
+        tk.Button(btn_bar, text="Merge Selected", command=do_merge,
+                  font=("", 10, "bold")).pack(side=tk.LEFT)
+        tk.Button(btn_bar, text="Cancel",
+                  command=dialog.destroy).pack(side=tk.RIGHT)
 
     def _on_close(self):
         self.conn.close()
