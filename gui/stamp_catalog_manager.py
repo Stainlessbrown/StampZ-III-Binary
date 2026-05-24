@@ -55,6 +55,7 @@ class StampCatalogManager:
         self.current_stamp_id = None
         self._stamp_ids = []
         self._all_countries = []
+        self._current_country = None   # stored so save works after focus leaves listbox
 
         self._build_ui()
         self._load_countries()
@@ -267,10 +268,10 @@ class StampCatalogManager:
         if 0 <= idx < len(self._listed_countries):
             self.country_list.selection_clear(0, tk.END)
             self.country_list.selection_set(idx)
-            country = self._listed_countries[idx]
-            self.stamps_label.config(text=f"Stamps — {country}")
+            self._current_country = self._listed_countries[idx]
+            self.stamps_label.config(text=f"Stamps — {self._current_country}")
             self.search_var.set("")
-            self._load_stamps(country)
+            self._load_stamps(self._current_country)
 
     def _pick_new_country(self):
         """Open a simple dialog to pick any country from the Directory."""
@@ -314,6 +315,7 @@ class StampCatalogManager:
         dialog.wait_window()
 
         if chosen[0]:
+            self._current_country = chosen[0]
             self.stamps_label.config(text=f"Stamps — {chosen[0]}")
             self.search_var.set("")
             self._load_stamps(chosen[0])
@@ -367,12 +369,9 @@ class StampCatalogManager:
             self._clear_form()
 
     def _filter_stamps(self, *args):
-        # Get country from the listbox selection
-        sel = self.country_list.curselection()
-        if not sel:
+        if not self._current_country:
             return
-        country = self._listed_countries[sel[0]]
-        self._load_stamps(country, self.search_var.get())
+        self._load_stamps(self._current_country, self.search_var.get())
 
     def _on_stamp_click(self, event):
         """Reliable macOS click handler using pixel position."""
@@ -434,8 +433,7 @@ class StampCatalogManager:
             self.cat_tree.delete(row)
 
     def _new_stamp(self):
-        sel = self.country_list.curselection()
-        if not sel:
+        if not self._current_country:
             messagebox.showwarning("No Country",
                                    "Please select a country first.")
             return
@@ -460,8 +458,7 @@ class StampCatalogManager:
                             "a new entry.")
 
     def _save_stamp(self):
-        sel = self.country_list.curselection()
-        country = self._listed_countries[sel[0]] if sel else None
+        country = self._current_country
         if not country:
             messagebox.showwarning("No Country",
                                    "Please select a country first.")
