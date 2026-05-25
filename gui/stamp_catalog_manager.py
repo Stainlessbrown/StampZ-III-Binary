@@ -14,7 +14,21 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import os
 
-DB_PATH = os.path.expanduser("~/Desktop/StampZ_Interface.db")
+from utils.path_utils import get_base_data_dir
+
+DB_NAME = "StampZ_Interface.db"
+
+
+def _catalog_db_path() -> str:
+    """Return the path to the stamp-catalog database.
+
+    Uses the same data-directory logic as the rest of StampZ so
+    the file lives inside the app's data folder (bundled on first
+    install) instead of being dropped on the user's Desktop.
+    """
+    data_dir = get_base_data_dir()
+    os.makedirs(data_dir, exist_ok=True)
+    return os.path.join(data_dir, DB_NAME)
 
 STAMP_TYPES = [
     'Definitive', 'Commemorative', 'Airmail',
@@ -49,8 +63,9 @@ class StampCatalogManager:
         self.root.geometry("1020x760")
         self.root.minsize(820, 600)
 
-        self.conn = sqlite3.connect(DB_PATH)
+        self.conn = sqlite3.connect(_catalog_db_path())
         self.conn.row_factory = sqlite3.Row
+        self._ensure_schema()
 
         self.current_stamp_id = None
         self._stamp_ids = []
@@ -64,6 +79,63 @@ class StampCatalogManager:
             # Keep on top of parent and clean up DB on close
             self.root.transient(parent)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    # ── Schema bootstrap ────────────────────────────────────────
+
+    def _ensure_schema(self):
+        """Create the catalog tables if they don't already exist.
+
+        This is a safety net for fresh installs where the bundled DB
+        was not yet copied or is empty.  It is idempotent.
+        """
+        self.conn.executescript("""
+            CREATE TABLE IF NOT EXISTS "Directory" (
+                "Country"         TEXT UNIQUE,
+                "Parent_Country"  INTEGER,
+                "Year-start"      INTEGER,
+                "Year_end"        INTEGER,
+                "primary_catalog" TEXT,
+                PRIMARY KEY("Country")
+            );
+
+            CREATE TABLE IF NOT EXISTS "Stamps" (
+                "id"               INTEGER PRIMARY KEY AUTOINCREMENT,
+                "country"          TEXT    NOT NULL,
+                "stamp_type"       TEXT    NOT NULL DEFAULT 'General'
+                                         CHECK(stamp_type IN (
+                                             'Definitive','Commemorative','Airmail',
+                                             'Postage Due','Fiscal','Semi-Postal',
+                                             'Official','General'
+                                         )),
+                "date_issued"      TEXT,
+                "date_withdrawn"   TEXT,
+                "denomination"     TEXT,
+                "color"            TEXT,
+                "perf"             TEXT,
+                "description"      TEXT,
+                "notes"            TEXT,
+                "parent_stamp_id"  INTEGER,
+                FOREIGN KEY ("country")         REFERENCES "Directory"("Country"),
+                FOREIGN KEY ("parent_stamp_id") REFERENCES "Stamps"("id")
+            );
+
+            CREATE TABLE IF NOT EXISTS "Catalog_Numbers" (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                stamp_id        INTEGER NOT NULL,
+                catalog_system  TEXT    NOT NULL,
+                catalog_edition TEXT    NOT NULL DEFAULT '',
+                catalog_number  TEXT    NOT NULL,
+                catalog_notes   TEXT,
+                described_color TEXT,
+                FOREIGN KEY (stamp_id) REFERENCES Stamps(id),
+                UNIQUE(stamp_id, catalog_system, catalog_edition, catalog_number)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_cat_stamp
+                ON Catalog_Numbers(stamp_id);
+            CREATE INDEX IF NOT EXISTS idx_cat_lookup
+                ON Catalog_Numbers(catalog_system, catalog_edition, catalog_number);
+        """)
 
     # ── UI construction ───────────────────────────────────────────
 
