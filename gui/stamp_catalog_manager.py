@@ -9,7 +9,9 @@ Provides a full data-entry UI for the three-table catalog database:
   Catalog_Numbers → per-catalog cross-references
 """
 
+import shutil
 import sqlite3
+import sys
 import tkinter as tk
 from tkinter import ttk, messagebox
 import os
@@ -25,10 +27,36 @@ def _catalog_db_path() -> str:
     Uses the same data-directory logic as the rest of StampZ so
     the file lives inside the app's data folder (bundled on first
     install) instead of being dropped on the user's Desktop.
+
+    On first launch (or after an upgrade that adds the catalog for
+    the first time), the bundled seed database is copied into the
+    user data directory so new users start with the full Directory
+    table and any stamps/catalog numbers shipped with the build.
     """
     data_dir = get_base_data_dir()
     os.makedirs(data_dir, exist_ok=True)
-    return os.path.join(data_dir, DB_NAME)
+    db_path = os.path.join(data_dir, DB_NAME)
+
+    if not os.path.exists(db_path):
+        _seed_from_bundle(db_path)
+
+    return db_path
+
+
+def _seed_from_bundle(db_path: str) -> None:
+    """Copy the bundled seed database to the user's data directory."""
+    if getattr(sys, 'frozen', False):
+        # Running inside a PyInstaller bundle
+        bundle_db = os.path.join(sys._MEIPASS, 'data', DB_NAME)
+    else:
+        # Running from source — DB is in the project's data/ dir
+        bundle_db = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'data', DB_NAME,
+        )
+
+    if os.path.exists(bundle_db):
+        shutil.copy2(bundle_db, db_path)
 
 STAMP_TYPES = [
     'Definitive', 'Commemorative', 'Airmail',
