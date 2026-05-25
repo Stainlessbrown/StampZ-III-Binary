@@ -80,14 +80,14 @@ class StampCatalogManager:
 
         # Countries section
         tk.Label(left, text="Countries",
-                 font=("", 10, "bold")).pack(anchor=tk.W, pady=(4, 0))
+                 font=("", 14, "bold")).pack(anchor=tk.W, pady=(4, 0))
 
         clist_frame = tk.Frame(left)
         clist_frame.pack(fill=tk.BOTH, expand=True)
 
         self.country_list = tk.Listbox(clist_frame, selectmode=tk.SINGLE,
                                        activestyle="dotbox",
-                                       font=("", 10), height=8)
+                                       font=("", 14), height=8)
         csb = tk.Scrollbar(clist_frame, orient=tk.VERTICAL,
                            command=self.country_list.yview)
         self.country_list.config(yscrollcommand=csb.set)
@@ -105,7 +105,7 @@ class StampCatalogManager:
 
         # Stamps section
         self.stamps_label = tk.Label(left, text="Stamps",
-                                     font=("", 10, "bold"))
+                                     font=("", 14, "bold"))
         self.stamps_label.pack(anchor=tk.W)
 
         # Search box
@@ -124,7 +124,7 @@ class StampCatalogManager:
 
         self.stamp_list = tk.Listbox(list_frame, selectmode=tk.SINGLE,
                                      activestyle="dotbox",
-                                     font=("Courier", 10))
+                                     font=("Courier", 14))
         sb = tk.Scrollbar(list_frame, orient=tk.VERTICAL,
                           command=self.stamp_list.yview)
         self.stamp_list.config(yscrollcommand=sb.set)
@@ -137,17 +137,17 @@ class StampCatalogManager:
         btn_row1.pack(fill=tk.X, pady=(4, 1))
         tk.Button(btn_row1, text="+ New",
                   command=self._new_stamp,
-                  font=("", 10, "bold")).pack(side=tk.LEFT, padx=(0, 4))
+                  font=("", 14, "bold")).pack(side=tk.LEFT, padx=(0, 4))
         tk.Button(btn_row1, text="Duplicate",
                   command=self._duplicate_stamp).pack(side=tk.LEFT)
         btn_row2 = tk.Frame(left)
         btn_row2.pack(fill=tk.X, pady=(0, 4))
         tk.Button(btn_row2, text="Delete",
                   command=self._delete_stamp,
-                  font=("", 10, "bold")).pack(side=tk.LEFT, padx=(0, 4))
+                  font=("", 14, "bold")).pack(side=tk.LEFT, padx=(0, 4))
         tk.Button(btn_row2, text="Merge…",
                   command=self._merge_stamps,
-                  font=("", 10, "bold")).pack(side=tk.LEFT)
+                  font=("", 14, "bold")).pack(side=tk.LEFT)
 
         # ── Right: detail form ────────────────────────────────────
         right = tk.Frame(main)
@@ -181,14 +181,14 @@ class StampCatalogManager:
         tk.Label(detail, text="Notes:", anchor=tk.W,
                  width=15).grid(row=len(fields), column=0,
                                 sticky=tk.NW, pady=2)
-        self.notes_text = tk.Text(detail, width=32, height=3, font=("", 10))
+        self.notes_text = tk.Text(detail, width=32, height=3, font=("", 14))
         self.notes_text.grid(row=len(fields), column=1,
                              sticky=tk.W, padx=4, pady=2)
 
         # Save button
         tk.Button(right, text="  Save Stamp  ",
                   command=self._save_stamp,
-                  font=("", 11, "bold"), relief=tk.RAISED,
+                  font=("", 15, "bold"), relief=tk.RAISED,
                   padx=10, pady=4).pack(pady=6)
 
         # ── Catalog numbers ───────────────────────────────────────
@@ -220,7 +220,7 @@ class StampCatalogManager:
         cb_frame = tk.Frame(cat_frame)
         cb_frame.pack(fill=tk.X, pady=(6, 2))
         tk.Label(cb_frame, text="Systems:",
-                 font=("", 9, "bold")).grid(
+                 font=("", 10, "bold")).grid(
             row=0, column=0, sticky=tk.W, padx=(0, 6))
 
         self.cat_system_vars = {}
@@ -261,7 +261,7 @@ class StampCatalogManager:
 
         tk.Button(add_row, text="Add to Checked",
                   command=self._add_catalog_number,
-                  font=("", 10, "bold")).pack(side=tk.LEFT, padx=(6, 2))
+                  font=("", 12, "bold")).pack(side=tk.LEFT, padx=(6, 2))
         tk.Button(add_row, text="Remove Selected",
                   command=self._remove_catalog_number).pack(side=tk.LEFT)
 
@@ -278,7 +278,7 @@ class StampCatalogManager:
             self.country_list.insert(tk.END, c)
         # Also keep the full directory list for _pick_new_country
         cur2 = self.conn.execute(
-            "SELECT Country FROM Directory ORDER BY Country")
+            "SELECT Country FROM Directory WHERE Country IS NOT NULL ORDER BY Country")
         self._all_countries = [r[0] for r in cur2.fetchall()]
 
     def _on_country_click(self, event):
@@ -306,7 +306,7 @@ class StampCatalogManager:
 
         lb_frame = tk.Frame(dialog)
         lb_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
-        lb = tk.Listbox(lb_frame, font=("", 10))
+        lb = tk.Listbox(lb_frame, font=("", 14))
         lbsb = tk.Scrollbar(lb_frame, command=lb.yview)
         lb.config(yscrollcommand=lbsb.set)
         lbsb.pack(side=tk.RIGHT, fill=tk.Y)
@@ -323,12 +323,29 @@ class StampCatalogManager:
         fentry.focus_set()
 
         chosen = [None]
+
+        def on_click(event):
+            """Single click selects using pixel position (macOS reliable)."""
+            idx = lb.nearest(event.y)
+            if 0 <= idx < lb.size():
+                lb.selection_clear(0, tk.END)
+                lb.selection_set(idx)
+
         def on_select(event=None):
             sel = lb.curselection()
-            if sel:
-                chosen[0] = lb.get(sel[0])
-                dialog.destroy()
+            if not sel:
+                # Fallback: use first item if nothing selected
+                if lb.size() > 0:
+                    chosen[0] = lb.get(0)
+                    dialog.destroy()
+                return
+            chosen[0] = lb.get(sel[0])
+            dialog.destroy()
+
+        lb.bind("<ButtonRelease-1>", on_click)
         lb.bind("<Double-Button-1>", on_select)
+        lb.bind("<Return>", on_select)
+        fentry.bind("<Return>", on_select)  # press Enter in filter to pick first match
         tk.Button(dialog, text="Select", command=on_select).pack(pady=6)
         dialog.wait_window()
 
@@ -657,18 +674,39 @@ class StampCatalogManager:
         dialog.transient(self.root)
         dialog.grab_set()
 
-        # Show canonical stamp
+        # Show canonical stamp + its catalog entries
         canon_row = self.conn.execute(
             "SELECT denomination, description, date_issued FROM Stamps WHERE id=?",
             (self.current_stamp_id,)).fetchone()
-        tk.Label(dialog,
-                 text=f"Canonical stamp (keep this):  "
+        canon_cats = self.conn.execute(
+            "SELECT catalog_system, catalog_edition, catalog_number "
+            "FROM Catalog_Numbers WHERE stamp_id=? "
+            "ORDER BY catalog_system, catalog_number",
+            (self.current_stamp_id,)).fetchall()
+        canon_cat_str = "  ".join(
+            f"{r['catalog_system']}"
+            f"{'('+r['catalog_edition']+')' if r['catalog_edition'] else ''}"
+            f" #{r['catalog_number']}"
+            for r in canon_cats[:8]
+        )
+        if len(canon_cats) > 8:
+            canon_cat_str += f"  +{len(canon_cats)-8} more"
+
+        header = tk.Frame(dialog, bg="#E8F0FE", bd=1, relief=tk.SOLID)
+        header.pack(fill=tk.X, padx=10, pady=(10, 4))
+        tk.Label(header,
+                 text=f"\u2605 KEEP THIS (canonical):  "
                       f"{canon_row['denomination'] or ''}  "
                       f"{canon_row['date_issued'] or ''}  "
                       f"{canon_row['description'] or ''}",
                  font=("", 10, "bold"), fg="#003366",
-                 wraplength=460, justify=tk.LEFT).pack(
-            anchor=tk.W, padx=10, pady=(10, 4))
+                 bg="#E8F0FE", anchor=tk.W).pack(
+            fill=tk.X, padx=8, pady=(6, 2))
+        tk.Label(header,
+                 text=f"      {canon_cat_str}" if canon_cat_str else "      (no catalog entries yet)",
+                 font=("Courier", 9), fg="#333",
+                 bg="#E8F0FE", anchor=tk.W).pack(
+            fill=tk.X, padx=8, pady=(0, 6))
 
         tk.Label(dialog,
                  text="Check stamps to absorb into the canonical "
@@ -689,18 +727,42 @@ class StampCatalogManager:
 
         check_vars = {}
         for row in others:
-            cat_count = self.conn.execute(
-                "SELECT COUNT(*) FROM Catalog_Numbers WHERE stamp_id=?",
-                (row['id'],)).fetchone()[0]
+            # Get catalog entries for this stamp
+            cats = self.conn.execute(
+                "SELECT catalog_system, catalog_edition, catalog_number "
+                "FROM Catalog_Numbers WHERE stamp_id=? "
+                "ORDER BY catalog_system, catalog_number",
+                (row['id'],)).fetchall()
+            cat_count = len(cats)
+
+            # Build compact catalog summary (e.g. "Scott #1  SG #1  Yvert #1")
+            cat_summary = "  ".join(
+                f"{r['catalog_system']}"
+                f"{'('+r['catalog_edition']+')' if r['catalog_edition'] else ''}"
+                f" #{r['catalog_number']}"
+                for r in cats[:6]  # cap at 6 to avoid overflow
+            )
+            if cat_count > 6:
+                cat_summary += f"  +{cat_count - 6} more"
+
             var = tk.BooleanVar()
             check_vars[row['id']] = var
-            label = (f"ID {row['id']:>5}  "
-                     f"{row['denomination'] or '':>6}  "
-                     f"{row['date_issued'] or '':<8}  "
-                     f"{row['description'] or ''}  "
-                     f"({cat_count} catalog entries)")
-            tk.Checkbutton(inner, text=label, variable=var,
-                           anchor=tk.W).pack(anchor=tk.W, pady=1)
+
+            # Main line
+            main_label = (f"ID {row['id']:>5}  "
+                          f"{row['denomination'] or '':>6}  "
+                          f"{row['date_issued'] or '':<8}  "
+                          f"{row['description'] or ''}")
+
+            # Frame per stamp so catalog line indents neatly
+            item_frame = tk.Frame(inner)
+            item_frame.pack(anchor=tk.W, fill=tk.X, pady=1)
+            tk.Checkbutton(item_frame, text=main_label, variable=var,
+                           anchor=tk.W).pack(anchor=tk.W)
+            if cat_summary:
+                tk.Label(item_frame,
+                         text=f"      {cat_summary}",
+                         font=("Courier", 12), fg="#555").pack(anchor=tk.W)
 
         inner.update_idletasks()
         canvas.configure(scrollregion=canvas.bbox("all"))
@@ -755,7 +817,7 @@ class StampCatalogManager:
         btn_bar = tk.Frame(dialog)
         btn_bar.pack(fill=tk.X, padx=10, pady=8)
         tk.Button(btn_bar, text="Merge Selected", command=do_merge,
-                  font=("", 10, "bold")).pack(side=tk.LEFT)
+                  font=("", 14, "bold")).pack(side=tk.LEFT)
         tk.Button(btn_bar, text="Cancel",
                   command=dialog.destroy).pack(side=tk.RIGHT)
 
