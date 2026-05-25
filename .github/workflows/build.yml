@@ -42,8 +42,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        # Install optional tifffile for 16-bit TIFF support
-        pip install tifffile
+        pip install pyinstaller tifffile
         
     - name: Create macOS icon (icns)
       if: startsWith(matrix.os, 'macos')
