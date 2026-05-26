@@ -37,10 +37,22 @@ def _catalog_db_path() -> str:
     os.makedirs(data_dir, exist_ok=True)
     db_path = os.path.join(data_dir, DB_NAME)
 
-    if not os.path.exists(db_path):
+    if not os.path.exists(db_path) or _is_empty_catalog(db_path):
         _seed_from_bundle(db_path)
 
     return db_path
+
+
+def _is_empty_catalog(db_path: str) -> bool:
+    """Return True if the DB exists but the Directory table has no rows."""
+    try:
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM Directory"
+            ).fetchone()
+            return row is None or row[0] == 0
+    except Exception:
+        return True
 
 
 def _seed_from_bundle(db_path: str) -> None:
@@ -467,6 +479,25 @@ class StampCatalogManager:
     def _on_country_select(self, event=None):
         pass  # kept for compatibility
 
+    def _catalog_summary(self, stamp_id):
+        """Return a compact string of catalog numbers for a stamp, e.g. 'Scott #173  SG #200'."""
+        cur = self.conn.execute(
+            "SELECT catalog_system, catalog_number "
+            "FROM Catalog_Numbers WHERE stamp_id=? "
+            "ORDER BY catalog_system, catalog_number LIMIT 3",
+            (stamp_id,))
+        parts = [f"{r[0]} #{r[1]}" for r in cur.fetchall()]
+        if not parts:
+            return ""
+        # Check if there are more than 3
+        total = self.conn.execute(
+            "SELECT COUNT(*) FROM Catalog_Numbers WHERE stamp_id=?",
+            (stamp_id,)).fetchone()[0]
+        summary = "  ".join(parts)
+        if total > 3:
+            summary += f"  +{total - 3}"
+        return f"  [{summary}]"
+
     def _load_stamps(self, country, search=""):
         self.stamp_list.delete(0, tk.END)
         self._stamp_ids.clear()
@@ -493,7 +524,8 @@ class StampCatalogManager:
             denom = row["denomination"] or ""
             desc  = row["description"]  or ""
             year  = row["date_issued"]  or ""
-            label = f"{row['id']:>5}  {denom:>6}  {year:<6}  {desc}"
+            cats  = self._catalog_summary(row["id"])
+            label = f"{row['id']:>5}  {denom:>6}  {year:<6}  {desc}{cats}"
             self.stamp_list.insert(tk.END, label)
             self._stamp_ids.append(row["id"])
 
