@@ -404,6 +404,14 @@ class Plot3DApp:
                     self._refresh_in_progress = False
                     return
             
+            # ===== CYLINDRICAL L*C*h* MODE BRANCH =====
+            if self._cylindrical_mode:
+                try:
+                    self._refresh_plot_cylindrical()
+                finally:
+                    self._refresh_in_progress = False
+                return
+            
             # ===== 2D MODE BRANCH =====
             # If the "Use 2D Plot" toggle is on and a plane view is selected,
             # delegate to the dedicated 2D renderer and skip all 3D code.
@@ -1701,6 +1709,9 @@ class Plot3DApp:
         # DataID labels toggle (most useful in 2D mode)
         self.show_data_ids = tk.BooleanVar(value=False)
         
+        # Cylindrical L*C*h* 3D mode
+        self._cylindrical_mode = False
+        
         # Initialize color-filtered trend line variables
         self.show_red_trendline = tk.BooleanVar(value=False)
         self.show_green_trendline = tk.BooleanVar(value=False)
@@ -2000,7 +2011,8 @@ class Plot3DApp:
             on_rotation_change=self._rotation_changed_callback,
             trendline_manager=self.trendline_manager,
             plotly_callback=self._open_plotly_view,
-            hue_wheel_callback=self._open_hue_wheel_view
+            hue_wheel_callback=self._open_hue_wheel_view,
+            hue_wheel_3d_callback=self._toggle_cylindrical_view
         )
         self.rotation_controls.grid(row=2, column=0, sticky='ew', padx=5, pady=5)
         
@@ -2494,6 +2506,245 @@ class Plot3DApp:
             import traceback
             traceback.print_exc()
     
+    # ── 3D Cylindrical L*C*h* view ──────────────────────────────────
+
+    def _toggle_cylindrical_view(self):
+        """Toggle in/out of the 3D cylindrical L*C*h* hue-wheel view."""
+        self._cylindrical_mode = not self._cylindrical_mode
+        print(f"Cylindrical L*C*h* mode: {'ON' if self._cylindrical_mode else 'OFF'}")
+        # Update button text to indicate toggle state
+        if hasattr(self, 'rotation_controls') and self.rotation_controls:
+            try:
+                btn_frame = self.rotation_controls.winfo_children()
+                for widget in self.rotation_controls.winfo_children():
+                    for child in widget.winfo_children():
+                        for btn in child.winfo_children():
+                            if hasattr(btn, 'cget') and '🌀' in str(btn.cget('text')):
+                                if self._cylindrical_mode:
+                                    btn.configure(text="🌀 Return to Scatter Plot")
+                                else:
+                                    btn.configure(text="🌀 3D Hue Wheel (L*C*h*)")
+            except Exception:
+                pass
+        self.refresh_plot()
+
+    def _identify_lch_columns(self):
+        """Identify L*C*h columns in the dataframe. Returns (l_col, c_col, h_col) or None."""
+        col_names = [col.lower() for col in self.df.columns]
+        l_col = c_col = h_col = None
+        for i, name in enumerate(col_names):
+            if l_col is None and ('lightness' in name or 'l*' in name or name == 'l'):
+                l_col = self.df.columns[i]
+            if c_col is None and ('chroma' in name or 'c*' in name or name == 'c'):
+                c_col = self.df.columns[i]
+            if h_col is None and ('hue' in name or name == 'h' or name == 'h*'):
+                h_col = self.df.columns[i]
+        # Positional fallback (columns N=13, O=14, P=15)
+        if l_col is None and len(self.df.columns) > 13:
+            l_col = self.df.columns[13]
+        if c_col is None and len(self.df.columns) > 14:
+            c_col = self.df.columns[14]
+        if h_col is None and len(self.df.columns) > 15:
+            h_col = self.df.columns[15]
+        if l_col and c_col and h_col:
+            return l_col, c_col, h_col
+        return None
+
+    def _refresh_plot_cylindrical(self):
+        """Render L*C*h* data in a 3D cylindrical coordinate system.
+
+        Hue → angle, Chroma → radius, L* → vertical axis.
+        """
+        print("\n=== 3D CYLINDRICAL L*C*h* REFRESH ===")
+
+        # ── Identify L*C*h* columns ──────────────────────────────────
+        lch = self._identify_lch_columns()
+        if lch is None:
+            messagebox.showwarning(
+                "Missing Data",
+                "L*C*h columns not found in the data.\n\n"
+                "Expected columns named Lightness/L*, Chroma/C*, Hue/h\n"
+                "or positional columns N, O, P in the template."
+            )
+            self._cylindrical_mode = False
+            return
+        l_col, c_col, h_col = lch
+
+        # ── Extract and validate data ────────────────────────────────
+        l_data = pd.to_numeric(self.df[l_col], errors='coerce')
+        c_data = pd.to_numeric(self.df[c_col], errors='coerce')
+        h_data = pd.to_numeric(self.df[h_col], errors='coerce')
+        valid = ~l_data.isna() & ~c_data.isna() & ~h_data.isna()
+
+        if valid.sum() == 0:
+            messagebox.showwarning("No Data", "No valid L*C*h data points found.")
+            self._cylindrical_mode = False
+            return
+
+        l_vals = l_data[valid].values
+        c_vals = c_data[valid].values
+        h_vals = h_data[valid].values
+        valid_indices = valid[valid].index.tolist()
+
+        # ── Convert to Cartesian ─────────────────────────────────────
+        h_rad = np.deg2rad(h_vals)
+        x_pts = c_vals * np.cos(h_rad)
+        y_pts = c_vals * np.sin(h_rad)
+        z_pts = l_vals
+
+        max_c = np.max(c_vals) * 1.15  # padding
+
+        # ── Figure / axes setup ──────────────────────────────────────
+        try:
+            plt.clf()
+            self.fig.clear()
+        except Exception:
+            self.fig = plt.figure(figsize=(14, 10))
+            self.canvas.figure = self.fig
+
+        self.fig.subplots_adjust(left=0.0, right=1.0, bottom=0.0, top=1.0)
+        ax = self.fig.add_subplot(111, projection='3d')
+        ax.set_position([0, 0, 1, 1])
+        self.current_ax = ax
+
+        # Zoom in closer (lower dist = larger plot in window)
+        try:
+            ax.dist = 6
+        except AttributeError:
+            pass
+
+        # Hide the rectangular 3D box — we draw our own cylindrical frame
+        ax.xaxis.pane.set_visible(False)
+        ax.yaxis.pane.set_visible(False)
+        ax.zaxis.pane.set_visible(False)
+        ax.xaxis.line.set_visible(False)
+        ax.yaxis.line.set_visible(False)
+        ax.zaxis.line.set_visible(False)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_zticks([])
+
+        # ── Cylindrical grid ─────────────────────────────────────────
+        theta_grid = np.linspace(0, 2 * np.pi, 120)
+        # Concentric circles at floor (L*=0), mid (L*=50), ceiling (L*=100)
+        for z_level in [0, 50, 100]:
+            for radius in np.linspace(max_c * 0.25, max_c, 4):
+                cx = radius * np.cos(theta_grid)
+                cy = radius * np.sin(theta_grid)
+                cz = np.full_like(cx, z_level)
+                ax.plot(cx, cy, cz, color='gray', alpha=0.15, linewidth=0.5)
+
+        # Vertical hue lines every 30°
+        for angle_deg in range(0, 360, 30):
+            a_rad = np.deg2rad(angle_deg)
+            ax.plot(
+                [0, max_c * np.cos(a_rad)],
+                [0, max_c * np.sin(a_rad)],
+                [0, 0],
+                color='gray', alpha=0.2, linewidth=0.5
+            )
+            # Vertical line at outer edge
+            ax.plot(
+                [max_c * np.cos(a_rad)] * 2,
+                [max_c * np.sin(a_rad)] * 2,
+                [0, 100],
+                color='gray', alpha=0.12, linewidth=0.5
+            )
+            # Hue degree label at floor
+            ax.text(
+                max_c * 1.08 * np.cos(a_rad),
+                max_c * 1.08 * np.sin(a_rad),
+                -3, f"{angle_deg}°",
+                fontsize=7, ha='center', va='center', color='gray'
+            )
+
+        # ── Colored hue ring at floor ────────────────────────────────
+        from matplotlib.colors import hsv_to_rgb
+        ring_angles = np.linspace(0, 360, 360)
+        ring_rad = np.deg2rad(ring_angles)
+        ring_x = max_c * np.cos(ring_rad)
+        ring_y = max_c * np.sin(ring_rad)
+        ring_z = np.full_like(ring_x, 0.5)  # Slightly above z=0 to avoid clipping
+        ring_colors = [hsv_to_rgb([h / 360.0, 1.0, 0.9]) for h in ring_angles]
+        ax.scatter(ring_x, ring_y, ring_z, c=ring_colors, s=60, alpha=0.9,
+                   edgecolors='none', zorder=5, depthshade=False)
+
+        # ── Plot data points ─────────────────────────────────────────
+        for i, idx in enumerate(valid_indices):
+            row = self.df.loc[idx]
+            marker = row.get('Marker', 'o')
+            if pd.isna(marker):
+                marker = 'o'
+            color = row.get('Color', 'blue')
+            if pd.isna(color):
+                color = 'blue'
+            marker_size = self.MARKER_SIZES.get(marker, 25)
+            data_id = row.get('DataID', f'Row {idx}')
+
+            ax.scatter(
+                x_pts[i], y_pts[i], z_pts[i],
+                c=color, marker=marker, s=marker_size,
+                label=data_id, zorder=10,
+                edgecolors='black', linewidths=0.3
+            )
+
+        # ── Central L* axis with tick labels inside the cylinder ─────
+        ax.plot([0, 0], [0, 0], [0, 100], color='black', linewidth=1.0,
+                alpha=0.6, zorder=5)
+        for l_tick in range(0, 101, 10):
+            ax.text(0, max_c * 0.12, l_tick, f"{l_tick}",
+                    fontsize=7, ha='left', va='center', color='black',
+                    alpha=0.7, zorder=6)
+        ax.text(0, 0, 105, "L*", fontsize=10, ha='center', va='bottom',
+                fontweight='bold', color='black', zorder=6)
+
+        # ── Axis configuration ───────────────────────────────────────
+        ax.set_xlim(-max_c, max_c)
+        ax.set_ylim(-max_c, max_c)
+        ax.set_zlim(0, 100)
+        ax.set_xlabel('')
+        ax.set_ylabel('')
+        ax.set_zlabel('')
+        # Proportional aspect: make the cylinder look right
+        # x and y span 2*max_c, z spans 100
+        z_ratio = 100.0 / (2.0 * max_c) if max_c > 0 else 1.0
+        ax.set_box_aspect([1, 1, z_ratio])
+
+        sheet_label = getattr(self, 'sheet_name', None)
+        title = f"3D Hue Wheel — {len(valid_indices)} points"
+        if sheet_label:
+            title += f" — {sheet_label}"
+        ax.set_title(title, fontsize=13, fontweight='bold', pad=10)
+
+        # ── Apply rotation from controls ─────────────────────────────
+        if hasattr(self, 'rotation_controls') and self.rotation_controls:
+            try:
+                elev = self.rotation_controls.elevation
+                azim = self.rotation_controls.azimuth
+                roll = self.rotation_controls.roll
+                try:
+                    ax.view_init(elev=elev, azim=azim, roll=roll)
+                except TypeError:
+                    ax.view_init(elev=elev, azim=azim)
+            except Exception:
+                ax.view_init(elev=25, azim=-45)
+        else:
+            ax.view_init(elev=25, azim=-45)
+
+        # ── Update managers ──────────────────────────────────────────
+        if hasattr(self, 'zoom_controls') and self.zoom_controls:
+            self.zoom_controls.update_axes_reference(ax)
+        if self.highlight_manager:
+            self.highlight_manager.update_references(ax, self.df, self.use_rgb)
+
+        # ── Draw ─────────────────────────────────────────────────────
+        try:
+            self.canvas.draw()
+        except Exception:
+            self.canvas.draw_idle()
+
+        print(f"=== 3D cylindrical refresh complete ({len(valid_indices)} points) ===")
+
     def _open_hue_wheel_view(self):
         """Open the Hue Wheel polar plot viewer."""
         try:

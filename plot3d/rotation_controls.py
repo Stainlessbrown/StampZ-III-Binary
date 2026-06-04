@@ -5,7 +5,7 @@ from .rotary_knob import RotaryKnob
 class RotationControls(tk.LabelFrame):
     """Widget providing controls for 3D plot rotation using rotary knobs"""
     
-    def __init__(self, master, on_rotation_change=None, trendline_manager=None, plotly_callback=None, hue_wheel_callback=None):
+    def __init__(self, master, on_rotation_change=None, trendline_manager=None, plotly_callback=None, hue_wheel_callback=None, hue_wheel_3d_callback=None):
         """Initialize rotation controls
         
         Args:
@@ -14,6 +14,7 @@ class RotationControls(tk.LabelFrame):
             trendline_manager: TrendlineManager instance for trendline-based views
             plotly_callback: Callback to open Plotly viewer
             hue_wheel_callback: Callback to open Hue Wheel viewer
+            hue_wheel_3d_callback: Callback to toggle 3D cylindrical L*C*h* view
         """
         super().__init__(master, text="◎ Rotation Controls - CLICK & DRAG KNOBS ◎", 
                        font=('Arial', 10, 'bold'), foreground='blue', borderwidth=2)
@@ -34,6 +35,9 @@ class RotationControls(tk.LabelFrame):
         
         # Store Hue Wheel viewer callback
         self.hue_wheel_callback = hue_wheel_callback
+        
+        # Store 3D Hue Wheel viewer callback
+        self.hue_wheel_3d_callback = hue_wheel_3d_callback
         
         # Flag to prevent recursive callbacks
         self._updating_programmatically = False
@@ -650,6 +654,25 @@ class RotationControls(tk.LabelFrame):
                 justify='center'
             )
             hue_note_label.grid(row=row_pos+1, column=0, columnspan=3, padx=2, pady=(0,5), sticky='ew')
+        
+        # Add 3D Hue Wheel button if callback is available
+        if self.hue_wheel_3d_callback is not None:
+            row_3d = row_pos + 2 if self.hue_wheel_callback is not None else (4 if self.plotly_callback is not None else 2)
+            hue_3d_btn = ttk.Button(
+                button_frame,
+                text="🌀 3D Hue Wheel (L*C*h*)",
+                command=self.hue_wheel_3d_callback
+            )
+            hue_3d_btn.grid(row=row_3d, column=0, columnspan=3, padx=2, pady=(2,2), sticky='ew')
+            
+            hue_3d_note = ttk.Label(
+                button_frame,
+                text="Cylindrical 3D: Angle=Hue, Radius=Chroma, Height=L*",
+                font=('Arial', 9),
+                foreground='gray',
+                justify='center'
+            )
+            hue_3d_note.grid(row=row_3d+1, column=0, columnspan=3, padx=2, pady=(0,5), sticky='ew')
         
         return plane_frame
     

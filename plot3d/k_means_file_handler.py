@@ -485,28 +485,48 @@ class KMeansFileHandler:
                         f"{visual_row_count} visual rows in table"
                     )
                     
-                    # Update cluster assignments in data rows
+                    # Update cluster assignments in data rows.
+                    # Rows with a valid cluster get their value written;
+                    # rows where the cluster is NaN (blanks / gaps) get their
+                    # Cluster and Centroid cells cleared so stale data from a
+                    # previous K-means run doesn't persist in the file.
+                    def clear_cell(cell):
+                        """Remove value attributes and text, leaving an empty cell."""
+                        for attr in [f'{OFFICE_NS}value-type', f'{OFFICE_NS}value']:
+                            if attr in cell.attrib:
+                                del cell.attrib[attr]
+                        for p in cell.findall(f'{TEXT_NS}p'):
+                            cell.remove(p)
+
                     successful_writes = 0
+                    cleared_writes = 0
                     for i, idx in enumerate(row_indices):
                         cluster_value = clusters.iloc[i]
+                        ods_row_idx = idx + 1  # +1 for header
+                        if ods_row_idx >= visual_row_count:
+                            continue
+                        row = get_row_at_index(table, ods_row_idx)
+                        if row is None:
+                            self.logger.warning(
+                                f"Could not resolve visual row {ods_row_idx} "
+                                f"(past end of table)"
+                            )
+                            continue
+
                         if pd.notna(cluster_value):
-                            # ODS row index = DataFrame index + 1 (for header)
-                            ods_row_idx = idx + 1
-                            if ods_row_idx < visual_row_count:
-                                row = get_row_at_index(table, ods_row_idx)
-                                if row is None:
-                                    self.logger.warning(
-                                        f"Could not resolve visual row {ods_row_idx} "
-                                        f"(past end of table)"
-                                    )
-                                    continue
-                                cell = get_cell_at_column(row, cluster_col_idx)
+                            cell = get_cell_at_column(row, cluster_col_idx)
+                            if cell is not None:
+                                set_cell_value(cell, int(cluster_value))
+                                successful_writes += 1
+                                self.logger.debug(f"✓ Updated ODS row {ods_row_idx} with cluster {int(cluster_value)}")
+                        else:
+                            # Gap / blank row — clear stale Cluster and Centroid cells
+                            for col_idx in [cluster_col_idx, centroid_x_idx, centroid_y_idx, centroid_z_idx]:
+                                cell = get_cell_at_column(row, col_idx)
                                 if cell is not None:
-                                    set_cell_value(cell, int(cluster_value))
-                                    successful_writes += 1
-                                    self.logger.debug(f"✓ Updated ODS row {ods_row_idx} with cluster {int(cluster_value)}")
-                                else:
-                                    self.logger.warning(f"Could not find cell at row {ods_row_idx}, col {cluster_col_idx}")
+                                    clear_cell(cell)
+                            cleared_writes += 1
+                            self.logger.debug(f"✓ Cleared stale data from ODS row {ods_row_idx} (gap row)")
                     
                     self.logger.info(f"Cluster assignment update summary: {successful_writes} rows updated")
                     

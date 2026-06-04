@@ -412,30 +412,20 @@ class KmeansManager:
             else:
                 print(f"   ❌ 'Exclude' column NOT found in data")
             
-            # Check for gaps in original row numbers (indicating blank line separators)
+            # Check for gaps in original row numbers (blank line separators)
+            # Blank rows are simply skipped — they do NOT truncate the selection.
             if 'original_row' in subset_data.columns:
-                # Sort by original row to ensure proper sequence
                 sorted_subset = subset_data.sort_values('original_row')
                 original_rows = sorted_subset['original_row'].tolist()
                 
-                # Check for gaps larger than 1 (indicating blank line separators)
                 gaps = []
                 for i in range(len(original_rows) - 1):
                     if original_rows[i+1] - original_rows[i] > 1:
                         gaps.append((original_rows[i], original_rows[i+1]))
                 
                 if gaps:
-                    print(f"\nDebug: Found {len(gaps)} gaps in row numbers: {gaps}")
-                    self.logger.info(f"Found {len(gaps)} gaps in original row numbers")
-                    
-                    # If there are gaps, only include rows before the first gap
-                    if len(gaps) > 0:
-                        first_gap_end = gaps[0][0]
-                        print(f"\nDebug: Using only rows before first gap (ends at original row {first_gap_end})")
-                        self.logger.info(f"Will only use rows before first gap (ending at original row {first_gap_end})")
-                        
-                        # Update coord_mask to also exclude rows after the first gap
-                        coord_mask = coord_mask & (subset_data['original_row'] <= first_gap_end)
+                    print(f"\nDebug: Found {len(gaps)} gap(s) in row numbers: {gaps}")
+                    self.logger.info(f"Found {len(gaps)} gap(s) — blank rows will be skipped, not truncated")
             
             # Log which rows are being excluded due to zero or NaN values
             excluded_mask = ~coord_mask
@@ -566,6 +556,15 @@ class KmeansManager:
                     self.logger.error(f"Missing centroid for cluster {cluster_idx}")
                     raise ValueError(f"Missing centroid for cluster {cluster_idx}")
             
+            # Clear stale Cluster/Centroid values for the ENTIRE selected range
+            # so blank/gap rows don't retain old values from a previous run.
+            for idx in subset_indices:
+                df_copy.at[idx, 'Cluster'] = float('nan')
+                df_copy.at[idx, 'Centroid_X'] = float('nan')
+                df_copy.at[idx, 'Centroid_Y'] = float('nan')
+                df_copy.at[idx, 'Centroid_Z'] = float('nan')
+            self.logger.info(f"Cleared stale Cluster/Centroid values from {len(subset_indices)} rows in selected range")
+
             # Update the "Cluster" column using the cleaned indices and assignments
             print(f"\n🎯 CLUSTER ASSIGNMENT DEBUG:")
             print(f"  Assigning clusters to {len(clean_indices)} DataFrame indices")
