@@ -7,9 +7,15 @@ Includes file locking, backup creation, verification, and detailed error handlin
 
 import os
 import shutil
-import fcntl
 import errno
 import time
+import sys
+
+# fcntl is Unix-only; on Windows we skip file locking
+if sys.platform != 'win32':
+    import fcntl
+else:
+    fcntl = None
 from copy import deepcopy
 import pandas as pd
 from tkinter import messagebox
@@ -368,47 +374,49 @@ class KMeansFileHandler:
             if not messagebox.askokcancel("Save Clusters", msg):
                 return False
             
-            # Try to acquire the lock with timeout
-            max_attempts = 3
-            attempt = 0
+            # Try to acquire the lock with timeout (Unix only)
             lock_acquired = False
-            
-            while attempt < max_attempts and not lock_acquired:
-                try:
-                    lockfile = open(lock_path, 'w+')
-                    fcntl.flock(lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    lock_acquired = True
-                    self.logger.info("Lock acquired successfully")
-                except IOError as e:
-                    if e.errno == errno.EACCES or e.errno == errno.EAGAIN:
-                        attempt += 1
-                        self.logger.warning(f"File is locked, attempt {attempt}/{max_attempts}")
-                        
-                        if attempt < max_attempts:
-                            if not messagebox.askretrycancel("File Locked", 
-                                f"The file appears to be in use by another program.\\n\\n"
-                                f"Attempt {attempt} of {max_attempts}.\\n\\n"
-                                "Would you like to try again?"):
+            if fcntl is not None:
+                max_attempts = 3
+                attempt = 0
+                while attempt < max_attempts and not lock_acquired:
+                    try:
+                        lockfile = open(lock_path, 'w+')
+                        fcntl.flock(lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        lock_acquired = True
+                        self.logger.info("Lock acquired successfully")
+                    except IOError as e:
+                        if e.errno == errno.EACCES or e.errno == errno.EAGAIN:
+                            attempt += 1
+                            self.logger.warning(f"File is locked, attempt {attempt}/{max_attempts}")
+                            if attempt < max_attempts:
+                                if not messagebox.askretrycancel("File Locked",
+                                    f"The file appears to be in use by another program.\\n\\n"
+                                    f"Attempt {attempt} of {max_attempts}.\\n\\n"
+                                    "Would you like to try again?"):
+                                    if lockfile:
+                                        lockfile.close()
+                                    return False
+                                time.sleep(1)
+                            else:
                                 if lockfile:
                                     lockfile.close()
+                                messagebox.showerror("File Locked",
+                                    "The file is locked by another program and cannot be accessed.\\n\\n"
+                                    "Please close any applications that might be using this file and try again.")
                                 return False
-                            time.sleep(1)
                         else:
                             if lockfile:
                                 lockfile.close()
-                            messagebox.showerror("File Locked", 
-                                "The file is locked by another program and cannot be accessed.\\n\\n"
-                                "Please close any applications that might be using this file and try again.")
-                            return False
-                    else:
-                        if lockfile:
-                            lockfile.close()
-                        raise
-            
-            if not lock_acquired:
-                messagebox.showerror("File Locked", 
-                    "Could not acquire file lock after multiple attempts.")
-                return False
+                            raise
+                if not lock_acquired:
+                    messagebox.showerror("File Locked",
+                        "Could not acquire file lock after multiple attempts.")
+                    return False
+            else:
+                # Windows: no file locking available, proceed without it
+                lock_acquired = True
+                self.logger.info("Skipping file lock (Windows)")
             
             # Get cluster assignments from in-memory data
             clusters = self.data.iloc[row_indices]['Cluster']
@@ -617,7 +625,7 @@ class KMeansFileHandler:
                 "Please check file permissions and make sure the file isn't open in another program.")
             raise
         finally:
-            if lockfile:
+            if lockfile and fcntl is not None:
                 self.logger.info("Releasing file lock")
                 fcntl.flock(lockfile, fcntl.LOCK_UN)
                 lockfile.close()
