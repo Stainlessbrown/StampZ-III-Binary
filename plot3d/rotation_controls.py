@@ -658,12 +658,12 @@ class RotationControls(tk.LabelFrame):
         # Add 3D Hue Wheel button if callback is available
         if self.hue_wheel_3d_callback is not None:
             row_3d = row_pos + 2 if self.hue_wheel_callback is not None else (4 if self.plotly_callback is not None else 2)
-            hue_3d_btn = ttk.Button(
+            self._hue_3d_btn = ttk.Button(
                 button_frame,
                 text="🌀 3D Hue Wheel (L*C*h*)",
                 command=self.hue_wheel_3d_callback
             )
-            hue_3d_btn.grid(row=row_3d, column=0, columnspan=3, padx=2, pady=(2,2), sticky='ew')
+            self._hue_3d_btn.grid(row=row_3d, column=0, columnspan=3, padx=2, pady=(2,2), sticky='ew')
             
             hue_3d_note = ttk.Label(
                 button_frame,

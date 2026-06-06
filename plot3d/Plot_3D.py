@@ -2514,18 +2514,15 @@ class Plot3DApp:
         print(f"Cylindrical L*C*h* mode: {'ON' if self._cylindrical_mode else 'OFF'}")
         # Update button text to indicate toggle state
         if hasattr(self, 'rotation_controls') and self.rotation_controls:
-            try:
-                btn_frame = self.rotation_controls.winfo_children()
-                for widget in self.rotation_controls.winfo_children():
-                    for child in widget.winfo_children():
-                        for btn in child.winfo_children():
-                            if hasattr(btn, 'cget') and '🌀' in str(btn.cget('text')):
-                                if self._cylindrical_mode:
-                                    btn.configure(text="🌀 Return to Scatter Plot")
-                                else:
-                                    btn.configure(text="🌀 3D Hue Wheel (L*C*h*)")
-            except Exception:
-                pass
+            btn = getattr(self.rotation_controls, '_hue_3d_btn', None)
+            if btn is not None:
+                try:
+                    if self._cylindrical_mode:
+                        btn.configure(text="🌀 Return to Scatter Plot")
+                    else:
+                        btn.configure(text="🌀 3D Hue Wheel (L*C*h*)")
+                except Exception:
+                    pass
         self.refresh_plot()
 
     def _identify_lch_columns(self):
@@ -2613,49 +2610,64 @@ class Plot3DApp:
         except AttributeError:
             pass
 
-        # Hide the rectangular 3D box — we draw our own cylindrical frame
+        # Hide the rectangular 3D box — we draw our own cylindrical frame.
+        # Keep ticks but make them invisible; removing them entirely causes
+        # matplotlib's 3D bbox calculation to crash with "bboxes cannot be empty".
         ax.xaxis.pane.set_visible(False)
         ax.yaxis.pane.set_visible(False)
         ax.zaxis.pane.set_visible(False)
         ax.xaxis.line.set_visible(False)
         ax.yaxis.line.set_visible(False)
         ax.zaxis.line.set_visible(False)
-        ax.set_xticks([])
-        ax.set_yticks([])
-        ax.set_zticks([])
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+        ax.set_zticklabels([])
+        ax.tick_params(axis='x', length=0)
+        ax.tick_params(axis='y', length=0)
+        ax.tick_params(axis='z', length=0)
 
-        # ── Cylindrical grid ─────────────────────────────────────────
-        theta_grid = np.linspace(0, 2 * np.pi, 120)
-        # Concentric circles at floor (L*=0), mid (L*=50), ceiling (L*=100)
-        for z_level in [0, 50, 100]:
-            for radius in np.linspace(max_c * 0.25, max_c, 4):
-                cx = radius * np.cos(theta_grid)
-                cy = radius * np.sin(theta_grid)
-                cz = np.full_like(cx, z_level)
-                ax.plot(cx, cy, cz, color='gray', alpha=0.15, linewidth=0.5)
+        # ── Cylinder wireframe ──────────────────────────────────────
+        theta_grid = np.linspace(0, 2 * np.pi, 180)
 
-        # Vertical hue lines every 30°
+        # Outer cylinder wall — horizontal rings every 10 L* units
+        for z_level in range(0, 101, 10):
+            cx = max_c * np.cos(theta_grid)
+            cy = max_c * np.sin(theta_grid)
+            cz = np.full_like(cx, z_level)
+            alpha = 0.35 if z_level in (0, 50, 100) else 0.15
+            lw = 0.8 if z_level in (0, 50, 100) else 0.4
+            ax.plot(cx, cy, cz, color='gray', alpha=alpha, linewidth=lw)
+
+        # Inner chroma circles at floor only (for reference)
+        for radius in np.linspace(max_c * 0.25, max_c * 0.75, 3):
+            cx = radius * np.cos(theta_grid)
+            cy = radius * np.sin(theta_grid)
+            cz = np.zeros_like(cx)
+            ax.plot(cx, cy, cz, color='gray', alpha=0.12, linewidth=0.4)
+
+        # Vertical staves every 30° — forms the cylinder wall
         for angle_deg in range(0, 360, 30):
             a_rad = np.deg2rad(angle_deg)
+            # Radial spoke on the floor
             ax.plot(
                 [0, max_c * np.cos(a_rad)],
                 [0, max_c * np.sin(a_rad)],
                 [0, 0],
-                color='gray', alpha=0.2, linewidth=0.5
+                color='gray', alpha=0.15, linewidth=0.4
             )
-            # Vertical line at outer edge
+            # Vertical stave at the outer edge
             ax.plot(
                 [max_c * np.cos(a_rad)] * 2,
                 [max_c * np.sin(a_rad)] * 2,
                 [0, 100],
-                color='gray', alpha=0.12, linewidth=0.5
+                color='gray', alpha=0.25, linewidth=0.6
             )
-            # Hue degree label at floor
+            # Hue degree label just outside the floor
             ax.text(
-                max_c * 1.08 * np.cos(a_rad),
-                max_c * 1.08 * np.sin(a_rad),
-                -3, f"{angle_deg}°",
-                fontsize=7, ha='center', va='center', color='gray'
+                max_c * 1.12 * np.cos(a_rad),
+                max_c * 1.12 * np.sin(a_rad),
+                -2, f"{angle_deg}°",
+                fontsize=8, ha='center', va='center', color='#555'
             )
 
         # ── Colored hue ring at floor ────────────────────────────────
@@ -2664,9 +2676,9 @@ class Plot3DApp:
         ring_rad = np.deg2rad(ring_angles)
         ring_x = max_c * np.cos(ring_rad)
         ring_y = max_c * np.sin(ring_rad)
-        ring_z = np.full_like(ring_x, 0.5)  # Slightly above z=0 to avoid clipping
+        ring_z = np.full_like(ring_x, 1.0)  # Slightly above z=0
         ring_colors = [hsv_to_rgb([h / 360.0, 1.0, 0.9]) for h in ring_angles]
-        ax.scatter(ring_x, ring_y, ring_z, c=ring_colors, s=60, alpha=0.9,
+        ax.scatter(ring_x, ring_y, ring_z, c=ring_colors, s=80, alpha=0.9,
                    edgecolors='none', zorder=5, depthshade=False)
 
         # ── Plot data points ─────────────────────────────────────────
@@ -2705,9 +2717,10 @@ class Plot3DApp:
         ax.set_xlabel('')
         ax.set_ylabel('')
         ax.set_zlabel('')
-        # Proportional aspect: make the cylinder look right
-        # x and y span 2*max_c, z spans 100
+        # Proportional aspect: keep the cylinder roughly as wide as it is tall
+        # Cap z_ratio so the cylinder doesn't become a needle or a pancake
         z_ratio = 100.0 / (2.0 * max_c) if max_c > 0 else 1.0
+        z_ratio = max(0.6, min(z_ratio, 1.8))  # keep between 0.6 and 1.8
         ax.set_box_aspect([1, 1, z_ratio])
 
         sheet_label = getattr(self, 'sheet_name', None)
