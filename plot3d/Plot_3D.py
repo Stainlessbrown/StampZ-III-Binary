@@ -2670,14 +2670,25 @@ class Plot3DApp:
                 fontsize=8, ha='center', va='center', color='#555'
             )
 
-        # ── Colored hue ring at floor ────────────────────────────────
-        from matplotlib.colors import hsv_to_rgb
-        ring_angles = np.linspace(0, 360, 360)
+        # ── Colored hue ring at floor (CIELab hue colors) ───────────
+        # Use actual CIELab→sRGB conversion so ring colors match the
+        # L*C*h* hue angles of the data (not HSV, which is offset ~30°).
+        from colorspacious import cspace_convert
+        ring_angles = np.linspace(0, 360, 360, endpoint=False)
         ring_rad = np.deg2rad(ring_angles)
         ring_x = max_c * np.cos(ring_rad)
         ring_y = max_c * np.sin(ring_rad)
         ring_z = np.full_like(ring_x, 1.0)  # Slightly above z=0
-        ring_colors = [hsv_to_rgb([h / 360.0, 1.0, 0.9]) for h in ring_angles]
+        ring_colors = []
+        for h_deg in ring_angles:
+            # Build a CIELab color at L*=65, C*=55 for each hue angle
+            a_star = 55.0 * np.cos(np.deg2rad(h_deg))
+            b_star = 55.0 * np.sin(np.deg2rad(h_deg))
+            lab = np.array([65.0, a_star, b_star])
+            rgb = cspace_convert(lab, 'CIELab', 'sRGB1')
+            # Clamp to [0, 1] — some CIELab colors fall outside sRGB gamut
+            rgb = np.clip(rgb, 0, 1)
+            ring_colors.append(rgb)
         ax.scatter(ring_x, ring_y, ring_z, c=ring_colors, s=80, alpha=0.9,
                    edgecolors='none', zorder=5, depthshade=False)
 
