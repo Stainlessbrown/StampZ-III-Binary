@@ -582,20 +582,20 @@ class HueWheelViewer:
         ax = self.fig.add_subplot(111, projection='polar')
         
         # Draw colored hue wheel ring on outer edge
-        # Create a ring of colors representing the full hue spectrum
-        hue_angles = np.linspace(0, 360, 360)  # One point per degree
+        # Use CIELab→sRGB conversion so ring colors match CIELab hue angles
+        hue_angles = np.linspace(0, 360, 360, endpoint=False)
         hue_radians = np.deg2rad(hue_angles)
         max_chroma = np.max(c_values) * 1.1  # Match the data extent + padding
         ring_radius = np.full_like(hue_angles, max_chroma)
         
-        # Convert hue to RGB colors
-        # For each hue angle, create a color at full saturation and mid-lightness
-        from matplotlib.colors import hsv_to_rgb
+        from colorspacious import cspace_convert
         ring_colors = []
         for h in hue_angles:
-            # HSV: H in [0,1], S=1 (full saturation), V=0.9 (bright)
-            hsv = np.array([h/360.0, 1.0, 0.9])
-            rgb = hsv_to_rgb(hsv)
+            a_star = 55.0 * np.cos(np.deg2rad(h))
+            b_star = 55.0 * np.sin(np.deg2rad(h))
+            lab = np.array([65.0, a_star, b_star])
+            rgb = cspace_convert(lab, 'CIELab', 'sRGB1')
+            rgb = np.clip(rgb, 0, 1)
             ring_colors.append(rgb)
         
         # Plot the colored ring using scatter with small overlapping points
