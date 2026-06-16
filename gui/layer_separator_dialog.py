@@ -351,9 +351,15 @@ class LayerSeparatorDialog:
         sep = self._get_separator()
         self._bg_mask = sep._mask_background()
         self._separator = sep
+        n = int(np.sum(self._bg_mask))
         self._current_step = 1
         self._update_step_ui()
-        self._show_image(self.original_image)
+        self.status_label.configure(
+            text=f"Background locked ({n:,} pixels). Now adjust cancellation thresholds.")
+        # Show image with background removed
+        arr = np.array(self.original_image).copy()
+        arr[self._bg_mask] = [255, 255, 255]
+        self._show_image(Image.fromarray(arr))
 
     # ================================================================== #
     # Step 1: Cancellation
@@ -364,9 +370,19 @@ class LayerSeparatorDialog:
             return
         sep = self._get_separator()
         cancel = sep._mask_cancellation(self._bg_mask)
-        # Show cancel pixels highlighted in red overlay
-        combined = self._bg_mask | cancel
-        self._show_masked(combined, "cancel_preview")
+        # Show cancel pixels highlighted in RED on the original image
+        # (background already removed as white)
+        arr = np.array(self.original_image).copy()
+        arr[self._bg_mask] = [255, 255, 255]  # background → white
+        # Highlight cancel pixels in semi-transparent red
+        arr[cancel, 0] = np.minimum(arr[cancel, 0].astype(np.int16) + 180, 255).astype(np.uint8)
+        arr[cancel, 1] = (arr[cancel, 1] * 0.3).astype(np.uint8)
+        arr[cancel, 2] = (arr[cancel, 2] * 0.3).astype(np.uint8)
+        self._show_image(Image.fromarray(arr))
+        # Show count
+        n = int(np.sum(cancel))
+        self.status_label.configure(
+            text=f"Cancel preview: {n:,} pixels detected (shown in red). Adjust and re-preview, or Lock.")
 
     def _lock_cancel(self):
         if self._bg_mask is None:
@@ -374,9 +390,16 @@ class LayerSeparatorDialog:
         sep = self._get_separator()
         self._cancel_mask = sep._mask_cancellation(self._bg_mask)
         self._separator = sep
+        n = int(np.sum(self._cancel_mask))
         self._current_step = 2
         self._update_step_ui()
-        self._show_image(self.original_image)
+        self.status_label.configure(
+            text=f"Cancellation locked ({n:,} pixels). Click Separate to split ink from paper.")
+        # Show image with background + cancel removed
+        arr = np.array(self.original_image).copy()
+        arr[self._bg_mask] = [255, 255, 255]
+        arr[self._cancel_mask] = [255, 255, 255]
+        self._show_image(Image.fromarray(arr))
 
     # ================================================================== #
     # Step 2: Ink / Paper
