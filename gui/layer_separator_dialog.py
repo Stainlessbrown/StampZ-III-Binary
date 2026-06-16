@@ -98,23 +98,26 @@ class LayerSeparatorDialog:
         ttk.Button(r0, text="Skip (no BG)", command=self._skip_background).pack(side=tk.LEFT, padx=4)
         self._step_frames.append(f0)
 
-        # Step 1: Cancellation (cumulative — Add accumulates, Reset clears)
+        # Step 1: Cancellation (two rows)
         f1 = ttk.Frame(top)
-        r1 = ttk.Frame(f1)
-        r1.pack(fill=tk.X)
-        ttk.Label(r1, text="Brightness:").pack(side=tk.LEFT)
+        r1a = ttk.Frame(f1)
+        r1a.pack(fill=tk.X)
+        ttk.Label(r1a, text="Brightness:").pack(side=tk.LEFT)
         self.cancel_brightness = tk.IntVar(value=80)
-        ttk.Spinbox(r1, from_=20, to=180, increment=5,
+        ttk.Spinbox(r1a, from_=20, to=180, increment=5,
                     textvariable=self.cancel_brightness, width=4).pack(side=tk.LEFT)
-        ttk.Label(r1, text="Sat:").pack(side=tk.LEFT, padx=(8, 2))
+        ttk.Label(r1a, text="Sat:").pack(side=tk.LEFT, padx=(8, 2))
         self.cancel_saturation = tk.IntVar(value=40)
-        ttk.Spinbox(r1, from_=10, to=100, increment=5,
+        ttk.Spinbox(r1a, from_=10, to=100, increment=5,
                     textvariable=self.cancel_saturation, width=4).pack(side=tk.LEFT)
-        ttk.Button(r1, text="Preview", command=self._preview_cancel).pack(side=tk.LEFT, padx=4)
-        ttk.Button(r1, text="+ Add", command=self._add_cancel_pass).pack(side=tk.LEFT, padx=2)
-        ttk.Button(r1, text="Reset", command=self._reset_cancel).pack(side=tk.LEFT, padx=2)
-        ttk.Button(r1, text="Lock & Next ▸", command=self._lock_cancel).pack(side=tk.LEFT, padx=4)
-        ttk.Button(r1, text="◂ Back", command=lambda: self._go_step(0)).pack(side=tk.LEFT, padx=4)
+        ttk.Button(r1a, text="Preview", command=self._preview_cancel).pack(side=tk.LEFT, padx=4)
+        ttk.Button(r1a, text="+ Add", command=self._add_cancel_pass).pack(side=tk.LEFT, padx=2)
+        ttk.Button(r1a, text="Reset", command=self._reset_cancel).pack(side=tk.LEFT, padx=2)
+        r1b = ttk.Frame(f1)
+        r1b.pack(fill=tk.X, pady=(2, 0))
+        ttk.Button(r1b, text="⬪ Black Ink Extract", command=self._use_black_ink_extractor).pack(side=tk.LEFT, padx=2)
+        ttk.Button(r1b, text="Lock & Next ▸", command=self._lock_cancel).pack(side=tk.LEFT, padx=4)
+        ttk.Button(r1b, text="◂ Back", command=lambda: self._go_step(0)).pack(side=tk.LEFT, padx=4)
         self._step_frames.append(f1)
 
         # Step 2: Ink/Paper (automatic)
@@ -420,6 +423,39 @@ class LayerSeparatorDialog:
         arr[self._bg_mask] = [255, 255, 255]
         arr[self._cancel_mask] = [255, 0, 255]
         self._show_image(Image.fromarray(arr))
+
+    def _use_black_ink_extractor(self):
+        """Run the Black Ink Extractor and use its mask as the cancel layer."""
+        if self._bg_mask is None:
+            return
+        try:
+            from black_ink_extractor import extract_black_ink
+            arr = np.array(self.original_image)
+            _, black_mask, analysis = extract_black_ink(
+                arr,
+                black_threshold=self.cancel_brightness.get(),
+                saturation_threshold=self.cancel_saturation.get()
+            )
+            # Exclude background pixels
+            black_mask = black_mask & ~self._bg_mask
+            # Accumulate with any existing cancel mask
+            if self._cancel_mask is None:
+                self._cancel_mask = black_mask
+            else:
+                self._cancel_mask = self._cancel_mask | black_mask
+            n = int(np.sum(self._cancel_mask))
+            self.status_label.configure(
+                text=f"Black Ink Extractor: {n:,} cancel pixels. "
+                     f"Coverage: {analysis['coverage_percentage']:.1f}%. Adjust or Lock.")
+            # Show result
+            view = np.array(self.original_image).copy()
+            view[self._bg_mask] = [255, 255, 255]
+            view[self._cancel_mask] = [255, 0, 255]  # magenta
+            self._show_image(Image.fromarray(view))
+        except ImportError:
+            messagebox.showerror("Not Available", "black_ink_extractor.py not found.")
+        except Exception as e:
+            messagebox.showerror("Extraction Error", f"Black Ink Extractor failed:\n\n{str(e)}")
 
     def _reset_cancel(self):
         """Clear all accumulated cancel detections."""
