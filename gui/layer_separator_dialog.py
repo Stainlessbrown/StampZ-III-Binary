@@ -23,9 +23,10 @@ class LayerSeparatorDialog:
 
     STEPS = ["1. Background", "2. Cancellation", "3. Ink / Paper", "4. Results"]
 
-    def __init__(self, parent, pil_image: Image.Image):
+    def __init__(self, parent, pil_image: Image.Image, image_filename: str = None):
         self.parent = parent
         self.original_image = pil_image.convert('RGB')
+        self._source_filename = image_filename  # original image path/name
         self._arr = np.array(self.original_image, dtype=np.float32)
         self._photo_ref = None
         self._current_pil = self.original_image
@@ -115,7 +116,8 @@ class LayerSeparatorDialog:
         ttk.Button(r1a, text="Reset", command=self._reset_cancel).pack(side=tk.LEFT, padx=2)
         r1b = ttk.Frame(f1)
         r1b.pack(fill=tk.X, pady=(2, 0))
-        ttk.Button(r1b, text="⬪ Black Ink Extract", command=self._use_black_ink_extractor).pack(side=tk.LEFT, padx=2)
+        ttk.Button(r1b, text="⬪ Black Ink Preview", command=lambda: self._use_black_ink_extractor(preview=True)).pack(side=tk.LEFT, padx=2)
+        ttk.Button(r1b, text="⬪ Black Ink Add", command=lambda: self._use_black_ink_extractor(preview=False)).pack(side=tk.LEFT, padx=2)
         ttk.Button(r1b, text="Lock & Next ▸", command=self._lock_cancel).pack(side=tk.LEFT, padx=4)
         ttk.Button(r1b, text="◂ Back", command=lambda: self._go_step(0)).pack(side=tk.LEFT, padx=4)
         self._step_frames.append(f1)
@@ -424,8 +426,8 @@ class LayerSeparatorDialog:
         arr[self._cancel_mask] = [255, 0, 255]
         self._show_image(Image.fromarray(arr))
 
-    def _use_black_ink_extractor(self):
-        """Run the Black Ink Extractor and use its mask as the cancel layer."""
+    def _use_black_ink_extractor(self, preview=False):
+        """Run the Black Ink Extractor. Preview shows cyan, Add accumulates."""
         if self._bg_mask is None:
             return
         try:
@@ -438,19 +440,35 @@ class LayerSeparatorDialog:
             )
             # Exclude background pixels
             black_mask = black_mask & ~self._bg_mask
-            # Accumulate with any existing cancel mask
-            if self._cancel_mask is None:
-                self._cancel_mask = black_mask
-            else:
-                self._cancel_mask = self._cancel_mask | black_mask
-            n = int(np.sum(self._cancel_mask))
-            self.status_label.configure(
-                text=f"Black Ink Extractor: {n:,} cancel pixels. "
-                     f"Coverage: {analysis['coverage_percentage']:.1f}%. Adjust or Lock.")
-            # Show result
+
             view = np.array(self.original_image).copy()
             view[self._bg_mask] = [255, 255, 255]
-            view[self._cancel_mask] = [255, 0, 255]  # magenta
+
+            if preview:
+                # Show what would be detected in cyan, existing in magenta
+                if self._cancel_mask is not None:
+                    new_only = black_mask & ~self._cancel_mask
+                    view[self._cancel_mask] = [255, 0, 255]
+                else:
+                    new_only = black_mask
+                view[new_only] = [0, 255, 255]
+                n_new = int(np.sum(new_only))
+                n_exist = int(np.sum(self._cancel_mask)) if self._cancel_mask is not None else 0
+                self.status_label.configure(
+                    text=f"Black Ink preview: {n_new:,} new (cyan) + {n_exist:,} existing (magenta). "
+                         f"Coverage: {analysis['coverage_percentage']:.1f}%. Adjust or Add.")
+            else:
+                # Accumulate
+                if self._cancel_mask is None:
+                    self._cancel_mask = black_mask
+                else:
+                    self._cancel_mask = self._cancel_mask | black_mask
+                view[self._cancel_mask] = [255, 0, 255]
+                n = int(np.sum(self._cancel_mask))
+                self.status_label.configure(
+                    text=f"Black Ink added: {n:,} total cancel pixels. "
+                         f"Coverage: {analysis['coverage_percentage']:.1f}%. Adjust or Lock.")
+
             self._show_image(Image.fromarray(view))
         except ImportError:
             messagebox.showerror("Not Available", "black_ink_extractor.py not found.")
@@ -527,25 +545,8 @@ class LayerSeparatorDialog:
 
     def _get_image_basename(self) -> str:
         """Get the source image filename without extension for save naming."""
-        # Try to find current_file on the parent app
-        for attr in ('current_file',):
-            # Check parent directly
-            if hasattr(self.parent, attr) and getattr(self.parent, attr):
-                return os.path.splitext(os.path.basename(getattr(self.parent, attr)))[0]
-            # Check parent's children (StampZ app is often a child of root)
-            for child_name in ('app', 'stampz_app'):
-                child = getattr(self.parent, child_name, None)
-                if child and hasattr(child, attr) and getattr(child, attr):
-                    return os.path.splitext(os.path.basename(getattr(child, attr)))[0]
-        # Walk up from parent to find any widget with current_file
-        try:
-            widget = self.parent
-            while widget:
-                if hasattr(widget, 'current_file') and widget.current_file:
-                    return os.path.splitext(os.path.basename(widget.current_file))[0]
-                widget = getattr(widget, 'master', None)
-        except Exception:
-            pass
+        if self._source_filename:
+            return os.path.splitext(os.path.basename(self._source_filename))[0]
         return "stamp"
 
     def _show_masked(self, mask, label="preview"):
@@ -682,6 +683,6 @@ class LayerSeparatorDialog:
             messagebox.showerror("Compare Error", f"Failed:\n\n{str(e)}")
 
 
-def open_layer_separator(parent, pil_image):
+def open_layer_separator(parent, pil_image, image_filename=None):
     """Convenience function to open the dialog."""
-    return LayerSeparatorDialog(parent, pil_image)
+    return LayerSeparatorDialog(parent, pil_image, image_filename=image_filename)

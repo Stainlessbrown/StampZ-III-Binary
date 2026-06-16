@@ -275,7 +275,8 @@ class StampZApp:
                 messagebox.showwarning("No Image", "Please open a stamp image first.")
                 return
             from gui.layer_separator_dialog import open_layer_separator
-            open_layer_separator(self.root, self.canvas.original_image)
+            open_layer_separator(self.root, self.canvas.original_image,
+                                image_filename=getattr(self, 'current_file', None))
         except Exception as e:
             from tkinter import messagebox
             messagebox.showerror("Error", f"Failed to open Layer Separator:\n\n{str(e)}")
