@@ -370,19 +370,15 @@ class LayerSeparatorDialog:
             return
         sep = self._get_separator()
         cancel = sep._mask_cancellation(self._bg_mask)
-        # Show cancel pixels highlighted in RED on the original image
-        # (background already removed as white)
+        # Show stamp with background removed; cancel pixels replaced
+        # with bright cyan so they're visible on any stamp color.
         arr = np.array(self.original_image).copy()
-        arr[self._bg_mask] = [255, 255, 255]  # background → white
-        # Highlight cancel pixels in semi-transparent red
-        arr[cancel, 0] = np.minimum(arr[cancel, 0].astype(np.int16) + 180, 255).astype(np.uint8)
-        arr[cancel, 1] = (arr[cancel, 1] * 0.3).astype(np.uint8)
-        arr[cancel, 2] = (arr[cancel, 2] * 0.3).astype(np.uint8)
+        arr[self._bg_mask] = [255, 255, 255]
+        arr[cancel] = [0, 255, 255]  # cyan = unmistakable on any ink
         self._show_image(Image.fromarray(arr))
-        # Show count
         n = int(np.sum(cancel))
         self.status_label.configure(
-            text=f"Cancel preview: {n:,} pixels detected (shown in red). Adjust and re-preview, or Lock.")
+            text=f"Cancel preview: {n:,} pixels detected (cyan). Adjust and re-preview, or Lock.")
 
     def _lock_cancel(self):
         if self._bg_mask is None:

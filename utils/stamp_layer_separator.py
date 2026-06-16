@@ -162,40 +162,23 @@ class StampLayerSeparator:
         return mask.reshape(img_norm.shape[:2])
 
     def _mask_cancellation(self, background_mask: np.ndarray) -> np.ndarray:
-        """Identify cancellation pixels using multi-pass detection.
+        """Identify cancellation (dark, low-saturation) pixels outside background.
 
-        Pass 1: strict thresholds catch heavy/solid cancel strokes.
-        Pass 2: relaxed thresholds catch lighter residual strokes,
-                but only in the neighbourhood of pass-1 detections
-                so we don't grab faint stamp ink by mistake.
+        Uses the user-adjustable brightness and saturation thresholds.
+        Pixels must be BOTH darker than brightness_max AND less saturated
+        than saturation_max to be classified as cancellation.
         """
         r, g, b = self._arr[:, :, 0], self._arr[:, :, 1], self._arr[:, :, 2]
         brightness = (r + g + b) / 3.0
         max_ch = np.maximum(np.maximum(r, g), b)
         min_ch = np.minimum(np.minimum(r, g), b)
         saturation = max_ch - min_ch
-        not_bg = ~background_mask
 
-        # Pass 1: strict (user thresholds)
-        pass1 = (brightness < self.cancellation_brightness_max) & \
-                (saturation < self.cancellation_saturation_max) & not_bg
+        is_dark = brightness < self.cancellation_brightness_max
+        is_neutral = saturation < self.cancellation_saturation_max
+        is_cancel = is_dark & is_neutral & ~background_mask
 
-        # Pass 2: relaxed (+40% brightness, +50% saturation) but only
-        # near existing detections. "Near" = within a dilation radius.
-        relax_bright = self.cancellation_brightness_max * 1.4
-        relax_sat = self.cancellation_saturation_max * 1.5
-        candidates = (brightness < relax_bright) & (saturation < relax_sat) & not_bg & ~pass1
-
-        if np.any(pass1) and np.any(candidates):
-            # Dilate pass1 mask to define "neighbourhood"
-            from scipy.ndimage import binary_dilation
-            struct = np.ones((7, 7), dtype=bool)
-            near_cancel = binary_dilation(pass1, structure=struct, iterations=2)
-            pass2 = candidates & near_cancel
-        else:
-            pass2 = np.zeros_like(pass1)
-
-        return pass1 | pass2
+        return is_cancel
 
     def _separate_ink_paper(
         self, stamp_area: np.ndarray
