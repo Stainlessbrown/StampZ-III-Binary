@@ -93,10 +93,11 @@ class LayerSeparatorDialog:
         ttk.Spinbox(r0, from_=2, to=50, increment=1,
                     textvariable=self.bg_threshold, width=5).pack(side=tk.LEFT)
         ttk.Button(r0, text="Preview", command=self._preview_background).pack(side=tk.LEFT, padx=6)
+        ttk.Button(r0, text="Reset", command=lambda: self._show_image(self.original_image)).pack(side=tk.LEFT, padx=2)
         ttk.Button(r0, text="Lock & Next ▸", command=self._lock_background).pack(side=tk.LEFT, padx=4)
         self._step_frames.append(f0)
 
-        # Step 1: Cancellation
+        # Step 1: Cancellation (cumulative — Add accumulates, Reset clears)
         f1 = ttk.Frame(top)
         r1 = ttk.Frame(f1)
         r1.pack(fill=tk.X)
@@ -108,7 +109,9 @@ class LayerSeparatorDialog:
         self.cancel_saturation = tk.IntVar(value=40)
         ttk.Spinbox(r1, from_=10, to=100, increment=5,
                     textvariable=self.cancel_saturation, width=4).pack(side=tk.LEFT)
-        ttk.Button(r1, text="Preview", command=self._preview_cancel).pack(side=tk.LEFT, padx=6)
+        ttk.Button(r1, text="Preview", command=self._preview_cancel).pack(side=tk.LEFT, padx=4)
+        ttk.Button(r1, text="+ Add", command=self._add_cancel_pass).pack(side=tk.LEFT, padx=2)
+        ttk.Button(r1, text="Reset", command=self._reset_cancel).pack(side=tk.LEFT, padx=2)
         ttk.Button(r1, text="Lock & Next ▸", command=self._lock_cancel).pack(side=tk.LEFT, padx=4)
         ttk.Button(r1, text="◂ Back", command=lambda: self._go_step(0)).pack(side=tk.LEFT, padx=4)
         self._step_frames.append(f1)
@@ -122,7 +125,7 @@ class LayerSeparatorDialog:
         ttk.Button(r2, text="◂ Back", command=lambda: self._go_step(1)).pack(side=tk.LEFT, padx=4)
         self._step_frames.append(f2)
 
-        # Step 3: Results
+        # Step 3: Results (two rows)
         f3 = ttk.Frame(top)
         r3a = ttk.Frame(f3)
         r3a.pack(fill=tk.X, pady=2)
@@ -132,10 +135,11 @@ class LayerSeparatorDialog:
                          ("Stamp", "stamp")]:
             ttk.Button(r3a, text=lbl, width=8,
                        command=lambda l=lay: self._show_layer(l)).pack(side=tk.LEFT, padx=2)
-        ttk.Separator(r3a, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
-        ttk.Button(r3a, text="Save Layers...", command=self._save_layers).pack(side=tk.LEFT, padx=2)
-        ttk.Button(r3a, text="Compare Ink...", command=self._compare_to_library).pack(side=tk.LEFT, padx=2)
-        ttk.Button(r3a, text="◂ Start Over", command=lambda: self._go_step(0)).pack(side=tk.LEFT, padx=4)
+        r3b = ttk.Frame(f3)
+        r3b.pack(fill=tk.X, pady=2)
+        ttk.Button(r3b, text="Save Layers...", command=self._save_layers).pack(side=tk.LEFT, padx=2)
+        ttk.Button(r3b, text="Compare Ink...", command=self._compare_to_library).pack(side=tk.LEFT, padx=2)
+        ttk.Button(r3b, text="◂ Back", command=lambda: self._go_step(2)).pack(side=tk.LEFT, padx=4)
         self._step_frames.append(f3)
 
         # ── Zoom controls (always visible) ────────────────────────────
@@ -366,32 +370,67 @@ class LayerSeparatorDialog:
     # ================================================================== #
 
     def _preview_cancel(self):
+        """Preview what CURRENT thresholds would catch (cyan), plus already-added (magenta)."""
         if self._bg_mask is None:
             return
         sep = self._get_separator()
-        cancel = sep._mask_cancellation(self._bg_mask)
-        # Show stamp with background removed; cancel pixels replaced
-        # with bright cyan so they're visible on any stamp color.
+        new_cancel = sep._mask_cancellation(self._bg_mask)
+        # Exclude already-accumulated pixels from the new detection
+        if self._cancel_mask is not None:
+            new_cancel = new_cancel & ~self._cancel_mask
+
         arr = np.array(self.original_image).copy()
         arr[self._bg_mask] = [255, 255, 255]
-        arr[cancel] = [0, 255, 255]  # cyan = unmistakable on any ink
+        # Show accumulated cancel in magenta, new preview in cyan
+        if self._cancel_mask is not None:
+            arr[self._cancel_mask] = [255, 0, 255]  # magenta = already added
+        arr[new_cancel] = [0, 255, 255]  # cyan = would be added
         self._show_image(Image.fromarray(arr))
-        n = int(np.sum(cancel))
+        n_new = int(np.sum(new_cancel))
+        n_total = n_new + (int(np.sum(self._cancel_mask)) if self._cancel_mask is not None else 0)
         self.status_label.configure(
-            text=f"Cancel preview: {n:,} pixels detected (cyan). Adjust and re-preview, or Lock.")
+            text=f"Preview: {n_new:,} new (cyan) + {n_total - n_new:,} accumulated (magenta) = {n_total:,} total")
+
+    def _add_cancel_pass(self):
+        """Add current threshold detection to the accumulated cancel mask."""
+        if self._bg_mask is None:
+            return
+        sep = self._get_separator()
+        new_cancel = sep._mask_cancellation(self._bg_mask)
+        if self._cancel_mask is None:
+            self._cancel_mask = new_cancel
+        else:
+            self._cancel_mask = self._cancel_mask | new_cancel
+        n = int(np.sum(self._cancel_mask))
+        self.status_label.configure(
+            text=f"Cancel accumulated: {n:,} pixels total. Adjust thresholds and Add more, or Lock.")
+        # Show accumulated state
+        arr = np.array(self.original_image).copy()
+        arr[self._bg_mask] = [255, 255, 255]
+        arr[self._cancel_mask] = [255, 0, 255]
+        self._show_image(Image.fromarray(arr))
+
+    def _reset_cancel(self):
+        """Clear all accumulated cancel detections."""
+        self._cancel_mask = None
+        self.status_label.configure(text="Cancel reset. Adjust thresholds and Preview/Add.")
+        arr = np.array(self.original_image).copy()
+        arr[self._bg_mask] = [255, 255, 255]
+        self._show_image(Image.fromarray(arr))
 
     def _lock_cancel(self):
         if self._bg_mask is None:
             return
-        sep = self._get_separator()
-        self._cancel_mask = sep._mask_cancellation(self._bg_mask)
-        self._separator = sep
+        # If nothing was added yet, do a single pass with current thresholds
+        if self._cancel_mask is None:
+            sep = self._get_separator()
+            self._cancel_mask = sep._mask_cancellation(self._bg_mask)
+        self._separator = self._get_separator()
         n = int(np.sum(self._cancel_mask))
         self._current_step = 2
         self._update_step_ui()
         self.status_label.configure(
             text=f"Cancellation locked ({n:,} pixels). Click Separate to split ink from paper.")
-        # Show image with background + cancel removed
         arr = np.array(self.original_image).copy()
         arr[self._bg_mask] = [255, 255, 255]
         arr[self._cancel_mask] = [255, 255, 255]
@@ -505,87 +544,73 @@ class LayerSeparatorDialog:
     # ================================================================== #
 
     def _compare_to_library(self):
+        """Open the Color Library Manager with the ink aggregate injected
+        into the Results/Compare tabs as a pre-computed sample."""
         if self._result is None or self._result.ink_aggregate_lab is None:
             messagebox.showinfo("Not Ready", "Complete all steps first.")
             return
-        L, a, b = self._result.ink_aggregate_lab
+
         ink_rgb = self._result.ink_aggregate_rgb
+        ink_lab = self._result.ink_aggregate_lab
+        if ink_rgb is None:
+            messagebox.showinfo("No Data", "Ink aggregate RGB not available.")
+            return
+
         try:
+            from gui.color_library_manager import ColorLibraryManager
             from utils.color_library import ColorLibrary
-            from utils.path_utils import get_color_libraries_dir
-            import glob
 
-            lib_dir = get_color_libraries_dir()
-            lib_files = sorted(glob.glob(os.path.join(lib_dir, '*.db')))
-            if not lib_files:
-                messagebox.showinfo("No Libraries", "No color libraries found.")
-                return
-            lib_names = [os.path.splitext(os.path.basename(f))[0].replace('_library', '')
-                         for f in lib_files]
+            # Open the library manager
+            mgr = ColorLibraryManager(parent=self.root)
 
-            win = tk.Toplevel(self.root)
-            win.title("Compare Ink to Library")
-            win.geometry("540x450")
-            win.transient(self.root)
+            # Ensure it has a library loaded
+            if not mgr.library:
+                from utils.path_utils import get_color_libraries_dir
+                lib_dir = get_color_libraries_dir()
+                db_files = sorted(
+                    f for f in os.listdir(lib_dir) if f.endswith('_library.db')
+                ) if os.path.isdir(lib_dir) else []
+                if db_files:
+                    mgr.library = ColorLibrary(db_files[0][:-11])
 
-            # Ink swatch
-            sf = ttk.Frame(win)
-            sf.pack(fill=tk.X, padx=12, pady=(12, 4))
-            ir, ig, ib = ([int(v) for v in ink_rgb] if ink_rgb else [128, 128, 128])
-            tk.Label(sf, text=f"  Ink Mean  \n  L*={L:.1f}  a*={a:.1f}  b*={b:.1f}  ",
-                     bg=f"#{ir:02x}{ig:02x}{ib:02x}", relief=tk.RAISED,
-                     font=("Arial", 11, "bold"), padx=10, pady=6,
-                     fg="white" if (ir + ig + ib) / 3 < 128 else "black"
-                     ).pack(side=tk.LEFT)
+            # Inject the ink aggregate as a synthetic sample into the
+            # Results tab — bypasses set_analyzed_data (which re-samples
+            # from the image) and directly populates sample_points.
+            rgb = (float(ink_rgb[0]), float(ink_rgb[1]), float(ink_rgb[2]))
+            sample_point = {
+                'rgb': rgb,
+                'rgb_stddev': None,
+                'lab_stddev': None,
+                'position': (0, 0),
+                'enabled': tk.BooleanVar(value=True),
+                'is_paper': tk.BooleanVar(value=False),
+                'index': 1,
+                'type': 'aggregate',
+                'size': (0, 0),
+                'anchor': 'center',
+            }
 
-            lf = ttk.Frame(win)
-            lf.pack(fill=tk.X, padx=12, pady=4)
-            ttk.Label(lf, text="Library:").pack(side=tk.LEFT)
-            lib_var = tk.StringVar(value="(All libraries)")
-            ttk.Combobox(lf, textvariable=lib_var,
-                         values=["(All libraries)"] + lib_names,
-                         state="readonly", width=30).pack(side=tk.LEFT, padx=6)
+            rm = mgr.results_manager
+            rm.current_file_path = "Layer Separator — Ink Aggregate"
+            rm.current_image = self.original_image
+            rm.sample_points = [sample_point]
+            rm.filename_label.config(text="Layer Separator — Ink Aggregate")
+            rm._display_sample_points()
+            rm._update_average_display()
 
-            rt = tk.Text(win, font=("Courier", 11), height=14, width=60,
-                         state=tk.DISABLED, wrap=tk.WORD)
-            rt.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+            # Note: Compare tab not pre-populated because it requires
+            # a real image path. Use the Results tab for comparison
+            # and "Add to Library" functionality.
 
-            def _search():
-                sel = lib_var.get()
-                search = lib_names if sel == "(All libraries)" else [sel]
-                matches = []
-                for ln in search:
-                    try:
-                        lib = ColorLibrary(ln)
-                        for m in lib.find_closest_matches(
-                                sample_lab=(L, a, b), max_delta_e=30.0, max_results=5):
-                            m.library_name = ln
-                            matches.append(m)
-                    except Exception as e:
-                        print(f"Library '{ln}' failed: {e}")
-                matches.sort(key=lambda m: m.delta_e_2000)
-                top = matches[:10]
-                lines = [f"Ink: L*={L:.1f}  a*={a:.1f}  b*={b:.1f}", ""]
-                if not top:
-                    lines.append("No matches found.")
-                else:
-                    for i, m in enumerate(top, 1):
-                        lines.append(
-                            f" {i:2}. {m.library_color.name:<25} "
-                            f"{m.library_color.category:<12} "
-                            f"\u0394E={m.delta_e_2000:5.2f} [{m.match_quality}]")
-                rt.configure(state=tk.NORMAL)
-                rt.delete("1.0", tk.END)
-                rt.insert("1.0", "\n".join(lines))
-                rt.configure(state=tk.DISABLED)
-
-            bf = ttk.Frame(win)
-            bf.pack(fill=tk.X, padx=12, pady=(0, 8))
-            ttk.Button(bf, text="Search", command=_search).pack(side=tk.LEFT, padx=4)
-            ttk.Button(bf, text="Close", command=win.destroy).pack(side=tk.RIGHT, padx=4)
-            _search()
+            # Switch to Results tab and bring to front
+            mgr.notebook.select(1)
+            mgr.root.update()
+            mgr.root.lift()
+            mgr.root.focus_force()
 
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             messagebox.showerror("Compare Error", f"Failed:\n\n{str(e)}")
 
 
