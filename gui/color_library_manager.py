@@ -1915,11 +1915,12 @@ class ColorLibraryManager:
             if current_tab == 2:  # Compare tab
                 print("DEBUG: Switched to Compare tab, syncing data from Results")
                 
-                # Check if Results has sample data
+                # Check if Results has sample data with a real file path
                 if (hasattr(self, 'results_manager') and 
                     hasattr(self.results_manager, 'sample_points') and 
                     self.results_manager.sample_points and
-                    hasattr(self.results_manager, 'current_file_path')):
+                    hasattr(self.results_manager, 'current_file_path') and
+                    os.path.isfile(self.results_manager.current_file_path or '')):
                     
                     print(f"DEBUG: Found {len(self.results_manager.sample_points)} samples in Results")
                     
