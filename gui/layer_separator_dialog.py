@@ -525,6 +525,29 @@ class LayerSeparatorDialog:
     # Helpers
     # ================================================================== #
 
+    def _get_image_basename(self) -> str:
+        """Get the source image filename without extension for save naming."""
+        # Try to find current_file on the parent app
+        for attr in ('current_file',):
+            # Check parent directly
+            if hasattr(self.parent, attr) and getattr(self.parent, attr):
+                return os.path.splitext(os.path.basename(getattr(self.parent, attr)))[0]
+            # Check parent's children (StampZ app is often a child of root)
+            for child_name in ('app', 'stampz_app'):
+                child = getattr(self.parent, child_name, None)
+                if child and hasattr(child, attr) and getattr(child, attr):
+                    return os.path.splitext(os.path.basename(getattr(child, attr)))[0]
+        # Walk up from parent to find any widget with current_file
+        try:
+            widget = self.parent
+            while widget:
+                if hasattr(widget, 'current_file') and widget.current_file:
+                    return os.path.splitext(os.path.basename(widget.current_file))[0]
+                widget = getattr(widget, 'master', None)
+        except Exception:
+            pass
+        return "stamp"
+
     def _show_masked(self, mask, label="preview"):
         """Show image with masked pixels replaced by white."""
         arr = np.array(self.original_image)
@@ -576,9 +599,7 @@ class LayerSeparatorDialog:
         d = filedialog.askdirectory(title="Save layer images", parent=self.root)
         if not d:
             return
-        base = "stamp"
-        if hasattr(self.parent, 'current_file') and self.parent.current_file:
-            base = os.path.splitext(os.path.basename(self.parent.current_file))[0]
+        base = self._get_image_basename()
         for ln in ['ink', 'paper', 'cancellation', 'stamp']:
             self._separator.get_layer_image(self._result, ln).save(
                 os.path.join(d, f"{base}_{ln}.png"))
