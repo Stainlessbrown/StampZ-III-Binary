@@ -95,6 +95,7 @@ class LayerSeparatorDialog:
         ttk.Button(r0, text="Preview", command=self._preview_background).pack(side=tk.LEFT, padx=6)
         ttk.Button(r0, text="Reset", command=lambda: self._show_image(self.original_image)).pack(side=tk.LEFT, padx=2)
         ttk.Button(r0, text="Lock & Next ▸", command=self._lock_background).pack(side=tk.LEFT, padx=4)
+        ttk.Button(r0, text="Skip (no BG)", command=self._skip_background).pack(side=tk.LEFT, padx=4)
         self._step_frames.append(f0)
 
         # Step 1: Cancellation (cumulative — Add accumulates, Reset clears)
@@ -347,6 +348,16 @@ class LayerSeparatorDialog:
         sep = self._get_separator()
         mask = sep._mask_background()
         self._show_masked(mask, "background")
+
+    def _skip_background(self):
+        """Skip background removal for pre-cropped images with no background."""
+        h, w = self.original_image.size[1], self.original_image.size[0]
+        self._bg_mask = np.zeros((h, w), dtype=bool)
+        self._separator = self._get_separator()
+        self._current_step = 1
+        self._update_step_ui()
+        self.status_label.configure(text="Background skipped. Adjust cancellation thresholds.")
+        self._show_image(self.original_image)
 
     def _lock_background(self):
         if self._bg_rgb is None:
