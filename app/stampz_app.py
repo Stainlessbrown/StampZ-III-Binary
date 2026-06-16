@@ -266,6 +266,19 @@ class StampZApp:
     def open_black_ink_extractor(self):
         """Delegate to analysis manager."""
         return self.analysis_manager.open_black_ink_extractor()
+
+    def open_layer_separator(self):
+        """Open the stamp layer separator dialog."""
+        try:
+            if not hasattr(self, 'canvas') or self.canvas.original_image is None:
+                from tkinter import messagebox
+                messagebox.showwarning("No Image", "Please open a stamp image first.")
+                return
+            from gui.layer_separator_dialog import open_layer_separator
+            open_layer_separator(self.root, self.canvas.original_image)
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("Error", f"Failed to open Layer Separator:\n\n{str(e)}")
         
     def open_precision_measurements(self):
         """Delegate to analysis manager."""

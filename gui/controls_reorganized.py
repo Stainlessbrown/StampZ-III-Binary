@@ -441,14 +441,17 @@ class ReorganizedControlPanel(ttk.Frame):
         ttk.Button(template_frame, text="Export", command=self._export_current_template, width=6
         ).pack(side=tk.LEFT, padx=1)
         
-        # Analysis name
-        analysis_frame = ttk.Frame(self.sample_frame)
-        analysis_frame.pack(fill=tk.X, padx=5, pady=1)
-        ttk.Label(analysis_frame, text="Analysis:", font=("Arial", 10, "bold")).pack(side=tk.LEFT)
-        self.analysis_entry = ttk.Entry(analysis_frame, textvariable=self.analysis_name, width=15)
-        self.analysis_entry.pack(side=tk.LEFT, padx=5)
-        ttk.Button(analysis_frame, text="Auto", command=self._auto_generate_analysis_name, 
-                  width=4).pack(side=tk.LEFT, padx=2)
+        # ΔE HUD toggle + auto-generated analysis name (hidden)
+        hud_frame = ttk.Frame(self.sample_frame)
+        hud_frame.pack(fill=tk.X, padx=5, pady=1)
+        self.show_delta_hud = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            hud_frame, text="Show ΔE on markers",
+            variable=self.show_delta_hud,
+            command=self._on_delta_hud_toggle
+        ).pack(side=tk.LEFT)
+        # Keep analysis_name working behind the scenes (used by file_manager)
+        self.analysis_entry = None  # No visible entry
         
         # Create a canvas with scrollbar for sample controls
         canvas = tk.Canvas(self.sample_frame, height=600)  # Set desired height here
@@ -1138,6 +1141,24 @@ class ReorganizedControlPanel(ttk.Frame):
             self.main_app._save_leveled_image()
         else:
             messagebox.showinfo("Info", "Save leveled - connect to main app implementation")
+
+    def _on_delta_hud_toggle(self):
+        """Toggle the ΔE HUD display on/off and redraw markers."""
+        enabled = self.show_delta_hud.get()
+        print(f"DEBUG: ΔE HUD toggle → {enabled}")
+        # Update the preference so canvas._live_delta_e_enabled() picks it up
+        try:
+            from utils.user_preferences import get_preferences_manager
+            get_preferences_manager().set_live_delta_e_enabled(enabled)
+        except Exception as e:
+            print(f"DEBUG: Could not update preference: {e}")
+        # Redraw markers to show/hide the HUD
+        if hasattr(self, 'main_app') and self.main_app and hasattr(self.main_app, 'canvas'):
+            canvas = self.main_app.canvas
+            if hasattr(canvas, '_coord_markers'):
+                for marker in canvas._coord_markers:
+                    if not marker.get('is_preview', False):
+                        canvas._draw_coordinate_marker(marker)
 
     def _on_sample_mode_change(self):
         """Handle sample mode changes between template and manual."""
