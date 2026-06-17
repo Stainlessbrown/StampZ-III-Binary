@@ -569,6 +569,12 @@ class SampleResultsManager(tk.Frame):
         )
         compare_button.pack(fill=tk.X, pady=2)
         
+        find_matches_button = ttk.Button(
+            buttons_frame, text="Find Library Matches…",
+            command=lambda: self._find_library_matches(avg_lab),
+        )
+        find_matches_button.pack(fill=tk.X, pady=2)
+        
         # Coverage analysis (effective-tone) requires the user to have
         # cropped the image and tagged at least one sample as paper.
         # The button itself is always visible; the handler validates and
@@ -1254,6 +1260,95 @@ class SampleResultsManager(tk.Frame):
         
         self._on_sample_toggle()
     
+    def _find_library_matches(self, avg_lab):
+        """Search all color libraries for closest matches to the average L*a*b*."""
+        import glob
+        L, a, b = avg_lab
+        try:
+            from utils.color_library import ColorLibrary
+            from utils.path_utils import get_color_libraries_dir
+
+            lib_dir = get_color_libraries_dir()
+            lib_files = sorted(glob.glob(os.path.join(lib_dir, '*.db')))
+            if not lib_files:
+                messagebox.showinfo("No Libraries", "No color libraries found.")
+                return
+
+            lib_names = [os.path.splitext(os.path.basename(f))[0].replace('_library', '')
+                         for f in lib_files]
+
+            # Search dialog
+            win = tk.Toplevel(self)
+            win.title("Library Matches")
+            win.geometry("560x480")
+
+            # Swatch
+            sf = ttk.Frame(win)
+            sf.pack(fill=tk.X, padx=12, pady=(12, 4))
+            try:
+                from utils.color_analyzer import ColorAnalyzer
+                disp_rgb = ColorAnalyzer().lab_to_rgb(avg_lab)
+                ir, ig, ib = [max(0, min(255, int(v))) for v in disp_rgb]
+            except Exception:
+                ir, ig, ib = 128, 128, 128
+            tk.Label(sf, text=f"  Sample  \n  L*={L:.1f}  a*={a:.1f}  b*={b:.1f}  ",
+                     bg=f"#{ir:02x}{ig:02x}{ib:02x}", relief=tk.RAISED,
+                     font=("Arial", 11, "bold"), padx=10, pady=6,
+                     fg="white" if (ir + ig + ib) / 3 < 128 else "black"
+                     ).pack(side=tk.LEFT)
+
+            # Library selector
+            lf = ttk.Frame(win)
+            lf.pack(fill=tk.X, padx=12, pady=4)
+            ttk.Label(lf, text="Library:").pack(side=tk.LEFT)
+            lib_var = tk.StringVar(value="(All libraries)")
+            ttk.Combobox(lf, textvariable=lib_var,
+                         values=["(All libraries)"] + lib_names,
+                         state="readonly", width=30).pack(side=tk.LEFT, padx=6)
+
+            # Results
+            rt = tk.Text(win, font=("Courier", 11), height=16, width=62,
+                         state=tk.DISABLED, wrap=tk.WORD)
+            rt.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+
+            def _search():
+                sel = lib_var.get()
+                search = lib_names if sel == "(All libraries)" else [sel]
+                matches = []
+                for ln in search:
+                    try:
+                        lib = ColorLibrary(ln)
+                        for m in lib.find_closest_matches(
+                                sample_lab=(L, a, b), max_delta_e=30.0, max_results=5):
+                            m.library_name = ln
+                            matches.append(m)
+                    except Exception as e:
+                        print(f"Library '{ln}' failed: {e}")
+                matches.sort(key=lambda m: m.delta_e_2000)
+                top = matches[:10]
+                lines = [f"Sample: L*={L:.1f}  a*={a:.1f}  b*={b:.1f}", ""]
+                if not top:
+                    lines.append("No matches found.")
+                else:
+                    for i, m in enumerate(top, 1):
+                        lines.append(
+                            f" {i:2}. {m.library_color.name:<25} "
+                            f"{m.library_color.category:<12} "
+                            f"\u0394E={m.delta_e_2000:5.2f} [{m.match_quality}]")
+                rt.configure(state=tk.NORMAL)
+                rt.delete("1.0", tk.END)
+                rt.insert("1.0", "\n".join(lines))
+                rt.configure(state=tk.DISABLED)
+
+            bf = ttk.Frame(win)
+            bf.pack(fill=tk.X, padx=12, pady=(0, 8))
+            ttk.Button(bf, text="Search", command=_search).pack(side=tk.LEFT, padx=4)
+            ttk.Button(bf, text="Close", command=win.destroy).pack(side=tk.RIGHT, padx=4)
+            _search()
+
+        except Exception as e:
+            messagebox.showerror("Search Error", f"Failed:\n\n{str(e)}")
+
     def _save_comparison_image(self, avg_rgb, avg_lab):
         """Export the current stamp image composed with the average swatch.
         
