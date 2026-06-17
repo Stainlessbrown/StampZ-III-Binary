@@ -667,12 +667,18 @@ class LayerSeparatorDialog:
             rm._display_sample_points()
             rm._update_average_display()
 
-            # Note: Compare tab not pre-populated because it requires
-            # a real image path. Use the Results tab for comparison
-            # and "Add to Library" functionality.
+            # Populate Compare tab with precomputed data (no file needed)
+            if hasattr(mgr, 'comparison_manager'):
+                try:
+                    mgr.comparison_manager.set_precomputed_data(
+                        rgb=rgb, lab=ink_lab,
+                        label=f"Ink Aggregate — {self._get_image_basename()}"
+                    )
+                except Exception as e:
+                    print(f"DEBUG: Compare tab precomputed injection failed: {e}")
 
-            # Switch to Results tab and bring to front
-            mgr.notebook.select(1)
+            # Switch to Compare tab and bring to front
+            mgr.notebook.select(2)
             mgr.root.update()
             mgr.root.lift()
             mgr.root.focus_force()

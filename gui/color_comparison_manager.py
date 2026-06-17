@@ -317,6 +317,30 @@ class ColorComparisonManager(tk.Frame):
                 f"Failed to prepare samples for comparison:\n\n{str(e)}"
             )
     
+    def set_precomputed_data(self, rgb, lab=None, label="Ink Aggregate"):
+        """Set pre-computed sample data for comparison (no image file needed).
+
+        Args:
+            rgb: (r, g, b) tuple 0-255
+            lab: (L, a, b) tuple or None (will be computed from rgb)
+            label: display label for this sample
+        """
+        self.current_file_path = label
+        self.filename_label.config(text=label)
+        self.current_image = None  # no image needed
+
+        self.sample_points = [{
+            'rgb': (float(rgb[0]), float(rgb[1]), float(rgb[2])),
+            'position': (0, 0),
+            'enabled': tk.BooleanVar(value=True),
+            'index': 1,
+            'type': 'aggregate',
+            'size': (0, 0),
+            'anchor': 'center',
+        }]
+        self._initialize_comparison_ui()
+        print(f"DEBUG: Comparison manager loaded precomputed data: RGB={rgb}, label={label}")
+
     def _initialize_comparison_ui(self):
         """Initialize the comparison UI after samples are loaded."""
         print(f"DEBUG: Initializing comparison UI with {len(self.sample_points)} samples")

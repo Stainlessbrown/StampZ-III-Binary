@@ -1306,12 +1306,28 @@ class SampleResultsManager(tk.Frame):
                          values=["(All libraries)"] + lib_names,
                          state="readonly", width=30).pack(side=tk.LEFT, padx=6)
 
-            # Results
-            rt = tk.Text(win, font=("Courier", 11), height=16, width=62,
-                         state=tk.DISABLED, wrap=tk.WORD)
-            rt.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+            # Scrollable results with swatches
+            results_outer = ttk.Frame(win)
+            results_outer.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+            results_canvas = tk.Canvas(results_outer)
+            results_sb = ttk.Scrollbar(results_outer, orient=tk.VERTICAL,
+                                       command=results_canvas.yview)
+            self._match_results_frame = ttk.Frame(results_canvas)
+            self._match_results_frame.bind(
+                "<Configure>",
+                lambda e: results_canvas.configure(
+                    scrollregion=results_canvas.bbox("all")))
+            results_canvas.create_window((0, 0), window=self._match_results_frame,
+                                         anchor=tk.NW)
+            results_canvas.configure(yscrollcommand=results_sb.set)
+            results_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            results_sb.pack(side=tk.RIGHT, fill=tk.Y)
 
             def _search():
+                # Clear previous results
+                for w in self._match_results_frame.winfo_children():
+                    w.destroy()
+
                 sel = lib_var.get()
                 search = lib_names if sel == "(All libraries)" else [sel]
                 matches = []
@@ -1326,19 +1342,48 @@ class SampleResultsManager(tk.Frame):
                         print(f"Library '{ln}' failed: {e}")
                 matches.sort(key=lambda m: m.delta_e_2000)
                 top = matches[:10]
-                lines = [f"Sample: L*={L:.1f}  a*={a:.1f}  b*={b:.1f}", ""]
+
                 if not top:
-                    lines.append("No matches found.")
-                else:
-                    for i, m in enumerate(top, 1):
-                        lines.append(
-                            f" {i:2}. {m.library_color.name:<25} "
-                            f"{m.library_color.category:<12} "
-                            f"\u0394E={m.delta_e_2000:5.2f} [{m.match_quality}]")
-                rt.configure(state=tk.NORMAL)
-                rt.delete("1.0", tk.END)
-                rt.insert("1.0", "\n".join(lines))
-                rt.configure(state=tk.DISABLED)
+                    ttk.Label(self._match_results_frame, text="No matches found.",
+                              font=("Arial", 12)).pack(pady=20)
+                    return
+
+                for i, m in enumerate(top, 1):
+                    row = ttk.Frame(self._match_results_frame)
+                    row.pack(fill=tk.X, pady=3, padx=4)
+
+                    # Match color swatch
+                    mc = m.library_color
+                    mr, mg, mb = [max(0, min(255, int(v))) for v in mc.rgb]
+                    match_hex = f"#{mr:02x}{mg:02x}{mb:02x}"
+                    swatch = tk.Canvas(row, width=60, height=40,
+                                       highlightthickness=1, highlightbackground="gray")
+                    swatch.pack(side=tk.LEFT, padx=(0, 8))
+                    swatch.create_rectangle(0, 0, 60, 40, fill=match_hex, outline="")
+
+                    # Match info
+                    de = m.delta_e_2000
+                    if de <= 1.0:
+                        de_color = "#008800"
+                    elif de <= 2.3:
+                        de_color = "#0066CC"
+                    else:
+                        de_color = "#CC0000"
+
+                    info = ttk.Frame(row)
+                    info.pack(side=tk.LEFT, fill=tk.X, expand=True)
+                    ttk.Label(info, text=f"{i}. {mc.name}",
+                              font=("Arial", 11, "bold")).pack(anchor=tk.W)
+                    ttk.Label(info, text=f"{mc.category}",
+                              font=("Arial", 9), foreground="gray").pack(anchor=tk.W)
+
+                    # ΔE badge
+                    de_frame = ttk.Frame(row)
+                    de_frame.pack(side=tk.RIGHT, padx=8)
+                    tk.Label(de_frame, text=f"\u0394E {de:.2f}",
+                             font=("Arial", 11, "bold"), fg=de_color).pack()
+                    ttk.Label(de_frame, text=m.match_quality,
+                              font=("Arial", 9), foreground="gray").pack()
 
             bf = ttk.Frame(win)
             bf.pack(fill=tk.X, padx=12, pady=(0, 8))
