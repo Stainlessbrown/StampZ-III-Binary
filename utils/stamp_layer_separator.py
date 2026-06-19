@@ -315,8 +315,21 @@ class StampLayerSeparator:
     # Layer image generation (for display / export)
     # ------------------------------------------------------------------ #
 
+    @staticmethod
+    def _make_checkerboard(h: int, w: int, square: int = 16) -> np.ndarray:
+        """Create a checkerboard transparency pattern (light/dark gray)."""
+        board = np.zeros((h, w, 3), dtype=np.uint8)
+        for y in range(h):
+            for x in range(w):
+                if ((x // square) + (y // square)) % 2 == 0:
+                    board[y, x] = [204, 204, 204]  # light gray
+                else:
+                    board[y, x] = [255, 255, 255]  # white
+        return board
+
     def get_layer_image(
-        self, result: LayerResult, layer: str, background_color=(255, 255, 255)
+        self, result: LayerResult, layer: str,
+        background_color=(255, 255, 255), checkerboard: bool = False
     ) -> Image.Image:
         """Generate a PIL image showing only one layer.
 
@@ -324,6 +337,7 @@ class StampLayerSeparator:
             result: LayerResult from separate()
             layer: 'ink', 'paper', 'cancellation', or 'stamp' (ink+paper)
             background_color: RGB tuple for masked-out areas
+            checkerboard: if True, use transparency checkerboard instead of solid color
 
         Returns:
             PIL Image with only the requested layer visible
@@ -341,6 +355,9 @@ class StampLayerSeparator:
             return self._original.copy()
 
         arr = np.array(self._original)
-        out = np.full_like(arr, background_color, dtype=np.uint8)
+        if checkerboard:
+            out = self._make_checkerboard(arr.shape[0], arr.shape[1])
+        else:
+            out = np.full_like(arr, background_color, dtype=np.uint8)
         out[mask] = arr[mask]
         return Image.fromarray(out)

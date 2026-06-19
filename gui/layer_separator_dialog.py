@@ -148,7 +148,7 @@ class LayerSeparatorDialog:
         ttk.Button(r3b, text="◂ Back", command=lambda: self._go_step(2)).pack(side=tk.LEFT, padx=4)
         self._step_frames.append(f3)
 
-        # ── Zoom controls (always visible) ────────────────────────────
+        # ── Zoom controls + checkerboard toggle (always visible) ──────
         zf = ttk.Frame(top)
         zf.pack(fill=tk.X, pady=2)
         ttk.Button(zf, text="Fit", width=4, command=self._fit_to_canvas).pack(side=tk.LEFT, padx=2)
@@ -157,6 +157,11 @@ class LayerSeparatorDialog:
         ttk.Button(zf, text="\u2212", width=2, command=lambda: self._zoom_by(0.8)).pack(side=tk.LEFT)
         self.zoom_label = ttk.Label(zf, text="100%", width=6)
         self.zoom_label.pack(side=tk.LEFT, padx=4)
+        ttk.Separator(zf, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
+        self._use_checkerboard = tk.BooleanVar(value=False)
+        ttk.Checkbutton(zf, text="\u2591 Transparency grid",
+                        variable=self._use_checkerboard,
+                        command=self._refresh_current_layer).pack(side=tk.LEFT)
 
         # ── Canvas ────────────────────────────────────────────────────
         cf = ttk.Frame(self.root)
@@ -557,12 +562,21 @@ class LayerSeparatorDialog:
         self._show_image(Image.fromarray(out))
 
     def _show_layer(self, layer):
+        self._current_layer_name = layer
         if layer == "original":
             self._show_image(self.original_image)
             return
         if self._result is None or self._separator is None:
             return
-        self._show_image(self._separator.get_layer_image(self._result, layer))
+        checker = self._use_checkerboard.get()
+        self._show_image(self._separator.get_layer_image(
+            self._result, layer, checkerboard=checker))
+
+    def _refresh_current_layer(self):
+        """Re-render the current layer view (called when checkerboard toggles)."""
+        layer = getattr(self, '_current_layer_name', None)
+        if layer:
+            self._show_layer(layer)
 
     def _update_results_display(self, r):
         lines = [
