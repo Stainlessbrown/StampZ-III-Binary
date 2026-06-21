@@ -660,6 +660,7 @@ class LayerSeparatorDialog:
             # Results tab — bypasses set_analyzed_data (which re-samples
             # from the image) and directly populates sample_points.
             rgb = (float(ink_rgb[0]), float(ink_rgb[1]), float(ink_rgb[2]))
+            img_name = self._get_image_basename()
             sample_point = {
                 'rgb': rgb,
                 'rgb_stddev': None,
@@ -673,11 +674,12 @@ class LayerSeparatorDialog:
                 'anchor': 'center',
             }
 
+            label = f"{img_name} — Ink Aggregate"
             rm = mgr.results_manager
-            rm.current_file_path = "Layer Separator — Ink Aggregate"
+            rm.current_file_path = label
             rm.current_image = self.original_image
             rm.sample_points = [sample_point]
-            rm.filename_label.config(text="Layer Separator — Ink Aggregate")
+            rm.filename_label.config(text=label)
             rm._display_sample_points()
             rm._update_average_display()
 

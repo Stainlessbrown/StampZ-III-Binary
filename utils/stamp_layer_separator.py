@@ -289,10 +289,14 @@ class StampLayerSeparator:
                 # Not enough clean pixels — fall back to all ink pixels
                 clean_ink = ink_pixels
 
-            result.ink_aggregate_rgb = tuple(np.mean(clean_ink, axis=0).tolist())
-            result.ink_median_rgb = tuple(np.median(clean_ink, axis=0).tolist())
+            raw_mean = tuple(np.mean(clean_ink, axis=0).tolist())
+            raw_median = tuple(np.median(clean_ink, axis=0).tolist())
 
-            # Convert mean RGB to Lab
+            # Apply scanner calibration if active (matches sample mode)
+            result.ink_aggregate_rgb = self._apply_calibration(raw_mean)
+            result.ink_median_rgb = self._apply_calibration(raw_median)
+
+            # Convert calibrated RGB to Lab
             mean_norm = np.array(result.ink_aggregate_rgb) / 255.0
             result.ink_aggregate_lab = tuple(
                 cspace_convert(mean_norm, 'sRGB1', 'CIELab').tolist()
@@ -305,11 +309,26 @@ class StampLayerSeparator:
         # Paper aggregate
         if result.paper_mask is not None and np.any(result.paper_mask):
             paper_pixels = self._arr[result.paper_mask]
-            result.paper_aggregate_rgb = tuple(np.mean(paper_pixels, axis=0).tolist())
+            raw_paper = tuple(np.mean(paper_pixels, axis=0).tolist())
+            result.paper_aggregate_rgb = self._apply_calibration(raw_paper)
             mean_norm = np.array(result.paper_aggregate_rgb) / 255.0
             result.paper_aggregate_lab = tuple(
                 cspace_convert(mean_norm, 'sRGB1', 'CIELab').tolist()
             )
+
+    @staticmethod
+    def _apply_calibration(rgb):
+        """Apply active scanner calibration to an RGB tuple, if available."""
+        try:
+            from utils.scanner_calibration import get_active_calibration
+            cal = get_active_calibration()
+            if cal and cal.is_valid:
+                corrected = cal.apply_correction(rgb)
+                if corrected:
+                    return corrected
+        except Exception:
+            pass
+        return rgb
 
     # ------------------------------------------------------------------ #
     # Layer image generation (for display / export)
