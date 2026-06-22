@@ -103,10 +103,6 @@ class MenuManager:
             label="Database Viewer...", 
             command=self.app.open_database_viewer
         )
-        self.file_menu.add_command(
-            label="Stamp Catalog Database...",
-            command=self.app.analysis_manager.open_catalog_database
-        )
         self.file_menu.add_separator()
         
         self.file_menu.add_command(

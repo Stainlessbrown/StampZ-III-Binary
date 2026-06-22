@@ -119,6 +119,7 @@ class LayerSeparatorDialog:
         ttk.Button(r1b, text="⬪ Black Ink Preview", command=lambda: self._use_black_ink_extractor(preview=True)).pack(side=tk.LEFT, padx=2)
         ttk.Button(r1b, text="⬪ Black Ink Add", command=lambda: self._use_black_ink_extractor(preview=False)).pack(side=tk.LEFT, padx=2)
         ttk.Button(r1b, text="Lock & Next ▸", command=self._lock_cancel).pack(side=tk.LEFT, padx=4)
+        ttk.Button(r1b, text="Skip (no cancel)", command=self._skip_cancel).pack(side=tk.LEFT, padx=2)
         ttk.Button(r1b, text="◂ Back", command=lambda: self._go_step(0)).pack(side=tk.LEFT, padx=4)
         self._step_frames.append(f1)
 
@@ -187,16 +188,6 @@ class LayerSeparatorDialog:
         self.results_label = ttk.Label(ri, text="Complete all steps to see results.",
                                        font=("Courier", 10), justify=tk.LEFT)
         self.results_label.pack(side=tk.LEFT, anchor=tk.W)
-        sf = ttk.Frame(ri)
-        sf.pack(side=tk.RIGHT, padx=(20, 0))
-        self.ink_swatch = tk.Label(sf, text="  Ink  ", bg="#cccccc",
-                                   relief=tk.RAISED, width=10, height=2,
-                                   font=("Arial", 10, "bold"))
-        self.ink_swatch.pack(side=tk.LEFT, padx=4)
-        self.paper_swatch = tk.Label(sf, text=" Paper ", bg="#cccccc",
-                                     relief=tk.RAISED, width=10, height=2,
-                                     font=("Arial", 10, "bold"))
-        self.paper_swatch.pack(side=tk.LEFT, padx=4)
 
     # ================================================================== #
     # Step management
@@ -488,6 +479,20 @@ class LayerSeparatorDialog:
         arr[self._bg_mask] = [255, 255, 255]
         self._show_image(Image.fromarray(arr))
 
+    def _skip_cancel(self):
+        """Skip cancellation removal (no postmark on this stamp)."""
+        if self._bg_mask is None:
+            return
+        h, w = self._bg_mask.shape
+        self._cancel_mask = np.zeros((h, w), dtype=bool)
+        self._separator = self._get_separator()
+        self._current_step = 2
+        self._update_step_ui()
+        self.status_label.configure(text="Cancellation skipped. Click Separate to split ink from paper.")
+        arr = np.array(self.original_image).copy()
+        arr[self._bg_mask] = [255, 255, 255]
+        self._show_image(Image.fromarray(arr))
+
     def _lock_cancel(self):
         if self._bg_mask is None:
             return
@@ -583,25 +588,10 @@ class LayerSeparatorDialog:
             f"Pixels: total={r.total_pixels:,}  bg={r.background_pixels:,}  "
             f"cancel={r.cancellation_pixels:,}  ink={r.ink_pixels:,}  paper={r.paper_pixels:,}",
             f"Ink/Paper: {r.ink_percentage:.1f}% / {r.paper_percentage:.1f}%",
+            "",
+            "Open the saved ink layer in StampZ and use Sample mode for accurate measurements.",
         ]
-        if r.ink_aggregate_lab:
-            lines.append(f"Ink mean  L*a*b*: L*={r.ink_aggregate_lab[0]:.1f}  a*={r.ink_aggregate_lab[1]:.1f}  b*={r.ink_aggregate_lab[2]:.1f}")
-        if r.ink_median_lab:
-            lines.append(f"Ink median:       L*={r.ink_median_lab[0]:.1f}  a*={r.ink_median_lab[1]:.1f}  b*={r.ink_median_lab[2]:.1f}")
-        if r.paper_aggregate_lab:
-            lines.append(f"Paper:            L*={r.paper_aggregate_lab[0]:.1f}  a*={r.paper_aggregate_lab[1]:.1f}  b*={r.paper_aggregate_lab[2]:.1f}")
         self.results_label.configure(text="\n".join(lines))
-
-        if r.ink_aggregate_rgb:
-            ir, ig, ib = [int(v) for v in r.ink_aggregate_rgb]
-            self.ink_swatch.configure(
-                bg=f"#{ir:02x}{ig:02x}{ib:02x}", text=f"Ink\nRGB({ir},{ig},{ib})",
-                fg="white" if (ir + ig + ib) / 3 < 128 else "black")
-        if r.paper_aggregate_rgb:
-            pr, pg, pb = [int(v) for v in r.paper_aggregate_rgb]
-            self.paper_swatch.configure(
-                bg=f"#{pr:02x}{pg:02x}{pb:02x}", text=f"Paper\nRGB({pr},{pg},{pb})",
-                fg="white" if (pr + pg + pb) / 3 < 128 else "black")
 
     # ================================================================== #
     # Save
@@ -616,8 +606,24 @@ class LayerSeparatorDialog:
             return
         base = self._get_image_basename()
         for ln in ['ink', 'paper', 'cancellation', 'stamp']:
-            self._separator.get_layer_image(self._result, ln).save(
-                os.path.join(d, f"{base}_{ln}.png"))
+            layer_img = self._separator.get_layer_image(self._result, ln)
+            # Save with alpha channel — masked-out areas become transparent
+            mask = {'ink': self._result.ink_mask,
+                    'paper': self._result.paper_mask,
+                    'cancellation': self._result.cancellation_mask,
+                    'stamp': (self._result.ink_mask | self._result.paper_mask)
+                             if self._result.ink_mask is not None and self._result.paper_mask is not None
+                             else None}.get(ln)
+            if mask is not None:
+                arr = np.array(self.original_image)
+                rgba = np.zeros((arr.shape[0], arr.shape[1], 4), dtype=np.uint8)
+                rgba[:, :, :3] = arr
+                rgba[mask, 3] = 255     # visible pixels fully opaque
+                rgba[~mask, 3] = 0      # masked pixels fully transparent
+                Image.fromarray(rgba, 'RGBA').save(
+                    os.path.join(d, f"{base}_{ln}.png"))
+            else:
+                layer_img.save(os.path.join(d, f"{base}_{ln}.png"))
         with open(os.path.join(d, f"{base}_layer_results.txt"), 'w') as f:
             f.write(self.results_label.cget('text'))
         messagebox.showinfo("Saved", f"Layer images saved to:\n{d}")
