@@ -616,10 +616,11 @@ class LayerSeparatorDialog:
                              else None}.get(ln)
             if mask is not None:
                 arr = np.array(self.original_image)
-                rgba = np.zeros((arr.shape[0], arr.shape[1], 4), dtype=np.uint8)
-                rgba[:, :, :3] = arr
-                rgba[mask, 3] = 255     # visible pixels fully opaque
-                rgba[~mask, 3] = 0      # masked pixels fully transparent
+                rgba = np.full((arr.shape[0], arr.shape[1], 4), 255, dtype=np.uint8)
+                rgba[mask, :3] = arr[mask]   # ink pixels keep original color
+                rgba[mask, 3] = 255          # ink pixels fully opaque
+                rgba[~mask, :3] = 255        # non-ink pixels white RGB
+                rgba[~mask, 3] = 0           # non-ink pixels fully transparent
                 Image.fromarray(rgba, 'RGBA').save(
                     os.path.join(d, f"{base}_{ln}.png"))
             else:
