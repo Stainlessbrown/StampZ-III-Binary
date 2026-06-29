@@ -65,7 +65,7 @@ class StampLayerSeparator:
         self._bg_rgb: Optional[Tuple[float, float, float]] = None
 
         # Tunable thresholds
-        self.background_delta_e_threshold = 15.0   # ΔE tolerance for background removal
+        self.background_delta_e_threshold = 10.0   # ΔE tolerance for background removal
         self.cancellation_brightness_max = 60       # Max brightness for cancellation ink
         self.cancellation_saturation_max = 30       # Max saturation for cancellation ink
 
