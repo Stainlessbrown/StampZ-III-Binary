@@ -2216,7 +2216,7 @@ class Plot3DApp:
 
         # Create ΔE Analysis section in a collapsible section
         delta_e_section = CollapsibleSection(self.control_frame, "🔬 ΔE Analysis", expanded=False)
-        delta_e_section.grid(row=7, column=0, sticky='ew', padx=5, pady=5)
+        delta_e_section.grid(row=8, column=0, sticky='ew', padx=5, pady=5)
         
         # Create ΔE Manager GUI inside collapsible section
         if hasattr(self, 'delta_e_manager') and self.delta_e_manager:
@@ -2234,7 +2234,7 @@ class Plot3DApp:
         
         # Create Pairwise ΔE section as its own collapsible section
         pairwise_section = CollapsibleSection(self.control_frame, "🔬 Pairwise ΔE", expanded=False)
-        pairwise_section.grid(row=8, column=0, sticky='ew', padx=5, pady=5)
+        pairwise_section.grid(row=9, column=0, sticky='ew', padx=5, pady=5)
         
         if hasattr(self, 'pairwise_delta_e_manager') and self.pairwise_delta_e_manager:
             try:
@@ -2260,7 +2260,7 @@ class Plot3DApp:
         
         # Create sphere visibility section in a collapsible section
         sphere_section = CollapsibleSection(self.control_frame, "🚪 Sphere Visibility", expanded=False)
-        sphere_section.grid(row=9, column=0, sticky='ew', padx=5, pady=5)
+        sphere_section.grid(row=10, column=0, sticky='ew', padx=5, pady=5)
         
         # Create sphere visibility frame inside the section with grid layout for canvas + scrollbar
         sphere_frame = ttk.Frame(sphere_section.content_frame)
@@ -2309,7 +2309,7 @@ class Plot3DApp:
         # Ellipsoid Visibility section (peer of the Sphere Visibility panel)
         # ------------------------------------------------------------------ #
         ellipsoid_section = CollapsibleSection(self.control_frame, "🥚 Ellipsoid Visibility", expanded=False)
-        ellipsoid_section.grid(row=10, column=0, sticky='ew', padx=5, pady=5)
+        ellipsoid_section.grid(row=11, column=0, sticky='ew', padx=5, pady=5)
         ell_frame = ttk.Frame(ellipsoid_section.content_frame)
         ell_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         # Master on/off
