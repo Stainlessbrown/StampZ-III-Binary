@@ -178,7 +178,7 @@ class MenuManager:
             command=self.app.open_black_ink_extractor
         )
         self.color_menu.add_command(
-            label="Layer Separator...",
+            label="Image Separation...",
             command=self.app.open_layer_separator
         )
         self.color_menu.add_separator()

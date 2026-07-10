@@ -3354,17 +3354,8 @@ class AnalysisManager:
                 f"An error occurred during export:\\n\\n{str(e)}"
             )
 
-    def open_catalog_database(self):
-        """Open the Stamp Catalog Database window."""
-        try:
-            from gui.stamp_catalog_manager import StampCatalogManager
-            StampCatalogManager(parent=self.root)
-        except Exception as e:
-            from tkinter import messagebox
-            messagebox.showerror(
-                "Error",
-                f"Failed to open Stamp Catalog Database:\n\n{str(e)}"
-            )
+    # Stamp Catalog Database removed — functionality was not viable
+    # due to catalog system complexity and translation issues.
 
     def open_color_library(self):
         """Open the Color Library Manager window."""

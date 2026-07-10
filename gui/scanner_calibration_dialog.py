@@ -95,6 +95,26 @@ class ScannerCalibrationDialog:
         )
         self.profile_info_label.pack(anchor='w')
         
+        # Saved profiles selector
+        profiles_frame = ttk.LabelFrame(main, text="Saved Profiles", padding=10)
+        profiles_frame.pack(fill=tk.X, pady=(0, 10))
+
+        pf_row = ttk.Frame(profiles_frame)
+        pf_row.pack(fill=tk.X)
+        ttk.Label(pf_row, text="Profile:").pack(side=tk.LEFT)
+        self.profile_var = tk.StringVar()
+        self.profile_combo = ttk.Combobox(
+            pf_row, textvariable=self.profile_var,
+            state='readonly', width=35
+        )
+        self.profile_combo.pack(side=tk.LEFT, padx=6)
+        self.profile_combo.bind("<Button-1>", lambda e: self._refresh_profile_list())
+        ttk.Button(pf_row, text="Load & Activate",
+                   command=self._load_selected_profile).pack(side=tk.LEFT, padx=4)
+        ttk.Button(pf_row, text="Show in Finder" if sys.platform == 'darwin' else "Open Folder",
+                   command=self._open_profiles_folder).pack(side=tk.LEFT, padx=4)
+        self._refresh_profile_list()
+
         # Action buttons frame
         action_frame = ttk.LabelFrame(main, text="Calibration Steps", padding=10)
         action_frame.pack(fill=tk.X, pady=(0, 10))
@@ -227,6 +247,77 @@ class ScannerCalibrationDialog:
                 anchor='center'
             ).grid(row=0, column=col, padx=5, pady=2, sticky='ew')
     
+    def _refresh_profile_list(self):
+        """Populate the profile dropdown with all saved .json profiles."""
+        from utils.path_utils import get_calibration_profiles_dir
+        profiles_dir = get_calibration_profiles_dir()
+        os.makedirs(profiles_dir, exist_ok=True)
+        profiles = sorted(
+            f for f in os.listdir(profiles_dir)
+            if f.endswith('.json')
+        )
+        display_names = [os.path.splitext(f)[0] for f in profiles]
+        self.profile_combo['values'] = display_names
+        # Pre-select the active profile if one is loaded
+        if self.active_profile_path:
+            active_name = os.path.splitext(os.path.basename(self.active_profile_path))[0]
+            if active_name in display_names:
+                self.profile_var.set(active_name)
+
+    def _load_selected_profile(self):
+        """Load and activate the profile selected in the dropdown."""
+        name = self.profile_var.get()
+        if not name:
+            messagebox.showinfo("No Selection", "Select a profile from the dropdown.",
+                                parent=self.root)
+            return
+        from utils.path_utils import get_calibration_profiles_dir
+        from utils.scanner_calibration import ScannerCalibration, set_active_calibration
+        path = os.path.join(get_calibration_profiles_dir(), f"{name}.json")
+        if not os.path.isfile(path):
+            messagebox.showerror("Not Found", f"Profile file not found:\n{path}",
+                                 parent=self.root)
+            return
+        cal = ScannerCalibration()
+        if not cal.load_profile(path):
+            messagebox.showerror("Load Error", "Failed to load profile.",
+                                 parent=self.root)
+            return
+        self.calibration = cal
+        self.active_profile_path = path
+        set_active_calibration(cal)
+        try:
+            from utils.user_preferences import get_preferences_manager
+            prefs = get_preferences_manager()
+            prefs.preferences.calibration_prefs.active_profile_path = path
+            prefs.preferences.calibration_prefs.calibration_enabled = True
+            prefs.save_preferences()
+        except Exception:
+            pass
+        self._update_status()
+        self._update_sharing_buttons()
+        self._populate_results()
+        messagebox.showinfo("Profile Loaded",
+                            f"Calibration profile '{cal.profile_name}' activated.",
+                            parent=self.root)
+
+    def _open_profiles_folder(self):
+        """Open the profiles directory in the OS file manager."""
+        from utils.path_utils import get_calibration_profiles_dir
+        profiles_dir = get_calibration_profiles_dir()
+        os.makedirs(profiles_dir, exist_ok=True)
+        try:
+            if sys.platform == 'darwin':
+                subprocess.Popen(['open', profiles_dir])
+            elif sys.platform == 'win32':
+                subprocess.Popen(['explorer', os.path.normpath(profiles_dir)])
+            else:
+                subprocess.Popen(['xdg-open', profiles_dir])
+        except Exception:
+            messagebox.showinfo("Profiles Location",
+                                f"Profiles are stored at:\n{profiles_dir}",
+                                parent=self.root)
+
     def _update_status(self):
         """Update the calibration status display."""
         from utils.scanner_calibration import get_active_calibration

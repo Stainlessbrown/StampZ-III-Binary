@@ -65,9 +65,10 @@ class StampLayerSeparator:
         self._bg_rgb: Optional[Tuple[float, float, float]] = None
 
         # Tunable thresholds
-        self.background_delta_e_threshold = 10.0   # ΔE tolerance for background removal
+        self.background_delta_e_threshold = 12.0   # ΔE tolerance for background removal
         self.cancellation_brightness_max = 60       # Max brightness for cancellation ink
         self.cancellation_saturation_max = 30       # Max saturation for cancellation ink
+        self.ink_outlier_delta_e = 0.0              # ΔE filter for ink outliers (0 = off)
 
     # ------------------------------------------------------------------ #
     # Configuration
@@ -260,34 +261,25 @@ class StampLayerSeparator:
     def _compute_aggregates(self, result: LayerResult) -> None:
         """Compute mean and median RGB/Lab for ink and paper layers.
 
-        Ink pixels that sit just above the cancellation thresholds
-        (dark and low-saturation) are likely cancel bleed-through.
-        We exclude them from the aggregate so the ink color isn't
-        pulled toward black by remnant postmark pixels.
+        When ``ink_outlier_delta_e > 0``, an iterative ΔE filter removes
+        ink pixels that are farther than the threshold from the median.
+        This catches cancel remnants and other noise that escaped the
+        cancel mask without requiring brightness/saturation heuristics.
         """
-        # Ink aggregate — with cancel-noise filtering
+        # Ink aggregate
         if result.ink_mask is not None and np.any(result.ink_mask):
             ink_pixels = self._arr[result.ink_mask]  # shape (N, 3)
 
-            # Filter out dark, low-saturation pixels within the ink layer
-            # These are likely cancellation remnants that escaped the cancel mask
-            brightness = np.mean(ink_pixels, axis=1)
-            max_ch = np.max(ink_pixels, axis=1)
-            min_ch = np.min(ink_pixels, axis=1)
-            saturation = max_ch - min_ch
-
-            # Keep ink pixels that are brighter OR more saturated than
-            # the cancel thresholds (with a small margin)
-            margin = 15
-            clean_mask = (
-                (brightness > self.cancellation_brightness_max + margin) |
-                (saturation > self.cancellation_saturation_max + margin)
-            )
-
-            clean_ink = ink_pixels[clean_mask]
-            if len(clean_ink) < 10:
-                # Not enough clean pixels — fall back to all ink pixels
+            # ΔE-based outlier rejection (iterative)
+            if self.ink_outlier_delta_e > 0 and len(ink_pixels) > 20:
+                clean_ink = self._filter_ink_outliers(
+                    ink_pixels, self.ink_outlier_delta_e
+                )
+            else:
                 clean_ink = ink_pixels
+
+            if len(clean_ink) < 10:
+                clean_ink = ink_pixels  # fallback
 
             raw_mean = tuple(np.mean(clean_ink, axis=0).tolist())
             raw_median = tuple(np.median(clean_ink, axis=0).tolist())
@@ -306,6 +298,10 @@ class StampLayerSeparator:
                 cspace_convert(median_norm, 'sRGB1', 'CIELab').tolist()
             )
 
+            # Store how many pixels survived the filter
+            result.ink_filtered_pixels = len(clean_ink)
+            result.ink_rejected_pixels = len(ink_pixels) - len(clean_ink)
+
         # Paper aggregate
         if result.paper_mask is not None and np.any(result.paper_mask):
             paper_pixels = self._arr[result.paper_mask]
@@ -316,39 +312,36 @@ class StampLayerSeparator:
                 cspace_convert(mean_norm, 'sRGB1', 'CIELab').tolist()
             )
 
-    @staticmethod
-    def _apply_calibration(rgb):
-        """Apply active scanner calibration to an RGB tuple, if available."""
-        try:
-            from utils.scanner_calibration import get_active_calibration
-            cal = get_active_calibration()
-            if cal and cal.is_valid:
-                corrected = cal.apply_correction(rgb)
-                if corrected:
-                    return corrected
-        except Exception:
-            pass
-        return rgb
+    def _filter_ink_outliers(self, pixels: np.ndarray, max_delta_e: float) -> np.ndarray:
+        """Remove ink pixels farther than max_delta_e from the median.
 
-    # ------------------------------------------------------------------ #
-    # Layer image generation (for display / export)
-    # ------------------------------------------------------------------ #
+        Uses the median as the anchor (robust to outliers), converts
+        each pixel to L*a*b*, computes ΔE, and keeps only those within
+        the threshold. One pass is usually enough; a second pass refines
+        after the first round of outliers is removed.
+        """
+        for _ in range(2):  # two passes for refinement
+            # Compute median in RGB, convert to Lab
+            median_rgb = np.median(pixels, axis=0)
+            median_norm = median_rgb / 255.0
+            median_lab = cspace_convert(median_norm, 'sRGB1', 'CIELab')
 
-    @staticmethod
-    def _make_checkerboard(h: int, w: int, square: int = 16) -> np.ndarray:
-        """Create a checkerboard transparency pattern (light/dark gray)."""
-        board = np.zeros((h, w, 3), dtype=np.uint8)
-        for y in range(h):
-            for x in range(w):
-                if ((x // square) + (y // square)) % 2 == 0:
-                    board[y, x] = [204, 204, 204]  # light gray
-                else:
-                    board[y, x] = [255, 255, 255]  # white
-        return board
+            # Convert all pixels to Lab
+            pixels_norm = pixels / 255.0
+            pixels_lab = cspace_convert(pixels_norm, 'sRGB1', 'CIELab')
 
+            # ΔE from median
+            diff = pixels_lab - median_lab
+            delta_e = np.sqrt(np.sum(diff ** 2, axis=1))
+
+            keep = delta_e <= max_delta_e
+            if np.sum(keep) < 10:
+                break  # don't over-filter
+            pixels = pixels[keep]
+
+        return pixels
     def get_layer_image(
-        self, result: LayerResult, layer: str,
-        background_color=(255, 255, 255), checkerboard: bool = False
+        self, result: LayerResult, layer: str, background_color=(255, 255, 255)
     ) -> Image.Image:
         """Generate a PIL image showing only one layer.
 
@@ -356,7 +349,6 @@ class StampLayerSeparator:
             result: LayerResult from separate()
             layer: 'ink', 'paper', 'cancellation', or 'stamp' (ink+paper)
             background_color: RGB tuple for masked-out areas
-            checkerboard: if True, use transparency checkerboard instead of solid color
 
         Returns:
             PIL Image with only the requested layer visible
@@ -374,9 +366,6 @@ class StampLayerSeparator:
             return self._original.copy()
 
         arr = np.array(self._original)
-        if checkerboard:
-            out = self._make_checkerboard(arr.shape[0], arr.shape[1])
-        else:
-            out = np.full_like(arr, background_color, dtype=np.uint8)
+        out = np.full_like(arr, background_color, dtype=np.uint8)
         out[mask] = arr[mask]
         return Image.fromarray(out)

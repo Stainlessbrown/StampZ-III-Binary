@@ -58,23 +58,43 @@ def apply_calibration_to_rgb(rgb: Tuple[float, float, float]) -> Tuple[float, fl
     return rgb
 
 
-# Patch layout for the StampZ calibration target (v1.1 — 3×4 grid)
+# Patch layout for the StampZ calibration target (v2.0 — 3×4 grid)
 # Maps grid position (row, col) in the scanned image to (name, digital_rgb)
 # Target is oriented with Black at top-left when scanned
-# 12 cells: 11 unique colors selected for photo-lab gamut + 1 duplicate White
+# 12 cells: 11 unique colors + 1 duplicate White
+#
+# RGB values derived from spectrometer-measured L*a*b* (June 2026).
+# These are the ACTUAL printed colors, not the design-intended values.
 PATCH_MAP = {
-    (0, 0): ("Black",         (0x17, 0x16, 0x15)),
-    (0, 1): ("Rose",          (0xFF, 0x00, 0x7F)),
-    (0, 2): ("Light Gray",    (0xD0, 0xCF, 0xCF)),
-    (1, 0): ("Buff",          (0xFF, 0xE8, 0xCB)),
-    (1, 1): ("White",         (0xFF, 0xFF, 0xFF)),
-    (1, 2): ("Violet",        (0xBF, 0x7F, 0xFF)),
-    (2, 0): ("Brown",         (0x96, 0x4B, 0x00)),
-    (2, 1): ("White 2",       (0xFF, 0xFF, 0xFF)),
-    (2, 2): ("Lavender",      (0xE4, 0xAF, 0xF3)),
-    (3, 0): ("Red",           (0xFF, 0x00, 0x00)),
-    (3, 1): ("Magenta",       (0xE5, 0x00, 0x7C)),
-    (3, 2): ("Dark Green",    (0x00, 0x63, 0x00)),
+    (0, 0): ("Black",         (0x00, 0x00, 0x00)),
+    (0, 1): ("Rose",          (0xd1, 0x00, 0x6d)),
+    (0, 2): ("Light Gray",    (0xc4, 0xc3, 0xbb)),
+    (1, 0): ("Buff",          (0xf0, 0xdb, 0xbb)),
+    (1, 1): ("White",         (0xf1, 0xf0, 0xe7)),
+    (1, 2): ("Violet",        (0x9a, 0x86, 0xcd)),
+    (2, 0): ("Brown",         (0x87, 0x32, 0x00)),
+    (2, 1): ("White 2",       (0xf1, 0xf0, 0xe7)),
+    (2, 2): ("Lavender",      (0xc8, 0xab, 0xd9)),
+    (3, 0): ("Red",           (0xd4, 0x00, 0x00)),
+    (3, 1): ("Magenta",       (0xc0, 0x00, 0x6d)),
+    (3, 2): ("Dark Green",    (0x00, 0x54, 0x00)),
+}
+
+# Spectrometer-measured L*a*b* reference values for each patch.
+# Primary ground-truth data; RGB above is derived from these.
+PATCH_LAB = {
+    "Black":      (0.00,    0.00,    0.00),
+    "Rose":       (44.55,  75.41,   -0.64),
+    "Light Gray": (78.87,  -1.26,    4.08),
+    "Buff":       (88.40,   2.51,   18.33),
+    "White":      (94.91,  -1.54,    4.39),
+    "Violet":     (60.37,  22.70,  -33.87),
+    "Brown":      (32.84,  33.64,   56.43),
+    "White 2":    (94.91,  -1.54,    4.39),
+    "Lavender":   (74.09,  18.86,  -19.28),
+    "Red":        (44.07,  70.10,   75.75),
+    "Magenta":    (40.86,  72.68,   -6.50),
+    "Dark Green": (30.25, -40.78,   42.00),
 }
 
 # Ordered list of patch names for consistent iteration

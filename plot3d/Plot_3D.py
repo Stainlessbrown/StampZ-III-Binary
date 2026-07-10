@@ -2002,8 +2002,18 @@ class Plot3DApp:
         )
         button_frame.grid(row=1, column=0, sticky='ew', padx=5, pady=5)
         
-        # Label toggle button removed - data type now controlled from spreadsheet toggle
-        # Labels automatically match the data being plotted
+        # Axis label toggle (cosmetic — data is normalized regardless)
+        label_frame = ttk.Frame(self.control_frame)
+        label_frame.grid(row=2, column=0, sticky='ew', padx=5, pady=2)
+        ttk.Label(label_frame, text="Axis Labels:", font=("Arial", 9, "bold")).pack(side=tk.LEFT, padx=(0, 6))
+        self._label_type_var = tk.StringVar(value=self.label_type)
+        for lbl_text, lbl_val in [("L*a*b*", "LAB"), ("RGB", "RGB"), ("CMY", "CMY")]:
+            ttk.Radiobutton(
+                label_frame, text=lbl_text,
+                variable=self._label_type_var,
+                value=lbl_val,
+                command=self._on_label_type_changed
+            ).pack(side=tk.LEFT, padx=2)
         
         # Initialize rotation controls early to ensure they're available for plot creation
         self.rotation_controls = RotationControls(
@@ -2014,11 +2024,11 @@ class Plot3DApp:
             hue_wheel_callback=self._open_hue_wheel_view,
             hue_wheel_3d_callback=self._toggle_cylindrical_view
         )
-        self.rotation_controls.grid(row=2, column=0, sticky='ew', padx=5, pady=5)
+        self.rotation_controls.grid(row=3, column=0, sticky='ew', padx=5, pady=5)
         
         # Initialize zoom controls in a collapsible section (expanded by default)
         zoom_section = CollapsibleSection(self.control_frame, "🔍 Zoom Controls", expanded=True)
-        zoom_section.grid(row=3, column=0, sticky='ew', padx=5, pady=5)
+        zoom_section.grid(row=4, column=0, sticky='ew', padx=5, pady=5)
         
         try:
             # Ensure figure exists
@@ -2100,7 +2110,7 @@ class Plot3DApp:
         
         # Create highlight frame and manager in a collapsible section
         point_id_section = CollapsibleSection(self.control_frame, "📍 Point Identification", expanded=False)
-        point_id_section.grid(row=4, column=0, sticky='ew', padx=5, pady=5)
+        point_id_section.grid(row=5, column=0, sticky='ew', padx=5, pady=5)
         
         self.highlight_frame = ttk.Frame(point_id_section.content_frame)
         self.highlight_frame.pack(fill=tk.BOTH, expand=True)
@@ -2117,7 +2127,7 @@ class Plot3DApp:
 
         # Create group display / K-means section in a collapsible section
         kmeans_section = CollapsibleSection(self.control_frame, "📊 K-means Clustering", expanded=False)
-        kmeans_section.grid(row=5, column=0, sticky='ew', padx=5, pady=5)
+        kmeans_section.grid(row=6, column=0, sticky='ew', padx=5, pady=5)
         
         # Create group display frame inside collapsible section
         group_display_frame = ttk.Frame(kmeans_section.content_frame)
@@ -2133,7 +2143,7 @@ class Plot3DApp:
         
         # Create trendline section in a collapsible section
         trendline_section = CollapsibleSection(self.control_frame, "📏 Trend Lines", expanded=False)
-        trendline_section.grid(row=6, column=0, sticky='ew', padx=5, pady=5)
+        trendline_section.grid(row=7, column=0, sticky='ew', padx=5, pady=5)
         
         # Create inner frame for trendline controls
         self.trendline_frame = ttk.Frame(trendline_section.content_frame)
@@ -2865,6 +2875,14 @@ class Plot3DApp:
             sys.exit(0)
         else:
             print("Embedded mode - Plot_3D window closed, parent app continues")
+
+    def _on_label_type_changed(self):
+        """Handle axis label type toggle (LAB/RGB/CMY)."""
+        new_type = self._label_type_var.get()
+        self.label_type = new_type
+        self.use_rgb = (new_type in ['RGB', 'CMY'])
+        print(f"Axis labels changed to: {new_type}")
+        self.refresh_plot()
 
     def _rotation_changed_callback(self):
         """Handle rotation changes from rotation controls"""
