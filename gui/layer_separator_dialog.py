@@ -574,29 +574,9 @@ class LayerSeparatorDialog:
         self._show_image(self._separator.get_layer_image(self._result, layer))
 
     def _update_results_display(self, r):
-        lines = [
-            f"Pixels: total={r.total_pixels:,}  bg={r.background_pixels:,}  "
-            f"cancel={r.cancellation_pixels:,}  ink={r.ink_pixels:,}  paper={r.paper_pixels:,}",
-            f"Ink/Paper: {r.ink_percentage:.1f}% / {r.paper_percentage:.1f}%",
-        ]
-        if r.ink_aggregate_lab:
-            lines.append(f"Ink mean  L*a*b*: L*={r.ink_aggregate_lab[0]:.1f}  a*={r.ink_aggregate_lab[1]:.1f}  b*={r.ink_aggregate_lab[2]:.1f}")
-        if r.ink_median_lab:
-            lines.append(f"Ink median:       L*={r.ink_median_lab[0]:.1f}  a*={r.ink_median_lab[1]:.1f}  b*={r.ink_median_lab[2]:.1f}")
-        if r.paper_aggregate_lab:
-            lines.append(f"Paper:            L*={r.paper_aggregate_lab[0]:.1f}  a*={r.paper_aggregate_lab[1]:.1f}  b*={r.paper_aggregate_lab[2]:.1f}")
-        self.results_label.configure(text="\n".join(lines))
-
-        if r.ink_aggregate_rgb:
-            ir, ig, ib = [int(v) for v in r.ink_aggregate_rgb]
-            self.ink_swatch.configure(
-                bg=f"#{ir:02x}{ig:02x}{ib:02x}", text=f"Ink\nRGB({ir},{ig},{ib})",
-                fg="white" if (ir + ig + ib) / 3 < 128 else "black")
-        if r.paper_aggregate_rgb:
-            pr, pg, pb = [int(v) for v in r.paper_aggregate_rgb]
-            self.paper_swatch.configure(
-                bg=f"#{pr:02x}{pg:02x}{pb:02x}", text=f"Paper\nRGB({pr},{pg},{pb})",
-                fg="white" if (pr + pg + pb) / 3 < 128 else "black")
+        self.results_label.configure(
+            text=f"Separation complete: {r.ink_pixels:,} ink / {r.paper_pixels:,} paper pixels. Save Layers to analyze."
+        )
 
     # ================================================================== #
     # Save
