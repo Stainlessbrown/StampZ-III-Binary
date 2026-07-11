@@ -150,7 +150,6 @@ class LayerSeparatorDialog:
         r3b = ttk.Frame(f3)
         r3b.pack(fill=tk.X, pady=2)
         ttk.Button(r3b, text="Save Layers...", command=self._save_layers).pack(side=tk.LEFT, padx=2)
-        ttk.Button(r3b, text="Compare Ink...", command=self._compare_to_library).pack(side=tk.LEFT, padx=2)
         ttk.Button(r3b, text="◂ Back", command=lambda: self._go_step(2)).pack(side=tk.LEFT, padx=4)
         self._step_frames.append(f3)
 
@@ -180,24 +179,12 @@ class LayerSeparatorDialog:
         self.canvas.bind("<Button-4>", lambda e: self._zoom_by(1.15))
         self.canvas.bind("<Button-5>", lambda e: self._zoom_by(0.87))
 
-        # ── Results panel ─────────────────────────────────────────────
-        rf = ttk.LabelFrame(self.root, text="Results")
+        # ── Status panel ──────────────────────────────────────────
+        rf = ttk.Frame(self.root)
         rf.pack(fill=tk.X, padx=8, pady=(0, 8))
-        ri = ttk.Frame(rf)
-        ri.pack(fill=tk.X, padx=8, pady=4)
-        self.results_label = ttk.Label(ri, text="Complete all steps to see results.",
-                                       font=("Courier", 10), justify=tk.LEFT)
-        self.results_label.pack(side=tk.LEFT, anchor=tk.W)
-        sf = ttk.Frame(ri)
-        sf.pack(side=tk.RIGHT, padx=(20, 0))
-        self.ink_swatch = tk.Label(sf, text="  Ink  ", bg="#cccccc",
-                                   relief=tk.RAISED, width=10, height=2,
-                                   font=("Arial", 10, "bold"))
-        self.ink_swatch.pack(side=tk.LEFT, padx=4)
-        self.paper_swatch = tk.Label(sf, text=" Paper ", bg="#cccccc",
-                                     relief=tk.RAISED, width=10, height=2,
-                                     font=("Arial", 10, "bold"))
-        self.paper_swatch.pack(side=tk.LEFT, padx=4)
+        self.results_label = ttk.Label(rf, text="Complete all steps, then Save Layers to analyze in Sample mode.",
+                                       font=("Arial", 10), foreground="gray")
+        self.results_label.pack(anchor=tk.W, padx=8)
 
     # ================================================================== #
     # Step management
