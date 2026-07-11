@@ -149,12 +149,22 @@ class KmeansManager:
         self.logger.info("KmeansManager initialized successfully")
     
     def create_gui(self, parent):
-        """Create the GUI controls for K-means clustering"""
-        self.frame = tk.LabelFrame(parent, text="K-means Clustering")
+        """Create the GUI controls for clustering"""
+        self.frame = tk.LabelFrame(parent, text="Clustering")
         
-        # Create control frame
+        # Row 1: Method selector
+        method_frame = tk.Frame(self.frame)
+        method_frame.pack(fill=tk.X, padx=5, pady=(5, 2))
+        tk.Label(method_frame, text="Method:", font=("Arial", 9)).pack(side=tk.LEFT)
+        self.cluster_method = tk.StringVar(value="K-means")
+        tk.Radiobutton(method_frame, text="K-means", variable=self.cluster_method,
+                       value="K-means", font=("Arial", 9)).pack(side=tk.LEFT, padx=4)
+        tk.Radiobutton(method_frame, text="K-medoids", variable=self.cluster_method,
+                       value="K-medoids", font=("Arial", 9)).pack(side=tk.LEFT, padx=4)
+        
+        # Row 2: Row range + k + buttons
         control_frame = tk.Frame(self.frame)
-        control_frame.pack(fill=tk.X, padx=5, pady=5)
+        control_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
         
         # Row range inputs
         tk.Label(control_frame, text="Rows:", font=("Arial", 9)).pack(side=tk.LEFT)
@@ -167,12 +177,6 @@ class KmeansManager:
         self.end_row.insert(0, "999")
         self.end_row.pack(side=tk.LEFT, padx=1)
         
-        # Method selector
-        self.cluster_method = tk.StringVar(value="K-means")
-        method_menu = tk.OptionMenu(control_frame, self.cluster_method, "K-means", "K-medoids")
-        method_menu.config(width=8, font=("Arial", 8))
-        method_menu.pack(side=tk.LEFT, padx=1)
-
         # Number of clusters input
         tk.Label(control_frame, text="k=", font=("Arial", 9, "normal")).pack(side=tk.LEFT, padx=(3,0))
         self.cluster_count = tk.Entry(control_frame, width=2)
@@ -180,40 +184,26 @@ class KmeansManager:
         self.cluster_count.pack(side=tk.LEFT, padx=1)
         
         # Action buttons
-        # Create a frame for stacked buttons with full width
         button_frame = tk.Frame(control_frame)
-        button_frame.pack(side=tk.RIGHT, padx=2)  # Move to right side
+        button_frame.pack(side=tk.RIGHT, padx=2)
 
-        # Apply button on top
         self.apply_button = tk.Button(
-            button_frame,
-            text="Apply",
-            width=6,              # Slightly reduced width
-            relief=tk.RAISED,
-            bg='#e1e1e1',        # Light gray background
-            font=('Arial', 9, 'bold'),
-            pady=1               # Minimal vertical padding
+            button_frame, text="Apply", width=6,
+            relief=tk.RAISED, bg='#e1e1e1',
+            font=('Arial', 9, 'bold'), pady=1
         )
-        self.apply_button.pack(side=tk.TOP, pady=1)  # Stack on top
+        self.apply_button.pack(side=tk.TOP, pady=1)
 
-        # Save button below
         self.save_button = tk.Button(
-            button_frame,
-            text="Save",
-            width=6,              # Slightly reduced width
-            relief=tk.RAISED,
-            bg='#e6f3ff',        # Light blue background
-            fg='dark blue',      # Blue text
-            font=('Arial', 9, 'bold'),
-            pady=1               # Minimal vertical padding
+            button_frame, text="Save", width=6,
+            relief=tk.RAISED, bg='#e6f3ff', fg='dark blue',
+            font=('Arial', 9, 'bold'), pady=1
         )
-        self.save_button.pack(side=tk.TOP, pady=1)  # Stack below Apply button
+        self.save_button.pack(side=tk.TOP, pady=1)
 
-        # Configure command callbacks
         self.apply_button.configure(command=lambda: self._apply_kmeans_gui())
         self.save_button.configure(command=lambda: self.save_cluster_assignments())
         
-        # Help button
         help_button = tk.Button(control_frame, text="?", width=2)
         help_button.pack(side=tk.LEFT, padx=2)
         help_button.configure(command=lambda: self._show_workflow_guide())
