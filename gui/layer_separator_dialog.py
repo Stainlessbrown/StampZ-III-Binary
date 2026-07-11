@@ -119,6 +119,7 @@ class LayerSeparatorDialog:
         ttk.Button(r1b, text="⬪ Black Ink Preview", command=lambda: self._use_black_ink_extractor(preview=True)).pack(side=tk.LEFT, padx=2)
         ttk.Button(r1b, text="⬪ Black Ink Add", command=lambda: self._use_black_ink_extractor(preview=False)).pack(side=tk.LEFT, padx=2)
         ttk.Button(r1b, text="Lock & Next ▸", command=self._lock_cancel).pack(side=tk.LEFT, padx=4)
+        ttk.Button(r1b, text="Skip (no cancel)", command=self._skip_cancel).pack(side=tk.LEFT, padx=2)
         ttk.Button(r1b, text="◂ Back", command=lambda: self._go_step(0)).pack(side=tk.LEFT, padx=4)
         self._step_frames.append(f1)
 
@@ -484,6 +485,20 @@ class LayerSeparatorDialog:
         """Clear all accumulated cancel detections."""
         self._cancel_mask = None
         self.status_label.configure(text="Cancel reset. Adjust thresholds and Preview/Add.")
+        arr = np.array(self.original_image).copy()
+        arr[self._bg_mask] = [255, 255, 255]
+        self._show_image(Image.fromarray(arr))
+
+    def _skip_cancel(self):
+        """Skip cancellation removal (no postmark on this stamp)."""
+        if self._bg_mask is None:
+            return
+        h, w = self._bg_mask.shape
+        self._cancel_mask = np.zeros((h, w), dtype=bool)
+        self._separator = self._get_separator()
+        self._current_step = 2
+        self._update_step_ui()
+        self.status_label.configure(text="Cancellation skipped. Click Separate to split ink from paper.")
         arr = np.array(self.original_image).copy()
         arr[self._bg_mask] = [255, 255, 255]
         self._show_image(Image.fromarray(arr))
