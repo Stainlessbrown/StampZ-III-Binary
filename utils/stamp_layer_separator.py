@@ -340,6 +340,20 @@ class StampLayerSeparator:
             pixels = pixels[keep]
 
         return pixels
+    @staticmethod
+    def _apply_calibration(rgb):
+        """Apply active scanner calibration to an RGB tuple, if available."""
+        try:
+            from utils.scanner_calibration import get_active_calibration
+            cal = get_active_calibration()
+            if cal and cal.is_valid:
+                corrected = cal.apply_correction(rgb)
+                if corrected:
+                    return corrected
+        except Exception:
+            pass
+        return rgb
+
     def get_layer_image(
         self, result: LayerResult, layer: str, background_color=(255, 255, 255)
     ) -> Image.Image:
