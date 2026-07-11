@@ -65,6 +65,42 @@ class CustomIndexRange:
     def __bool__(self):
         return bool(self.indices)
 
+def _kmedoids(X, n_clusters, max_iter=100, random_state=42):
+    """Pure numpy K-medoids (PAM). Returns (labels, medoid_centers)."""
+    rng = np.random.RandomState(random_state)
+    n = len(X)
+    # Init: pick k random points as medoids
+    idx = rng.choice(n, n_clusters, replace=False)
+    medoids = idx.copy()
+    for _ in range(max_iter):
+        # Assign to nearest medoid
+        dists = np.array([np.sum((X - X[m]) ** 2, axis=1) for m in medoids]).T
+        labels = np.argmin(dists, axis=1)
+        cost = dists[np.arange(n), labels].sum()
+        # Try swapping each medoid with each non-medoid
+        improved = False
+        for ci in range(n_clusters):
+            for candidate in range(n):
+                if candidate in medoids:
+                    continue
+                new_medoids = medoids.copy()
+                new_medoids[ci] = candidate
+                new_dists = np.array([np.sum((X - X[m]) ** 2, axis=1) for m in new_medoids]).T
+                new_cost = new_dists[np.arange(n), np.argmin(new_dists, axis=1)].sum()
+                if new_cost < cost:
+                    medoids = new_medoids
+                    cost = new_cost
+                    improved = True
+                    break
+            if improved:
+                break
+        if not improved:
+            break
+    dists = np.array([np.sum((X - X[m]) ** 2, axis=1) for m in medoids]).T
+    labels = np.argmin(dists, axis=1)
+    return labels, X[medoids]
+
+
 class KmeansManager:
     """
     Manager class for applying K-means clustering on normalized coordinate data.
@@ -131,6 +167,12 @@ class KmeansManager:
         self.end_row.insert(0, "999")
         self.end_row.pack(side=tk.LEFT, padx=1)
         
+        # Method selector
+        self.cluster_method = tk.StringVar(value="K-means")
+        method_menu = tk.OptionMenu(control_frame, self.cluster_method, "K-means", "K-medoids")
+        method_menu.config(width=8, font=("Arial", 8))
+        method_menu.pack(side=tk.LEFT, padx=1)
+
         # Number of clusters input
         tk.Label(control_frame, text="k=", font=("Arial", 9, "normal")).pack(side=tk.LEFT, padx=(3,0))
         self.cluster_count = tk.Entry(control_frame, width=2)
@@ -496,12 +538,18 @@ class KmeansManager:
             
             # Apply K-means clustering
             # Apply K-means clustering
-            self.logger.info(f"Applying K-means with {n_clusters} clusters to rows {start_row}-{end_row}")
-            kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-            cluster_labels = kmeans.fit_predict(X)
-            
-            # Get the centroids from the KMeans model
-            centroids = kmeans.cluster_centers_
+            # Select algorithm
+            use_medoids = (hasattr(self, 'cluster_method') and
+                           self.cluster_method.get() == 'K-medoids')
+            method_name = 'K-medoids' if use_medoids else 'K-means'
+            self.logger.info(f"Applying {method_name} with {n_clusters} clusters to rows {start_row}-{end_row}")
+
+            if use_medoids:
+                cluster_labels, centroids = _kmedoids(X, n_clusters, random_state=42)
+            else:
+                kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+                cluster_labels = kmeans.fit_predict(X)
+                centroids = kmeans.cluster_centers_
             self.logger.info(f"Calculated {len(centroids)} cluster centroids")
             
             # Sort clusters by L* (Xnorm) value in descending order (lightest to darkest)
