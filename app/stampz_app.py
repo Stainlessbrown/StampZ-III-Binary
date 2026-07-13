@@ -276,7 +276,8 @@ class StampZApp:
                 return
             from gui.layer_separator_dialog import open_layer_separator
             open_layer_separator(self.root, self.canvas.original_image,
-                                image_filename=getattr(self, 'current_file', None))
+                                image_filename=getattr(self, 'current_file', None),
+                                app=self)
         except Exception as e:
             from tkinter import messagebox
             messagebox.showerror("Error", f"Failed to open Layer Separator:\n\n{str(e)}")

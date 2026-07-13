@@ -23,8 +23,9 @@ class LayerSeparatorDialog:
 
     STEPS = ["1. Background", "2. Cancellation", "3. Ink / Paper", "4. Results"]
 
-    def __init__(self, parent, pil_image: Image.Image, image_filename: str = None):
+    def __init__(self, parent, pil_image: Image.Image, image_filename: str = None, app=None):
         self.parent = parent
+        self._app = app  # StampZApp reference for "Open in StampZ"
         self.original_image = pil_image.convert('RGB')
         self._source_filename = image_filename  # original image path/name
         self._arr = np.array(self.original_image, dtype=np.float32)
@@ -149,11 +150,20 @@ class LayerSeparatorDialog:
                        command=lambda l=lay: self._show_layer(l)).pack(side=tk.LEFT, padx=2)
         r3b = ttk.Frame(f3)
         r3b.pack(fill=tk.X, pady=2)
-        ttk.Button(r3b, text="Save Layers...", command=self._save_layers).pack(side=tk.LEFT, padx=2)
+        self._save_ink = tk.BooleanVar(value=True)
+        self._save_paper = tk.BooleanVar(value=True)
+        self._save_cancel = tk.BooleanVar(value=False)
+        self._save_stamp = tk.BooleanVar(value=False)
+        ttk.Checkbutton(r3b, text="Ink", variable=self._save_ink).pack(side=tk.LEFT, padx=2)
+        ttk.Checkbutton(r3b, text="Paper", variable=self._save_paper).pack(side=tk.LEFT, padx=2)
+        ttk.Checkbutton(r3b, text="Cancel", variable=self._save_cancel).pack(side=tk.LEFT, padx=2)
+        ttk.Checkbutton(r3b, text="Stamp", variable=self._save_stamp).pack(side=tk.LEFT, padx=2)
+        ttk.Button(r3b, text="Save...", command=self._save_layers).pack(side=tk.LEFT, padx=4)
+        ttk.Button(r3b, text="Open in StampZ ▸", command=self._open_layer_in_stampz).pack(side=tk.LEFT, padx=4)
         ttk.Button(r3b, text="◂ Back", command=lambda: self._go_step(2)).pack(side=tk.LEFT, padx=4)
         self._step_frames.append(f3)
 
-        # ── Zoom controls (always visible) ────────────────────────────
+        # ── Zoom controls + checkerboard toggle (always visible) ──────
         zf = ttk.Frame(top)
         zf.pack(fill=tk.X, pady=2)
         ttk.Button(zf, text="Fit", width=4, command=self._fit_to_canvas).pack(side=tk.LEFT, padx=2)
@@ -162,6 +172,11 @@ class LayerSeparatorDialog:
         ttk.Button(zf, text="\u2212", width=2, command=lambda: self._zoom_by(0.8)).pack(side=tk.LEFT)
         self.zoom_label = ttk.Label(zf, text="100%", width=6)
         self.zoom_label.pack(side=tk.LEFT, padx=4)
+        ttk.Separator(zf, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
+        self._use_checkerboard = tk.BooleanVar(value=False)
+        ttk.Checkbutton(zf, text="\u2591 Transparency grid",
+                        variable=self._use_checkerboard,
+                        command=self._refresh_current_layer).pack(side=tk.LEFT)
 
         # ── Canvas ────────────────────────────────────────────────────
         cf = ttk.Frame(self.root)
@@ -566,12 +581,58 @@ class LayerSeparatorDialog:
         self._show_image(Image.fromarray(out))
 
     def _show_layer(self, layer):
+        self._current_layer_name = layer
         if layer == "original":
             self._show_image(self.original_image)
             return
         if self._result is None or self._separator is None:
             return
-        self._show_image(self._separator.get_layer_image(self._result, layer))
+        checker = self._use_checkerboard.get()
+        self._show_image(self._separator.get_layer_image(
+            self._result, layer, checkerboard=checker))
+
+    def _refresh_current_layer(self):
+        """Re-render the current layer view (called when checkerboard toggles)."""
+        layer = getattr(self, '_current_layer_name', None)
+        if layer:
+            self._show_layer(layer)
+
+    def _open_layer_in_stampz(self):
+        """Save the currently viewed layer and open it in StampZ's main window."""
+        if self._result is None or self._separator is None:
+            messagebox.showinfo("Not Ready", "Complete separation first.")
+            return
+        layer = getattr(self, '_current_layer_name', 'ink')
+        if layer == 'original':
+            messagebox.showinfo("Select Layer", "Select a layer (Ink, Paper, etc.) to open.")
+            return
+        import tempfile
+        base = self._get_image_basename()
+        mask = {'ink': self._result.ink_mask,
+                'paper': self._result.paper_mask,
+                'cancellation': self._result.cancellation_mask,
+                'stamp': (self._result.ink_mask | self._result.paper_mask)
+                         if self._result.ink_mask is not None and self._result.paper_mask is not None
+                         else None}.get(layer)
+        if mask is None:
+            return
+        arr = np.array(self.original_image)
+        rgba = np.full((arr.shape[0], arr.shape[1], 4), 255, dtype=np.uint8)
+        rgba[mask, :3] = arr[mask]
+        rgba[mask, 3] = 255
+        rgba[~mask, :3] = 255
+        rgba[~mask, 3] = 0
+        if self._source_filename:
+            src_dir = os.path.dirname(self._source_filename)
+            path = os.path.join(src_dir, f"{base}_{layer}.png")
+        else:
+            path = os.path.join(tempfile.gettempdir(), f"{base}_{layer}.png")
+        Image.fromarray(rgba, 'RGBA').save(path)
+        if self._app and hasattr(self._app, 'open_image'):
+            self._app.open_image(path)
+            self.status_label.configure(text=f"Opened {os.path.basename(path)} in StampZ.")
+        else:
+            messagebox.showinfo("Saved", f"Layer saved to:\n{path}\n\nOpen it manually in StampZ.")
 
     def _update_results_display(self, r):
         self.results_label.configure(
@@ -586,15 +647,45 @@ class LayerSeparatorDialog:
         if self._result is None:
             messagebox.showinfo("Not Ready", "Complete all steps first.")
             return
-        d = filedialog.askdirectory(title="Save layer images", parent=self.root)
+        # Default to source image's folder
+        initial_dir = None
+        if self._source_filename:
+            initial_dir = os.path.dirname(self._source_filename)
+        d = filedialog.askdirectory(
+            title="Save layer images", parent=self.root,
+            initialdir=initial_dir)
         if not d:
             return
+        # Build list of selected layers
+        selected = []
+        if self._save_ink.get(): selected.append('ink')
+        if self._save_paper.get(): selected.append('paper')
+        if self._save_cancel.get(): selected.append('cancellation')
+        if self._save_stamp.get(): selected.append('stamp')
+        if not selected:
+            messagebox.showinfo("Nothing Selected", "Check at least one layer to save.")
+            return
         base = self._get_image_basename()
-        for ln in ['ink', 'paper', 'cancellation', 'stamp']:
-            self._separator.get_layer_image(self._result, ln).save(
-                os.path.join(d, f"{base}_{ln}.png"))
-        with open(os.path.join(d, f"{base}_layer_results.txt"), 'w') as f:
-            f.write(self.results_label.cget('text'))
+        for ln in selected:
+            # Save with alpha channel — masked-out areas become transparent
+            mask = {'ink': self._result.ink_mask,
+                    'paper': self._result.paper_mask,
+                    'cancellation': self._result.cancellation_mask,
+                    'stamp': (self._result.ink_mask | self._result.paper_mask)
+                             if self._result.ink_mask is not None and self._result.paper_mask is not None
+                             else None}.get(ln)
+            if mask is not None:
+                arr = np.array(self.original_image)
+                rgba = np.full((arr.shape[0], arr.shape[1], 4), 255, dtype=np.uint8)
+                rgba[mask, :3] = arr[mask]   # visible pixels keep original color
+                rgba[mask, 3] = 255          # visible pixels fully opaque
+                rgba[~mask, :3] = 255        # non-visible pixels white RGB
+                rgba[~mask, 3] = 0           # non-visible pixels fully transparent
+                Image.fromarray(rgba, 'RGBA').save(
+                    os.path.join(d, f"{base}_{ln}.png"))
+            else:
+                self._separator.get_layer_image(self._result, ln).save(
+                    os.path.join(d, f"{base}_{ln}.png"))
         messagebox.showinfo("Saved", f"Layer images saved to:\n{d}")
 
     # ================================================================== #
@@ -678,6 +769,6 @@ class LayerSeparatorDialog:
             messagebox.showerror("Compare Error", f"Failed:\n\n{str(e)}")
 
 
-def open_layer_separator(parent, pil_image, image_filename=None):
+def open_layer_separator(parent, pil_image, image_filename=None, app=None):
     """Convenience function to open the dialog."""
-    return LayerSeparatorDialog(parent, pil_image, image_filename=image_filename)
+    return LayerSeparatorDialog(parent, pil_image, image_filename=image_filename, app=app)
