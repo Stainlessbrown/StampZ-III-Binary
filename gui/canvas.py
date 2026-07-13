@@ -1433,7 +1433,8 @@ class CropCanvas(tk.Canvas):
     
     def _redraw_all_coordinate_markers(self) -> None:
         """Redraw all coordinate markers with updated parameters."""
-        print(f"DEBUG: _redraw_all_coordinate_markers called with {len(self._coord_markers)} markers")
+        if not self._coord_markers:
+            return
         
         # Clear existing visual markers first
         for marker in self._coord_markers:

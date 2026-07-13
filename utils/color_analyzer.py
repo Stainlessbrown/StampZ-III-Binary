@@ -495,11 +495,8 @@ class ColorAnalyzer:
         left, top, right, bottom = bounds
         pixels = []
         
-        # Convert image to RGB if needed with proper color space handling
-        if image.mode != 'RGB':
-            # Preserve color profile during conversion if possible
-            if hasattr(image, 'info') and 'icc_profile' in image.info:
-                print(f"DEBUG: Image has ICC profile, preserving during RGB conversion")
+        # Convert image to RGB if needed — but keep RGBA so the alpha-skip works
+        if image.mode not in ('RGB', 'RGBA'):
             image = image.convert('RGB')
         
         # Check for common screenshot color issues
@@ -575,8 +572,7 @@ class ColorAnalyzer:
         
         if not pixels:
             print(f"Warning: No valid pixels found in sample area ({left}, {top}, {right}, {bottom})")
-            # Use neutral gray as fallback if no pixels found
-            return [(128, 128, 128)], (0.0, 0.0, 0.0), (0.0, 0.0, 0.0)  # Neutral gray fallback with zero stddev
+            return None, None, None  # No opaque pixels — caller treats as empty
         
         # Calculate true averages from all sampled pixels
         avg_r = total_r / total_pixels if total_pixels > 0 else 128.0

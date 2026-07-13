@@ -41,7 +41,13 @@ class CanvasCore:
             image: PIL Image to load
         """
         self.original_image = image
-        print(f"DEBUG canvas_core.load_image: stored image has _stampz_16bit_data: {hasattr(self.original_image, '_stampz_16bit_data')}")
+        # Pre-composite RGBA onto white for fast display; sampling uses original_image
+        if image.mode == 'RGBA':
+            bg = Image.new('RGB', image.size, (255, 255, 255))
+            bg.paste(image, mask=image.split()[3])
+            self._display_source = bg
+        else:
+            self._display_source = image
         self.display_image = None
         
         # Reset view state
@@ -277,8 +283,9 @@ class CanvasCore:
             if display_width < 1 or display_height < 1:
                 return
             
-            # Resize image for display
-            resized_image = self.original_image.resize(
+            # Use pre-composited RGB source for fast display
+            source = getattr(self, '_display_source', self.original_image)
+            resized_image = source.resize(
                 (display_width, display_height),
                 Image.Resampling.LANCZOS
             )
