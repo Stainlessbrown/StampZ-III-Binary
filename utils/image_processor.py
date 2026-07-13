@@ -123,11 +123,17 @@ def load_image(file_path: Union[str, Path]) -> Tuple[Image.Image, dict]:
                 except Exception:
                     metadata['icc_profile_name'] = 'Embedded ICC'
                 
-                # Create transformation
-                transform = ImageCms.buildTransform(input_profile, srgb_profile, 'RGB', 'RGB')
-                
-                # Apply transformation
-                image = ImageCms.applyTransform(image, transform)
+                # Create transformation — preserve alpha if present
+                if image.mode == 'RGBA':
+                    alpha = image.split()[3]
+                    rgb_img = image.convert('RGB')
+                    transform = ImageCms.buildTransform(input_profile, srgb_profile, 'RGB', 'RGB')
+                    rgb_img = ImageCms.applyTransform(rgb_img, transform)
+                    rgb_img.putalpha(alpha)
+                    image = rgb_img
+                else:
+                    transform = ImageCms.buildTransform(input_profile, srgb_profile, 'RGB', 'RGB')
+                    image = ImageCms.applyTransform(image, transform)
                 
                 logger.info(f"Successfully converted to sRGB color space")
                 metadata['color_profile'] = "Converted from embedded profile to sRGB"
@@ -135,14 +141,14 @@ def load_image(file_path: Union[str, Path]) -> Tuple[Image.Image, dict]:
             except Exception as e:
                 logger.warning(f"Failed to convert color profile, using image as-is: {e}")
                 # Fall back to converting to RGB without profile transformation
-                if image.mode != 'RGB':
+                if image.mode not in ('RGB', 'RGBA'):
                     image = image.convert('RGB')
                 metadata['color_profile'] = "Profile conversion failed, using as RGB"
         else:
-            # No embedded profile, ensure RGB mode
-            if image.mode != 'RGB':
+            # No embedded profile, ensure RGB or RGBA mode
+            if image.mode not in ('RGB', 'RGBA'):
                 image = image.convert('RGB')
-            metadata['color_profile'] = "No embedded profile, converted to RGB"
+            metadata['color_profile'] = "No embedded profile, assumed sRGB"
         
         # Derive fallback bit-depth/channels if missing
         try:
