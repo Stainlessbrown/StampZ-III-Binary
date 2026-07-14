@@ -1168,13 +1168,15 @@ class StampZApp:
             # Clear the markers list
             self.canvas._coord_markers.clear()
             
-            # Reset control UI to defaults
+            # Reset control UI to preference defaults
             if hasattr(self.control_panel, 'sample_controls'):
+                from utils.user_preferences import get_preferences_manager
+                defaults = get_preferences_manager().get_default_sample_settings()
                 for control in self.control_panel.sample_controls:
-                    control['shape'].set('circle')
-                    control['width'].set('10')
-                    control['height'].set('10')
-                    control['anchor'].set('center')
+                    control['shape'].set(defaults['shape'])
+                    control['width'].set(str(defaults['width']))
+                    control['height'].set(str(defaults['height']))
+                    control['anchor'].set(defaults['anchor'])
             
             # Clear template and analysis names
             if hasattr(self.control_panel, 'sample_set_name'):

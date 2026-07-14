@@ -324,13 +324,15 @@ class FileManager:
             if hasattr(self.app.control_panel, 'analysis_name'):
                 self.app.control_panel.analysis_name.set('')
             
-            # Reset all sample controls to defaults
+            # Reset all sample controls to preference defaults
             if hasattr(self.app.control_panel, 'sample_controls'):
+                from utils.user_preferences import get_preferences_manager
+                defaults = get_preferences_manager().get_default_sample_settings()
                 for control in self.app.control_panel.sample_controls:
-                    control['shape'].set('rectangle')
-                    control['width'].set('20')
-                    control['height'].set('20')
-                    control['anchor'].set('center')
+                    control['shape'].set(defaults['shape'])
+                    control['width'].set(str(defaults['width']))
+                    control['height'].set(str(defaults['height']))
+                    control['anchor'].set(defaults['anchor'])
             
             # Reset mode to template if in sample mode
             if hasattr(self.app.control_panel, 'sample_mode'):
