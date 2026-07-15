@@ -194,12 +194,38 @@ class LayerSeparatorDialog:
         self.canvas.bind("<Button-4>", lambda e: self._zoom_by(1.15))
         self.canvas.bind("<Button-5>", lambda e: self._zoom_by(0.87))
 
-        # ── Status panel ──────────────────────────────────────────
+        # ── Status panel ──────────────────────────────────────────────
         rf = ttk.Frame(self.root)
-        rf.pack(fill=tk.X, padx=8, pady=(0, 8))
+        rf.pack(fill=tk.X, padx=8, pady=(0, 4))
         self.results_label = ttk.Label(rf, text="Complete all steps, then Save Layers to analyze in Sample mode.",
                                        font=("Arial", 10), foreground="gray")
         self.results_label.pack(anchor=tk.W, padx=8)
+
+        # ── Color info panel (hidden until results are ready) ─────────
+        self._color_info_frame = ttk.Frame(self.root)
+        # Not packed yet — shown by _update_results_display
+        self._color_note = ttk.Label(self._color_info_frame,
+            text="(May include portions of cancellation — estimate only. Analyze in Sample Mode.)",
+            font=("Arial", 9, "italic"), foreground="gray")
+        self._color_note.pack(anchor=tk.W, padx=12)
+        # Ink row
+        self._ink_info_frame = ttk.Frame(self._color_info_frame)
+        self._ink_info_frame.pack(fill=tk.X, padx=12)
+        self._ink_swatch = tk.Label(self._ink_info_frame, text="  ", width=3,
+                                    relief=tk.SUNKEN, bg="#808080")
+        self._ink_swatch.pack(side=tk.LEFT, padx=(0, 6))
+        self._ink_values_label = ttk.Label(self._ink_info_frame, text="Ink:  —",
+                                           font=("Arial", 10))
+        self._ink_values_label.pack(side=tk.LEFT)
+        # Paper row
+        self._paper_info_frame = ttk.Frame(self._color_info_frame)
+        self._paper_info_frame.pack(fill=tk.X, padx=12, pady=(2, 4))
+        self._paper_swatch = tk.Label(self._paper_info_frame, text="  ", width=3,
+                                      relief=tk.SUNKEN, bg="#808080")
+        self._paper_swatch.pack(side=tk.LEFT, padx=(0, 6))
+        self._paper_values_label = ttk.Label(self._paper_info_frame, text="Paper:  —",
+                                             font=("Arial", 10))
+        self._paper_values_label.pack(side=tk.LEFT)
 
     # ================================================================== #
     # Step management
@@ -638,6 +664,24 @@ class LayerSeparatorDialog:
         self.results_label.configure(
             text=f"Separation complete: {r.ink_pixels:,} ink / {r.paper_pixels:,} paper pixels. Save Layers to analyze."
         )
+        # Show color info panel
+        self._color_info_frame.pack(fill=tk.X, padx=8, pady=(0, 8))
+        # Ink values
+        if r.ink_aggregate_lab and r.ink_aggregate_rgb:
+            L, a, b = r.ink_aggregate_lab
+            ir, ig, ib = r.ink_aggregate_rgb
+            self._ink_values_label.configure(
+                text=f"Ink:  L*={L:.1f}  a*={a:.1f}  b*={b:.1f}   │   R={ir:.0f}  G={ig:.0f}  B={ib:.0f}"
+            )
+            self._ink_swatch.configure(bg=f"#{int(ir):02x}{int(ig):02x}{int(ib):02x}")
+        # Paper values
+        if r.paper_aggregate_lab and r.paper_aggregate_rgb:
+            L, a, b = r.paper_aggregate_lab
+            pr, pg, pb = r.paper_aggregate_rgb
+            self._paper_values_label.configure(
+                text=f"Paper:  L*={L:.1f}  a*={a:.1f}  b*={b:.1f}   │   R={pr:.0f}  G={pg:.0f}  B={pb:.0f}"
+            )
+            self._paper_swatch.configure(bg=f"#{int(pr):02x}{int(pg):02x}{int(pb):02x}")
 
     # ================================================================== #
     # Save
