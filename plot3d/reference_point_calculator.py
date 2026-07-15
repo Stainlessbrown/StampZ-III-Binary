@@ -75,6 +75,7 @@ class ReferencePointCalculator:
             
         self.data = None
         self.file_path = None
+        self.sheet_name = None  # For multi-sheet ODS files
         
         # Reference point data
         self.reference_point_row = 2  # Default to row 2 (first data row)
@@ -612,6 +613,11 @@ class ReferencePointCalculator:
                  
         self.file_path = os.path.abspath(file_path)
         self.logger.info(f"Set current file path to: {self.file_path}")
+    
+    def set_sheet_name(self, sheet_name: str):
+        """Set the sheet name for multi-sheet ODS files."""
+        self.sheet_name = sheet_name
+        self.logger.info(f"Set sheet name to: {self.sheet_name}")
 
     def _safe_save_document(self, doc, file_path):
         """
@@ -1052,6 +1058,17 @@ class ReferencePointCalculator:
                 messagebox.showerror("Invalid Input", "Row values must be integers.")
                 return
             
+            # Reload data from file to pick up any edits made since Plot_3D opened
+            if self.file_path and os.path.exists(self.file_path):
+                try:
+                    engine = 'odf' if self.file_path.endswith('.ods') else 'openpyxl'
+                    refreshed = pd.read_excel(self.file_path, engine=engine,
+                                              sheet_name=self.sheet_name or 0)
+                    self.load_data(refreshed)
+                    self.logger.info("Reloaded data from file before reference point check")
+                except Exception as e:
+                    self.logger.warning(f"Could not reload data from file: {e}")
+            
             # Set the reference point
             if not self.set_reference_point_row(ref_row):
                 messagebox.showerror(
@@ -1231,21 +1248,36 @@ class ReferencePointCalculator:
             # Open the .ods file for editing
             self.logger.info("Opening .ods file for editing")
             ods_doc = ezodf.opendoc(self.file_path)
-            sheet = ods_doc.sheets[0]
+            # Find the correct sheet by name (for multi-sheet files)
+            if self.sheet_name:
+                sheet = None
+                for i, s in enumerate(ods_doc.sheets):
+                    if s.name == self.sheet_name:
+                        sheet = s
+                        self.logger.info(f"Found sheet '{self.sheet_name}' at index {i}")
+                        break
+                if sheet is None:
+                    self.logger.error(f"Sheet '{self.sheet_name}' not found")
+                    raise ValueError(f"Sheet '{self.sheet_name}' not found in file")
+            else:
+                sheet = ods_doc.sheets[0]
+                self.logger.info(f"Using first sheet: {sheet.name}")
             
             # Find the ∆E column index - header is in row 1 (zero-based index 0)
             header_row = 0  # Zero-based index for header row
             delta_e_col_idx = None
             
+            delta_e_aliases = {'∆E', '∆ E', 'DeltaE', 'Delta E', 'Delta_E', 'deltae', 'delta_e'}
             for col_idx in range(len(sheet.row(header_row))):
                 cell_value = sheet[header_row, col_idx].value
-                if cell_value == '∆E':
+                if cell_value and (cell_value in delta_e_aliases or str(cell_value).strip().lower() in {a.lower() for a in delta_e_aliases}):
                     delta_e_col_idx = col_idx
+                    self.logger.info(f"Matched ΔE column header '{cell_value}' at index {col_idx}")
                     break
             
             if delta_e_col_idx is None:
-                self.logger.error("∆E column not found in spreadsheet")
-                raise ValueError("∆E column not found in spreadsheet")
+                self.logger.error("ΔE column not found in spreadsheet (tried: ∆E, DeltaE, Delta E, Delta_E)")
+                raise ValueError("ΔE column not found. Expected one of: ∆E, DeltaE, Delta E, Delta_E")
             
             self.logger.info(f"Found ∆E column at index {delta_e_col_idx}")
             
@@ -1315,17 +1347,14 @@ class ReferencePointCalculator:
             if updates:
                 self.logger.info(f"Saving updates for {len(updates)} rows")
                 try:
-                    # Save document
-                    self.logger.info("Saving document")
-                    ods_doc.save()
-                    self.logger.info("Document saved successfully")
-                
-                    # Ensure document is closed properly
-                    try:
-                        self.logger.info("Closing document after save")
-                        ods_doc.close()
-                    except Exception as close_error:
-                        self.logger.error(f"Error closing document: {close_error}")
+                    # Save via temp file + atomic replace (proven pattern)
+                    temp_path = f"{self.file_path}.new"
+                    self.logger.info(f"Saving to temp file: {temp_path}")
+                    ods_doc.saveas(temp_path)
+                    del ods_doc
+                    ods_doc = None
+                    os.replace(temp_path, self.file_path)
+                    self.logger.info("Document saved successfully via atomic replace")
                     
                     # Verify the save worked
                     verify_doc = None
@@ -1365,13 +1394,9 @@ class ReferencePointCalculator:
                     except Exception as verify_error:
                         self.logger.error(f"Save verification failed: {verify_error}")
                     finally:
-                        # Always close verification document
+                        # Release verification document
                         if verify_doc is not None:
-                            try:
-                                verify_doc.close()
-                                self.logger.info("Verification document closed")
-                            except Exception as close_error:
-                                self.logger.error(f"Error closing verification document: {close_error}")
+                            del verify_doc
                     
                     # Show success message
                     messagebox.showinfo("Success", 
@@ -1395,13 +1420,9 @@ class ReferencePointCalculator:
                         except Exception as restore_error:
                             self.logger.error(f"Failed to restore from backup: {restore_error}")
                 finally:
-                    # Ensure document is properly closed if it exists
+                    # Release document if still held
                     if 'ods_doc' in locals() and ods_doc is not None:
-                        try:
-                            ods_doc.close()
-                            self.logger.info("Document closed in finally block")
-                        except Exception as close_error:
-                            self.logger.error(f"Error closing document: {close_error}")
+                        del ods_doc
             else:
                 self.logger.warning("No updates made")
                 messagebox.showinfo("No Updates", "No ΔE values were calculated or updated.")

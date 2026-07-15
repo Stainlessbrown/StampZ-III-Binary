@@ -347,6 +347,9 @@ class Plot3DApp:
         self.custom_delta_e_calculator = ReferencePointCalculator(logger=logger)
         if self.file_path:  # Only set file path if we're in file-based mode
             self.custom_delta_e_calculator.set_file_path(self.file_path)
+            sheet_name = getattr(self, 'sheet_name', None)
+            if sheet_name:
+                self.custom_delta_e_calculator.set_sheet_name(sheet_name)
         self.custom_delta_e_calculator.load_data(self.df)
         
         # Create figure AFTER data is loaded and BEFORE UI creation
@@ -2232,20 +2235,37 @@ class Plot3DApp:
         else:
             print("Warning: ΔE Manager not available")
         
+        # Create Reference Point ΔE GUI inside the same ΔE Analysis section
+        if hasattr(self, 'custom_delta_e_calculator') and self.custom_delta_e_calculator:
+            try:
+                ref_frame = self.custom_delta_e_calculator.create_gui(delta_e_section.content_frame)
+                if ref_frame:
+                    ref_frame.pack(fill=tk.BOTH, expand=True)
+                    print("Reference Point ΔE GUI created successfully")
+                else:
+                    print("Warning: Failed to create Reference Point ΔE GUI")
+            except Exception as e:
+                print(f"Warning: Error creating Reference Point ΔE GUI: {e}")
+        
         # Create Pairwise ΔE section as its own collapsible section
         pairwise_section = CollapsibleSection(self.control_frame, "🔬 Pairwise ΔE", expanded=False)
         pairwise_section.grid(row=9, column=0, sticky='ew', padx=5, pady=5)
-        
+        print(f"DEBUG PAIRWISE: manager exists={hasattr(self, 'pairwise_delta_e_manager')}")
         if hasattr(self, 'pairwise_delta_e_manager') and self.pairwise_delta_e_manager:
             try:
                 pairwise_frame = self.pairwise_delta_e_manager.create_gui(pairwise_section.content_frame)
+                print(f"DEBUG: pairwise create_gui returned: {pairwise_frame}, type: {type(pairwise_frame)}")
                 if pairwise_frame:
                     pairwise_frame.pack(fill=tk.BOTH, expand=True)
                     print("Pairwise ΔE GUI created successfully")
                 else:
-                    print("Warning: Failed to create Pairwise ΔE GUI")
+                    print("Warning: Failed to create Pairwise ΔE GUI - returned None/falsy")
             except Exception as e:
+                import traceback
                 print(f"Warning: Error creating Pairwise ΔE GUI: {e}")
+                traceback.print_exc()
+        else:
+            print("WARNING: pairwise_delta_e_manager not available - GUI will be empty")
         
         # Create K-Means clustering GUI inside kmeans_section
         if hasattr(self, 'kmeans_manager') and self.kmeans_manager:

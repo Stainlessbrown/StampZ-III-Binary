@@ -303,31 +303,31 @@ class PairwiseDeltaEManager:
 
     def create_gui(self, parent) -> tk.Frame:
         """Create the compact control panel (mirrors DeltaEManager style)."""
-        self.frame = tk.Frame(parent, bg='white')
+        self.frame = ttk.Frame(parent)
         self.frame.grid_columnconfigure(0, weight=1)
 
         # Separator label
-        tk.Label(self.frame, text="── Pairwise ΔE ──", font=("Arial", 9, "bold"),
-                 bg='white', fg='#555').pack(fill=tk.X, pady=(8, 2))
+        ttk.Label(self.frame, text="── Pairwise ΔE ──", font=("Arial", 9, "bold"),
+                  foreground='#555').pack(fill=tk.X, pady=(8, 2))
 
-        row_frame = tk.Frame(self.frame, bg='white')
+        row_frame = ttk.Frame(self.frame)
         row_frame.pack(fill=tk.X, padx=5, pady=4)
 
-        tk.Label(row_frame, text="Rows:", font=("Arial", 9), bg='white').pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_frame, text="Rows:", font=("Arial", 9)).pack(side=tk.LEFT, padx=2)
         self.start_row_spin = tk.Spinbox(row_frame, from_=2, to=999, width=4,
                                          justify='center', font=("Arial", 9))
         self.start_row_spin.delete(0, tk.END)
         self.start_row_spin.insert(0, "2")
         self.start_row_spin.pack(side=tk.LEFT, padx=1)
 
-        tk.Label(row_frame, text="to", font=("Arial", 9), bg='white').pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_frame, text="to", font=("Arial", 9)).pack(side=tk.LEFT, padx=2)
         self.end_row_spin = tk.Spinbox(row_frame, from_=2, to=999, width=4,
                                        justify='center', font=("Arial", 9))
         self.end_row_spin.delete(0, tk.END)
         self.end_row_spin.insert(0, "999")
         self.end_row_spin.pack(side=tk.LEFT, padx=1)
 
-        tk.Label(row_frame, text="ΔE≤", font=("Arial", 9), bg='white').pack(side=tk.LEFT, padx=(6, 1))
+        ttk.Label(row_frame, text="ΔE≤", font=("Arial", 9)).pack(side=tk.LEFT, padx=(6, 1))
         self.threshold_spin = tk.Spinbox(row_frame, from_=0.5, to=10.0, increment=0.5,
                                          width=4, justify='center', font=("Arial", 9),
                                          format="%.1f")
@@ -335,11 +335,11 @@ class PairwiseDeltaEManager:
         self.threshold_spin.insert(0, "2.3")
         self.threshold_spin.pack(side=tk.LEFT, padx=1)
 
-        btn_frame = tk.Frame(self.frame, bg='white')
+        btn_frame = ttk.Frame(self.frame)
         btn_frame.pack(fill=tk.X, padx=5, pady=(0, 4))
 
         # Optional cluster filter
-        tk.Label(btn_frame, text="Cluster:", font=("Arial", 9), bg='white').pack(side=tk.LEFT, padx=2)
+        ttk.Label(btn_frame, text="Cluster:", font=("Arial", 9)).pack(side=tk.LEFT, padx=2)
         self.cluster_var = tk.StringVar(value="All")
         self.cluster_combo = ttk.Combobox(btn_frame, textvariable=self.cluster_var,
                                           values=["All"], width=5, state='readonly',
@@ -363,8 +363,11 @@ class PairwiseDeltaEManager:
         """Populate the cluster filter dropdown."""
         values = ["All"]
         if self.data is not None and 'Cluster' in self.data.columns:
-            clusters = sorted(self.data['Cluster'].dropna().unique())
-            values += [str(int(c)) for c in clusters]
+            for c in sorted(self.data['Cluster'].dropna().unique()):
+                try:
+                    values.append(str(int(c)))
+                except (ValueError, TypeError):
+                    pass  # skip whitespace-only or non-numeric cluster values
         if hasattr(self, 'cluster_combo'):
             self.cluster_combo['values'] = values
 
