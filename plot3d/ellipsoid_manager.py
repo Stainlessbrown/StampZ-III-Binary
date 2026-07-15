@@ -260,12 +260,27 @@ class EllipsoidManager:
             self._fit_all()
 
     def _discover_stamps(self) -> List[str]:
-        """Stamp identifiers present in data_df (parsed from DataID prefix)."""
+        """Stamp identifiers present in data_df (parsed from DataID prefix).
+
+        Splits on "-" first (e.g. "170-001" → stamp "170").  When no
+        hyphens are found anywhere, all valid data points are grouped
+        under a single stamp called "all".
+        """
         if self.data_df is None or "DataID" not in self.data_df.columns:
             return []
         ids = self.data_df["DataID"].dropna().astype(str)
-        stamps = ids.str.split("-", n=1).str[0].str.strip().unique().tolist()
-        return sorted(s for s in stamps if s)
+        if ids.empty:
+            return []
+        # Try hyphen-based grouping first
+        prefixes = ids.str.split("-", n=1).str[0].str.strip()
+        stamps = prefixes.unique().tolist()
+        stamps = sorted(s for s in stamps if s)
+        # If every DataID mapped to a unique prefix (no shared stamps),
+        # treat the entire dataset as one stamp so ellipsoids can be fit.
+        valid_count = len(ids)
+        if len(stamps) == valid_count and valid_count >= 2:
+            return ["all"]
+        return stamps
 
     @staticmethod
     def _is_excluded(val) -> bool:
@@ -301,7 +316,13 @@ class EllipsoidManager:
         if len(sub) == 0:
             return
 
-        sub["_stamp"] = sub["DataID"].astype(str).str.split("-", n=1).str[0].str.strip()
+        # Parse stamp prefix from DataID; fall back to "all" when every
+        # DataID is unique (no shared hyphen-prefix grouping).
+        prefixes = sub["DataID"].astype(str).str.split("-", n=1).str[0].str.strip()
+        if prefixes.nunique() == len(prefixes) and len(prefixes) >= 2:
+            sub["_stamp"] = "all"
+        else:
+            sub["_stamp"] = prefixes
         if "Exclude" in sub.columns:
             sub["_excluded"] = sub["Exclude"].apply(self._is_excluded)
         else:
@@ -330,7 +351,12 @@ class EllipsoidManager:
                 clustered = group[group["Cluster"].notna()]
                 for cluster_val, cgroup in clustered.groupby("Cluster"):
                     cpts = cgroup[["Xnorm", "Ynorm", "Znorm"]].to_numpy(dtype=float)
+                    self.logger.info(
+                        "Ellipsoid fit: stamp=%s cluster=%s points=%d",
+                        stamp, cluster_val, cpts.shape[0],
+                    )
                     if cpts.shape[0] < 2:
+                        self.logger.info("  Skipped (need ≥2 points)")
                         continue
                     try:
                         c_int = int(cluster_val)
@@ -388,19 +414,9 @@ class EllipsoidManager:
         for (stamp, cluster), fit in (self._fits_tone or {}).items():
             if not self.visibility_states.get(stamp, True):
                 continue
-            # Prefer the cluster's own Sphere/Color (matches the sphere
-            # rendering); fall back to the per-stamp cycling colour when
-            # the worksheet doesn't specify one for this cluster.
+            # Use the cluster's own colour from the data if available,
+            # otherwise fall back to the per-stamp cycling colour.
             raw_colour = self._tone_colour.get((stamp, cluster))
-            if raw_colour and self.is_color_visible is not None:
-                try:
-                    if not self.is_color_visible(raw_colour):
-                        continue   # respect the sphere-panel toggle
-                except Exception as e:
-                    self.logger.debug(
-                        "is_color_visible callback failed for %r: %s",
-                        raw_colour, e,
-                    )
             colour = raw_colour or self._stamp_colour(stamp)
             self._draw_one(fit, colour)
 
