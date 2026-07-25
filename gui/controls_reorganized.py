@@ -1033,11 +1033,11 @@ class ReorganizedControlPanel(ttk.Frame):
             # First time - store the original
             # IMPORTANT: Use copy_image_preserve_16bit to preserve _stampz_16bit_data attribute
             if hasattr(self, 'main_app') and self.main_app and hasattr(self.main_app, 'canvas'):
-                if self.main_app.canvas and self.main_app.canvas.core.original_image:
+                if self.main_app.canvas and self.main_app.canvas.core.original_image is not None:
                     self._true_original_image = copy_image_preserve_16bit(self.main_app.canvas.core.original_image)
         
         # Update preview with current angle, always from the TRUE original
-        if hasattr(self, '_true_original_image') and self._true_original_image:
+        if hasattr(self, '_true_original_image') and self._true_original_image is not None:
             try:
                 from utils.image_straightener import ImageStraightener
                 angle = self.straightening_angle_value.get()
@@ -1051,9 +1051,13 @@ class ReorganizedControlPanel(ttk.Frame):
                     auto_crop=False
                 )
                 
-                # Update canvas with preview
+                # Update canvas with preview.
+                # canvas_core.update_display() renders from _display_source (not
+                # original_image directly) since the RGBA-support change in commit
+                # 0d573af.  We must keep both in sync for the live preview to show.
                 if hasattr(self, 'main_app') and self.main_app and hasattr(self.main_app, 'canvas'):
                     self.main_app.canvas.core.original_image = preview_image
+                    self.main_app.canvas.core._display_source = preview_image
                     self.main_app.canvas.update_display()
             except Exception as e:
                 print(f"DEBUG: Real-time preview error: {e}")
