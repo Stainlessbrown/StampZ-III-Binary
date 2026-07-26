@@ -472,8 +472,17 @@ class LayerSeparatorDialog:
                 black_threshold=self.cancel_brightness.get(),
                 saturation_threshold=self.cancel_saturation.get()
             )
-            # Exclude background pixels
-            black_mask = black_mask & ~self._bg_mask
+            # Exclude background pixels, but retain pixels that are strongly dark
+            # regardless of the background mask.  Cancellation ink sitting over
+            # uninked stamp areas (paper colour similar to background) was
+            # previously lost because those pixels were included in _bg_mask.
+            # The extract_black_ink thresholds already prevent a typical light
+            # scan background from appearing here; we only need to guard against
+            # genuinely dark scan backgrounds by keeping the exclusion, but
+            # exempting pixels whose brightness is clearly below the threshold.
+            brightness = np.mean(arr, axis=2)
+            strong_black = brightness < (self.cancel_brightness.get() * 0.6)
+            black_mask = black_mask & (~self._bg_mask | strong_black)
 
             view = np.array(self.original_image).copy()
             view[self._bg_mask] = [255, 255, 255]
