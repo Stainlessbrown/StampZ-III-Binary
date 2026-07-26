@@ -43,6 +43,7 @@ class LayerSeparatorDialog:
         self._bg_mask = None       # locked background mask
         self._cancel_mask = None   # locked cancellation mask
         self._ink_mask = None
+        self._ink2_mask = None     # second ink color (bicolor stamps)
         self._paper_mask = None
         self._result = None        # LayerResult after step 3
         self._separator = None
@@ -136,6 +137,12 @@ class LayerSeparatorDialog:
         ttk.Label(r2, text="(0=off)").pack(side=tk.LEFT, padx=(2, 8))
         ttk.Button(r2, text="Separate & Next ▸", command=self._lock_ink_paper).pack(side=tk.LEFT, padx=6)
         ttk.Button(r2, text="◂ Back", command=lambda: self._go_step(1)).pack(side=tk.LEFT, padx=4)
+        r2b = ttk.Frame(f2)
+        r2b.pack(fill=tk.X, pady=(2, 0))
+        self._two_color_ink = tk.BooleanVar(value=False)
+        ttk.Checkbutton(r2b,
+                        text="Two-color ink (bicolor stamp — k-means split into dominant + secondary)",
+                        variable=self._two_color_ink).pack(side=tk.LEFT, padx=4)
         self._step_frames.append(f2)
 
         # Step 3: Results (two rows)
@@ -143,18 +150,20 @@ class LayerSeparatorDialog:
         r3a = ttk.Frame(f3)
         r3a.pack(fill=tk.X, pady=2)
         ttk.Label(r3a, text="View:").pack(side=tk.LEFT)
-        for lbl, lay in [("Original", "original"), ("Ink", "ink"),
+        for lbl, lay in [("Original", "original"), ("Ink 1", "ink"), ("Ink 2", "ink2"),
                          ("Paper", "paper"), ("Cancel", "cancellation"),
                          ("Stamp", "stamp")]:
-            ttk.Button(r3a, text=lbl, width=8,
+            ttk.Button(r3a, text=lbl, width=7,
                        command=lambda l=lay: self._show_layer(l)).pack(side=tk.LEFT, padx=2)
         r3b = ttk.Frame(f3)
         r3b.pack(fill=tk.X, pady=2)
         self._save_ink = tk.BooleanVar(value=True)
+        self._save_ink2 = tk.BooleanVar(value=False)
         self._save_paper = tk.BooleanVar(value=True)
         self._save_cancel = tk.BooleanVar(value=False)
         self._save_stamp = tk.BooleanVar(value=False)
-        ttk.Checkbutton(r3b, text="Ink", variable=self._save_ink).pack(side=tk.LEFT, padx=2)
+        ttk.Checkbutton(r3b, text="Ink 1", variable=self._save_ink).pack(side=tk.LEFT, padx=2)
+        ttk.Checkbutton(r3b, text="Ink 2", variable=self._save_ink2).pack(side=tk.LEFT, padx=2)
         ttk.Checkbutton(r3b, text="Paper", variable=self._save_paper).pack(side=tk.LEFT, padx=2)
         ttk.Checkbutton(r3b, text="Cancel", variable=self._save_cancel).pack(side=tk.LEFT, padx=2)
         ttk.Checkbutton(r3b, text="Stamp", variable=self._save_stamp).pack(side=tk.LEFT, padx=2)
@@ -208,7 +217,7 @@ class LayerSeparatorDialog:
             text="(May include portions of cancellation — estimate only. Analyze in Sample Mode.)",
             font=("Arial", 9, "italic"), foreground="gray")
         self._color_note.pack(anchor=tk.W, padx=12)
-        # Ink row
+        # Ink 1 row
         self._ink_info_frame = ttk.Frame(self._color_info_frame)
         self._ink_info_frame.pack(fill=tk.X, padx=12)
         self._ink_swatch = tk.Label(self._ink_info_frame, text="  ", width=3,
@@ -217,6 +226,15 @@ class LayerSeparatorDialog:
         self._ink_values_label = ttk.Label(self._ink_info_frame, text="Ink:  —",
                                            font=("Arial", 10))
         self._ink_values_label.pack(side=tk.LEFT)
+        # Ink 2 row (bicolor stamps — hidden until 2-color separation is done)
+        self._ink2_info_frame = ttk.Frame(self._color_info_frame)
+        # Not packed yet — shown by _update_results_display when ink2 is available
+        self._ink2_swatch = tk.Label(self._ink2_info_frame, text="  ", width=3,
+                                     relief=tk.SUNKEN, bg="#808080")
+        self._ink2_swatch.pack(side=tk.LEFT, padx=(0, 6))
+        self._ink2_values_label = ttk.Label(self._ink2_info_frame, text="Ink 2:  —",
+                                            font=("Arial", 10))
+        self._ink2_values_label.pack(side=tk.LEFT)
         # Paper row
         self._paper_info_frame = ttk.Frame(self._color_info_frame)
         self._paper_info_frame.pack(fill=tk.X, padx=12, pady=(2, 4))
@@ -238,15 +256,18 @@ class LayerSeparatorDialog:
             self._bg_mask = None
             self._cancel_mask = None
             self._ink_mask = None
+            self._ink2_mask = None
             self._paper_mask = None
             self._result = None
         elif step <= 1:
             self._cancel_mask = None
             self._ink_mask = None
+            self._ink2_mask = None
             self._paper_mask = None
             self._result = None
         elif step <= 2:
             self._ink_mask = None
+            self._ink2_mask = None
             self._paper_mask = None
             self._result = None
         self._update_step_ui()
@@ -568,8 +589,16 @@ class LayerSeparatorDialog:
         sep = self._get_separator()
         # Set the ink ΔE outlier filter from the UI
         sep.ink_outlier_delta_e = self.ink_delta_e_filter.get()
+        sep.num_ink_colors = 2 if self._two_color_ink.get() else 1
         stamp_area = ~self._bg_mask & ~self._cancel_mask
         self._ink_mask, self._paper_mask = sep._separate_ink_paper(stamp_area)
+
+        # Two-color split: k-means divides ink into dominant + secondary color
+        if sep.num_ink_colors == 2 and self._ink_mask is not None and np.any(self._ink_mask):
+            self._ink_mask, self._ink2_mask = sep._separate_ink_colors(self._ink_mask)
+        else:
+            self._ink2_mask = None
+
         self._separator = sep
 
         # Build a full LayerResult for the results step
@@ -578,15 +607,18 @@ class LayerSeparatorDialog:
         r.background_mask = self._bg_mask
         r.cancellation_mask = self._cancel_mask
         r.ink_mask = self._ink_mask
+        r.ink2_mask = self._ink2_mask
         r.paper_mask = self._paper_mask
         r.total_pixels = self._bg_mask.size
         r.background_pixels = int(np.sum(self._bg_mask))
         r.cancellation_pixels = int(np.sum(self._cancel_mask))
         r.ink_pixels = int(np.sum(self._ink_mask))
+        r.ink2_pixels = int(np.sum(self._ink2_mask)) if self._ink2_mask is not None else 0
         r.paper_pixels = int(np.sum(self._paper_mask))
-        stamp_total = r.ink_pixels + r.paper_pixels
+        stamp_total = r.ink_pixels + r.ink2_pixels + r.paper_pixels
         if stamp_total > 0:
             r.ink_percentage = r.ink_pixels / stamp_total * 100
+            r.ink2_percentage = r.ink2_pixels / stamp_total * 100
             r.paper_percentage = r.paper_pixels / stamp_total * 100
         sep._compute_aggregates(r)
         self._result = r
@@ -644,6 +676,7 @@ class LayerSeparatorDialog:
         import tempfile
         base = self._get_image_basename()
         mask = {'ink': self._result.ink_mask,
+                'ink2': self._result.ink2_mask,
                 'paper': self._result.paper_mask,
                 'cancellation': self._result.cancellation_mask,
                 'stamp': (self._result.ink_mask | self._result.paper_mask)
@@ -670,19 +703,37 @@ class LayerSeparatorDialog:
             messagebox.showinfo("Saved", f"Layer saved to:\n{path}\n\nOpen it manually in StampZ.")
 
     def _update_results_display(self, r):
-        self.results_label.configure(
-            text=f"Separation complete: {r.ink_pixels:,} ink / {r.paper_pixels:,} paper pixels. Save Layers to analyze."
-        )
+        two_color = r.ink2_mask is not None and r.ink2_pixels > 0
+        if two_color:
+            self.results_label.configure(
+                text=f"Separation: {r.ink_pixels:,} Ink 1 / {r.ink2_pixels:,} Ink 2 / {r.paper_pixels:,} paper. Save Layers to analyze."
+            )
+        else:
+            self.results_label.configure(
+                text=f"Separation complete: {r.ink_pixels:,} ink / {r.paper_pixels:,} paper pixels. Save Layers to analyze."
+            )
         # Show color info panel
         self._color_info_frame.pack(fill=tk.X, padx=8, pady=(0, 8))
-        # Ink values
+        # Ink 1 values
         if r.ink_aggregate_lab and r.ink_aggregate_rgb:
             L, a, b = r.ink_aggregate_lab
             ir, ig, ib = r.ink_aggregate_rgb
+            lbl = "Ink 1:" if two_color else "Ink:"
             self._ink_values_label.configure(
-                text=f"Ink:  L*={L:.1f}  a*={a:.1f}  b*={b:.1f}   │   R={ir:.0f}  G={ig:.0f}  B={ib:.0f}"
+                text=f"{lbl}  L*={L:.1f}  a*={a:.1f}  b*={b:.1f}   │   R={ir:.0f}  G={ig:.0f}  B={ib:.0f}"
             )
             self._ink_swatch.configure(bg=f"#{int(ir):02x}{int(ig):02x}{int(ib):02x}")
+        # Ink 2 values (bicolor stamps)
+        if two_color and r.ink2_aggregate_lab and r.ink2_aggregate_rgb:
+            L2, a2, b2 = r.ink2_aggregate_lab
+            ir2, ig2, ib2 = r.ink2_aggregate_rgb
+            self._ink2_values_label.configure(
+                text=f"Ink 2:  L*={L2:.1f}  a*={a2:.1f}  b*={b2:.1f}   │   R={ir2:.0f}  G={ig2:.0f}  B={ib2:.0f}"
+            )
+            self._ink2_swatch.configure(bg=f"#{int(ir2):02x}{int(ig2):02x}{int(ib2):02x}")
+            self._ink2_info_frame.pack(fill=tk.X, padx=12, pady=(2, 0))
+        else:
+            self._ink2_info_frame.pack_forget()
         # Paper values
         if r.paper_aggregate_lab and r.paper_aggregate_rgb:
             L, a, b = r.paper_aggregate_lab
@@ -712,6 +763,7 @@ class LayerSeparatorDialog:
         # Build list of selected layers
         selected = []
         if self._save_ink.get(): selected.append('ink')
+        if self._save_ink2.get() and self._result.ink2_mask is not None: selected.append('ink2')
         if self._save_paper.get(): selected.append('paper')
         if self._save_cancel.get(): selected.append('cancellation')
         if self._save_stamp.get(): selected.append('stamp')
@@ -722,6 +774,7 @@ class LayerSeparatorDialog:
         for ln in selected:
             # Save with alpha channel — masked-out areas become transparent
             mask = {'ink': self._result.ink_mask,
+                    'ink2': self._result.ink2_mask,
                     'paper': self._result.paper_mask,
                     'cancellation': self._result.cancellation_mask,
                     'stamp': (self._result.ink_mask | self._result.paper_mask)

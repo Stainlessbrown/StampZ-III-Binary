@@ -51,6 +51,15 @@ class LayerResult:
         self.ink_percentage: float = 0.0
         self.paper_percentage: float = 0.0
 
+        # Two-color ink (bicolor stamps, e.g. France Merson type)
+        self.ink2_mask: Optional[np.ndarray] = None
+        self.ink2_aggregate_rgb: Optional[Tuple[float, float, float]] = None
+        self.ink2_aggregate_lab: Optional[Tuple[float, float, float]] = None
+        self.ink2_median_rgb: Optional[Tuple[float, float, float]] = None
+        self.ink2_median_lab: Optional[Tuple[float, float, float]] = None
+        self.ink2_pixels: int = 0
+        self.ink2_percentage: float = 0.0
+
 
 class StampLayerSeparator:
     """Separates a stamp image into background, paper, ink, and cancellation layers."""
@@ -69,6 +78,7 @@ class StampLayerSeparator:
         self.cancellation_brightness_max = 60       # Max brightness for cancellation ink
         self.cancellation_saturation_max = 30       # Max saturation for cancellation ink
         self.ink_outlier_delta_e = 0.0              # ΔE filter for ink outliers (0 = off)
+        self.num_ink_colors: int = 1               # set to 2 for bicolor stamps
 
     # ------------------------------------------------------------------ #
     # Configuration
@@ -124,6 +134,10 @@ class StampLayerSeparator:
         stamp_area = ~result.background_mask & ~result.cancellation_mask
         result.ink_mask, result.paper_mask = self._separate_ink_paper(stamp_area)
 
+        # Step 3b (optional): split ink into two color groups for bicolor stamps
+        if self.num_ink_colors == 2 and result.ink_mask is not None and np.any(result.ink_mask):
+            result.ink_mask, result.ink2_mask = self._separate_ink_colors(result.ink_mask)
+
         # Step 4: Compute aggregate colors
         self._compute_aggregates(result)
 
@@ -132,11 +146,13 @@ class StampLayerSeparator:
         result.cancellation_pixels = int(np.sum(result.cancellation_mask))
         result.ink_pixels = int(np.sum(result.ink_mask))
         result.paper_pixels = int(np.sum(result.paper_mask))
+        result.ink2_pixels = int(np.sum(result.ink2_mask)) if result.ink2_mask is not None else 0
 
-        stamp_total = result.ink_pixels + result.paper_pixels
+        stamp_total = result.ink_pixels + result.paper_pixels + result.ink2_pixels
         if stamp_total > 0:
             result.ink_percentage = result.ink_pixels / stamp_total * 100
             result.paper_percentage = result.paper_pixels / stamp_total * 100
+            result.ink2_percentage = result.ink2_pixels / stamp_total * 100
 
         return result
 
@@ -214,6 +230,51 @@ class StampLayerSeparator:
         paper_mask = stamp_area & (l_channel > threshold)
 
         return ink_mask, paper_mask
+
+    def _separate_ink_colors(
+        self, ink_mask: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Split ink pixels into two color groups using k-means in L*a*b* space.
+
+        Intended for bicolor stamps where the design is printed in two distinct
+        ink colors (e.g. France Merson type: orange frame + blue vignette).
+        scikit-learn's KMeans is used because it handles the perceptual geometry
+        of L*a*b* well and is already a project dependency.
+
+        Returns:
+            (ink1_mask, ink2_mask) ordered by pixel count:
+            ink1 = dominant (larger area), ink2 = secondary (smaller area).
+        """
+        try:
+            from sklearn.cluster import KMeans
+        except ImportError:
+            # scikit-learn not available — fall back to single-color
+            return ink_mask, np.zeros_like(ink_mask)
+
+        h, w = ink_mask.shape
+        if int(np.sum(ink_mask)) < 20:
+            return ink_mask, np.zeros((h, w), dtype=bool)
+
+        # Convert ink pixels to L*a*b*
+        img_norm = self._arr / 255.0
+        flat_lab = cspace_convert(img_norm.reshape(-1, 3), 'sRGB1', 'CIELab')
+        lab_image = flat_lab.reshape(h, w, 3)
+        ink_pixels_lab = lab_image[ink_mask]  # shape (N, 3)
+
+        # K-means (k=2) with k-means++ initialisation for stability
+        km = KMeans(n_clusters=2, n_init=10, random_state=42)
+        labels = km.fit_predict(ink_pixels_lab)
+
+        # Map cluster labels back onto the full image grid
+        label_image = np.full((h, w), -1, dtype=np.int8)
+        label_image[ink_mask] = labels
+
+        # ink1 = dominant (more pixels), ink2 = secondary
+        count = [int(np.sum(labels == k)) for k in range(2)]
+        dominant = 0 if count[0] >= count[1] else 1
+        secondary = 1 - dominant
+
+        return (label_image == dominant), (label_image == secondary)
 
     @staticmethod
     def _otsu_threshold(values: np.ndarray) -> float:
@@ -312,6 +373,22 @@ class StampLayerSeparator:
                 cspace_convert(mean_norm, 'sRGB1', 'CIELab').tolist()
             )
 
+        # Ink 2 aggregate (bicolor stamps)
+        if result.ink2_mask is not None and np.any(result.ink2_mask):
+            ink2_pixels = self._arr[result.ink2_mask]
+            raw_mean2 = tuple(np.mean(ink2_pixels, axis=0).tolist())
+            raw_median2 = tuple(np.median(ink2_pixels, axis=0).tolist())
+            result.ink2_aggregate_rgb = self._apply_calibration(raw_mean2)
+            result.ink2_median_rgb = self._apply_calibration(raw_median2)
+            mean2_norm = np.array(result.ink2_aggregate_rgb) / 255.0
+            result.ink2_aggregate_lab = tuple(
+                cspace_convert(mean2_norm, 'sRGB1', 'CIELab').tolist()
+            )
+            median2_norm = np.array(result.ink2_median_rgb) / 255.0
+            result.ink2_median_lab = tuple(
+                cspace_convert(median2_norm, 'sRGB1', 'CIELab').tolist()
+            )
+
     def _filter_ink_outliers(self, pixels: np.ndarray, max_delta_e: float) -> np.ndarray:
         """Remove ink pixels farther than max_delta_e from the median.
 
@@ -380,6 +457,7 @@ class StampLayerSeparator:
         """
         mask_map = {
             'ink': result.ink_mask,
+            'ink2': result.ink2_mask,
             'paper': result.paper_mask,
             'cancellation': result.cancellation_mask,
             'stamp': (result.ink_mask | result.paper_mask) if
