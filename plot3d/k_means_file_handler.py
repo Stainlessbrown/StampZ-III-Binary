@@ -593,8 +593,46 @@ class KMeansFileHandler:
                         for name, data in ods_files.items():
                             zf.writestr(name, data)
                     
-                    # Replace original with updated file
-                    os.replace(temp_path, self.file_path)
+                    # Replace original with updated file.
+                    # On macOS, newer LibreOffice versions hold an advisory
+                    # write lock on the ODS while it is open.  os.replace()
+                    # (rename) can fail with PermissionError / OSError in that
+                    # case.  We retry up to 3 times, prompting the user to close
+                    # LibreOffice between attempts, so they never have to exit
+                    # and restart StampZ.
+                    max_replace_attempts = 3
+                    replaced = False
+                    for _attempt in range(max_replace_attempts):
+                        try:
+                            os.replace(temp_path, self.file_path)
+                            replaced = True
+                            break
+                        except (PermissionError, OSError) as replace_err:
+                            self.logger.warning(
+                                f"os.replace attempt {_attempt + 1} failed: {replace_err}"
+                            )
+                            if _attempt < max_replace_attempts - 1:
+                                retry = messagebox.askretrycancel(
+                                    "File In Use",
+                                    "The ODS file appears to be locked by LibreOffice.\n\n"
+                                    "Please save and close the file in LibreOffice, "
+                                    "then click Retry."
+                                )
+                                if not retry:
+                                    try:
+                                        os.remove(temp_path)
+                                    except Exception:
+                                        pass
+                                    return False
+                                time.sleep(0.5)
+                            else:
+                                try:
+                                    os.remove(temp_path)
+                                except Exception:
+                                    pass
+                                raise
+                    if not replaced:
+                        raise RuntimeError("Failed to write ODS file after all retry attempts")
                     self.logger.info("File saved successfully")
                     
                     # Clean up backup
