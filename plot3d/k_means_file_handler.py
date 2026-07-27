@@ -225,6 +225,18 @@ class KMeansFileHandler:
             # Remove old text content
             for p in cell.findall(f'{TEXT_NS}p'):
                 cell.remove(p)
+            # Remove attributes that conflict with a numeric cell.
+            # office:string-value is written when a cell was previously stored
+            # as text (e.g. via a pandas/ezodf export using str() values). If
+            # it survives alongside office:value-type="float", LibreOffice Calc
+            # intermittently displays the cell with a leading apostrophe
+            # (its forced-text marker), causing formula errors downstream.
+            for stale_attr in (
+                f'{OFFICE_NS}string-value',
+                f'{TABLE_NS}formula',
+            ):
+                if stale_attr in cell.attrib:
+                    del cell.attrib[stale_attr]
             # Set value attributes
             cell.set(f'{OFFICE_NS}value-type', 'float')
             cell.set(f'{OFFICE_NS}value', str(value))

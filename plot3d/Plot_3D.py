@@ -188,15 +188,13 @@ class Plot3DApp:
         if self.file_path:
             print(f"Selected file: {self.file_path}")
 
-        # Single attempt to open file (only if using file-based mode)
-        if self.file_path:
-            try:
-                print(f"Opening selected file: {self.file_path}")
-                if not self._open_file_immediate(self.file_path):
-                    print("Warning: Could not open file immediately")
-            except Exception as e:
-                print(f"Warning: Failed to open file: {str(e)}")
-        else:
+        # Note: auto-opening the file in LibreOffice has been removed.
+        # Doing so created a write-lock on the ODS that prevented K-means /
+        # K-medoids from saving back to the same file ("file open in another
+        # application" error).  Plot_3D reads and displays the data via pandas
+        # directly, so the LibreOffice open was not needed for analysis.
+        # Users who want to inspect the raw spreadsheet can open it manually.
+        if not self.file_path:
             print("Using DataFrame mode - no file to open")
     
         # Create main window - either standalone or as child window
