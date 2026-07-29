@@ -696,18 +696,40 @@ class LayerSeparatorDialog:
                          else None}.get(layer)
         if mask is None:
             return
-        arr = np.array(self.original_image)
-        rgba = np.full((arr.shape[0], arr.shape[1], 4), 255, dtype=np.uint8)
-        rgba[mask, :3] = arr[mask]
-        rgba[mask, 3] = 255
-        rgba[~mask, :3] = 255
-        rgba[~mask, 3] = 0
-        if self._source_filename:
-            src_dir = os.path.dirname(self._source_filename)
-            path = os.path.join(src_dir, f"{base}_{layer}.png")
-        else:
-            path = os.path.join(tempfile.gettempdir(), f"{base}_{layer}.png")
-        Image.fromarray(rgba, 'RGBA').save(path)
+        if self._16bit_source is not None:
+            # Preserve 16-bit depth — save as TIFF so StampZ can use full precision
+            try:
+                import tifffile
+                h, w = mask.shape
+                src16 = self._16bit_source
+                rgba16 = np.full((h, w, 4), 65535, dtype=np.uint16)
+                rgba16[mask, :3] = src16[mask]
+                rgba16[mask, 3] = 65535
+                rgba16[~mask, :3] = 65535
+                rgba16[~mask, 3] = 0
+                ext = '.tif'
+                if self._source_filename:
+                    src_dir = os.path.dirname(self._source_filename)
+                    path = os.path.join(src_dir, f"{base}_{layer}{ext}")
+                else:
+                    path = os.path.join(tempfile.gettempdir(), f"{base}_{layer}{ext}")
+                tifffile.imwrite(path, rgba16)
+            except Exception as e:
+                print(f"DEBUG: 16-bit open-in-stampz failed ({e}), falling back to 8-bit")
+                self._16bit_source = None  # retry as 8-bit below
+        if self._16bit_source is None:
+            arr = np.array(self.original_image)
+            rgba = np.full((arr.shape[0], arr.shape[1], 4), 255, dtype=np.uint8)
+            rgba[mask, :3] = arr[mask]
+            rgba[mask, 3] = 255
+            rgba[~mask, :3] = 255
+            rgba[~mask, 3] = 0
+            if self._source_filename:
+                src_dir = os.path.dirname(self._source_filename)
+                path = os.path.join(src_dir, f"{base}_{layer}.png")
+            else:
+                path = os.path.join(tempfile.gettempdir(), f"{base}_{layer}.png")
+            Image.fromarray(rgba, 'RGBA').save(path)
         if self._app and hasattr(self._app, 'open_image'):
             self._app.open_image(path)
             self.status_label.configure(text=f"Opened {os.path.basename(path)} in StampZ.")
