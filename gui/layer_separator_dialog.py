@@ -26,6 +26,9 @@ class LayerSeparatorDialog:
     def __init__(self, parent, pil_image: Image.Image, image_filename: str = None, app=None):
         self.parent = parent
         self._app = app  # StampZApp reference for "Open in StampZ"
+        # Preserve 16-bit source data before RGB conversion discards the
+        # _stampz_16bit_data attribute.  Shape: (H, W, 3) uint16, or None.
+        self._16bit_source = getattr(pil_image, '_stampz_16bit_data', None)
         self.original_image = pil_image.convert('RGB')
         self._source_filename = image_filename  # original image path/name
         self._arr = np.array(self.original_image, dtype=np.float32)
@@ -51,7 +54,16 @@ class LayerSeparatorDialog:
 
         self.root = tk.Toplevel(parent)
         self.root.title("Image Separation")
-        self.root.geometry("920x780")
+        # Open at the same size as the main StampZ window when possible
+        try:
+            w = app.root.winfo_width() if (app is not None and hasattr(app, 'root')) else 0
+            h = app.root.winfo_height() if (app is not None and hasattr(app, 'root')) else 0
+            if w > 400 and h > 300:
+                self.root.geometry(f"{w}x{h}")
+            else:
+                self.root.geometry("920x780")
+        except Exception:
+            self.root.geometry("920x780")
         self.root.minsize(720, 580)
 
         self._build_ui()
@@ -771,6 +783,8 @@ class LayerSeparatorDialog:
             messagebox.showinfo("Nothing Selected", "Check at least one layer to save.")
             return
         base = self._get_image_basename()
+        use_16bit = self._16bit_source is not None
+        saved_as = []
         for ln in selected:
             # Save with alpha channel — masked-out areas become transparent
             mask = {'ink': self._result.ink_mask,
@@ -781,6 +795,26 @@ class LayerSeparatorDialog:
                              if self._result.ink_mask is not None and self._result.paper_mask is not None
                              else None}.get(ln)
             if mask is not None:
+                if use_16bit:
+                    # Preserve 16-bit depth from the original TIFF scan.
+                    # tifffile handles uint16 RGBA natively; PNG 16-bit RGBA
+                    # is not reliably supported by PIL.
+                    try:
+                        import tifffile
+                        h, w = mask.shape
+                        src16 = self._16bit_source  # (H, W, 3) uint16
+                        rgba16 = np.full((h, w, 4), 65535, dtype=np.uint16)
+                        rgba16[mask, :3] = src16[mask]  # visible: original 16-bit colour
+                        rgba16[mask, 3] = 65535          # fully opaque
+                        rgba16[~mask, :3] = 65535        # transparent areas: white
+                        rgba16[~mask, 3] = 0             # fully transparent
+                        out_path = os.path.join(d, f"{base}_{ln}.tif")
+                        tifffile.imwrite(out_path, rgba16)
+                        saved_as.append(f"{ln}: 16-bit TIFF")
+                        continue
+                    except Exception as e:
+                        print(f"DEBUG: 16-bit save failed ({e}), falling back to 8-bit PNG")
+                # 8-bit fallback (or tifffile unavailable)
                 arr = np.array(self.original_image)
                 rgba = np.full((arr.shape[0], arr.shape[1], 4), 255, dtype=np.uint8)
                 rgba[mask, :3] = arr[mask]   # visible pixels keep original color
@@ -789,10 +823,15 @@ class LayerSeparatorDialog:
                 rgba[~mask, 3] = 0           # non-visible pixels fully transparent
                 Image.fromarray(rgba, 'RGBA').save(
                     os.path.join(d, f"{base}_{ln}.png"))
+                saved_as.append(f"{ln}: 8-bit PNG")
             else:
                 self._separator.get_layer_image(self._result, ln).save(
                     os.path.join(d, f"{base}_{ln}.png"))
-        messagebox.showinfo("Saved", f"Layer images saved to:\n{d}")
+                saved_as.append(f"{ln}: 8-bit PNG")
+        depth_note = "16-bit TIFF" if use_16bit else "8-bit PNG"
+        messagebox.showinfo("Saved",
+            f"Layer images saved to:\n{d}\n\n"
+            f"Format: {depth_note} (matches source image bit depth)")
 
     # ================================================================== #
     # Compare ink to library

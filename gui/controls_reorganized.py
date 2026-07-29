@@ -150,7 +150,7 @@ class ReorganizedControlPanel(ttk.Frame):
         ttk.Button(row2, text="Exit", command=self.on_quit, style='Exit.TButton').pack(
             side=tk.LEFT, expand=True, fill=tk.X, padx=(1,0))
         
-        # Row 3: Open Recent, DB Examine (additional functions)
+        # Row 3: Open Recent, DB Examine, Img Separation
         row3 = ttk.Frame(core_frame)
         row3.pack(fill=tk.X, pady=1)
         
@@ -158,8 +158,8 @@ class ReorganizedControlPanel(ttk.Frame):
             side=tk.LEFT, expand=True, fill=tk.X, padx=(0,1))
         ttk.Button(row3, text="DB Examine", command=self._open_database_viewer).pack(
             side=tk.LEFT, expand=True, fill=tk.X, padx=1)
-        # Empty third button to maintain layout balance
-        ttk.Label(row3, text="").pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(1,0))
+        ttk.Button(row3, text="Img Separation", command=self._open_image_separation).pack(
+            side=tk.LEFT, expand=True, fill=tk.X, padx=(1,0))
         
         # SECTION 2: File Info (ultra-compact - no frame)
         file_row = ttk.Frame(self)
@@ -1953,6 +1953,16 @@ class ReorganizedControlPanel(ttk.Frame):
         else:
             print("DEBUG: main_app not found for database viewer")
             messagebox.showinfo("Info", "Database viewer - connect to main app implementation")
+
+    def _open_image_separation(self):
+        """Open Image Separation dialog (mirrors Color Analysis menu entry)."""
+        if hasattr(self, 'main_app') and self.main_app:
+            if hasattr(self.main_app, 'open_layer_separator'):
+                self.main_app.open_layer_separator()
+            else:
+                messagebox.showinfo("Info", "Image Separation method not found in main app")
+        else:
+            messagebox.showinfo("Info", "No image loaded — please open a stamp image first.")
     
     # Zoom control methods
     def _on_zoom_change(self, value):
