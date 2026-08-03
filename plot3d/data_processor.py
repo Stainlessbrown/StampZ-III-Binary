@@ -333,13 +333,22 @@ def process_dataframe(df):
             )
             df['trendline_valid'] = trendline_fallback
             logger.info(f"Using trendline_fallback as fallback for trendlines with {trendline_fallback.sum()} points")
-        # Do not modify Sphere values - they should be preserved from the input file
-        # Only set Sphere to None for points with invalid coordinates
-        # Make sure data_mask exists even in the exception case
-        if not 'data_mask' in locals():
+        # Preserve Sphere values from the input file.
+        # Only clear Sphere for rows that are completely empty — no coordinates
+        # AND no user-entered content (DataID, Cluster, or an explicit Sphere
+        # value).  Centroid rows may have a user-entered Sphere colour but
+        # no norm/centroid coordinates yet (e.g. after a data-clear but before
+        # K-means has been re-run); clearing those would break the
+        # edit-save-refresh workflow.
+        if 'data_mask' not in locals():
             data_mask = df['valid_data']
-            
-        df.loc[~data_mask, 'Sphere'] = None
+
+        has_user_content = (
+            df['DataID'].notna()
+            | df['Cluster'].notna()
+            | df['Sphere'].notna()
+        )
+        df.loc[~data_mask & ~has_user_content, 'Sphere'] = None
         # Log information about Sphere values to help with debugging
         sphere_values_count = df['Sphere'].notna().sum()
         logger.info(f"Found {sphere_values_count} rows with Sphere values")

@@ -1169,6 +1169,30 @@ class KmeansManager:
             # Log the validated values
             self.logger.info(f"Applying K-means: start={start}, end={end}, clusters={n_clusters}")
             
+            # Refresh the Exclude column from disk so that any edits the user
+            # made in LibreOffice after Plot_3D opened are honoured.  The rest
+            # of self.data (Xnorm/Ynorm/Znorm, Cluster, Centroid, etc.) is
+            # kept as-is; only Exclude is synced from the file on each Apply.
+            if self.file_path and self.data is not None:
+                try:
+                    engine = 'openpyxl' if self._is_xlsx_mode() else 'odf'
+                    fresh = pd.read_excel(
+                        self.file_path,
+                        engine=engine,
+                        sheet_name=self.sheet_name or 0,
+                        usecols=['Exclude']
+                    )
+                    if 'Exclude' in fresh.columns and len(fresh) == len(self.data):
+                        self.data['Exclude'] = fresh['Exclude'].values
+                        self.logger.info("Refreshed Exclude column from disk before K-means")
+                    else:
+                        self.logger.warning(
+                            f"Could not sync Exclude: fresh rows={len(fresh)}, "
+                            f"data rows={len(self.data)}"
+                        )
+                except Exception as _exc:
+                    self.logger.warning(f"Could not refresh Exclude column from disk: {_exc}")
+
             # Apply K-means clustering
             result = self.apply_kmeans(start, end, n_clusters)
             

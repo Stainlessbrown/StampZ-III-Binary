@@ -275,11 +275,17 @@ class EllipsoidManager:
         prefixes = ids.str.split("-", n=1).str[0].str.strip()
         stamps = prefixes.unique().tolist()
         stamps = sorted(s for s in stamps if s)
-        # If every DataID mapped to a unique prefix (no shared stamps),
-        # treat the entire dataset as one stamp so ellipsoids can be fit.
+        # Use "all" grouping when this looks like averaged/combined data
+        # (one or a few measurements per stamp) rather than individual-scan
+        # data (many scans of the same stamp).  The heuristic: if no prefix
+        # appears more than 3 times, it is averaged data and per-cluster
+        # ellipsoids across the whole dataset are more meaningful than
+        # per-stamp ellipsoids (most of which would have only 1 point).
         valid_count = len(ids)
-        if len(stamps) == valid_count and valid_count >= 2:
-            return ["all"]
+        if valid_count >= 2:
+            freq = ids.str.split("-", n=1).str[0].str.strip().value_counts()
+            if freq.iloc[0] <= 3:          # max count of any single stamp prefix
+                return ["all"]
         return stamps
 
     @staticmethod
@@ -316,10 +322,12 @@ class EllipsoidManager:
         if len(sub) == 0:
             return
 
-        # Parse stamp prefix from DataID; fall back to "all" when every
-        # DataID is unique (no shared hyphen-prefix grouping).
+        # Parse stamp prefix from DataID; use "all" for averaged/combined
+        # data (no prefix appears more than 3 times) so per-cluster ellipsoids
+        # span the whole dataset, matching what _discover_stamps() returns.
         prefixes = sub["DataID"].astype(str).str.split("-", n=1).str[0].str.strip()
-        if prefixes.nunique() == len(prefixes) and len(prefixes) >= 2:
+        max_freq = prefixes.value_counts().iloc[0] if len(prefixes) > 0 else 0
+        if max_freq <= 3 and len(prefixes) >= 2:
             sub["_stamp"] = "all"
         else:
             sub["_stamp"] = prefixes
