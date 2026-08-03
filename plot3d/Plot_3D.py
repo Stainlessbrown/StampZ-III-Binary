@@ -1727,7 +1727,7 @@ class Plot3DApp:
         """Create frame for sphere visibility toggles."""
         try:
             # Create a labeled frame for sphere visibility controls
-            sphere_frame = ttk.LabelFrame(self.control_frame, text="Sphere Visibility")
+            sphere_frame = ttk.LabelFrame(self.control_frame, text="Sphere / Ellipsoid Visibility")
             sphere_frame.grid(row=10, column=0, sticky='nsew', padx=5, pady=5)
             
             # Force minimum size and prevent frame from shrinking

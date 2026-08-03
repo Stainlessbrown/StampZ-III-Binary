@@ -344,6 +344,33 @@ class EllipsoidManager:
         # plot. Use a normalized-space prior of ~(0.03)² per axis instead.
         norm_prior_variance = 0.001
 
+        # Build cluster-id → Sphere colour from the centroid summary rows.
+        # Those rows have valid Centroid_X/Y/Z but NaN Xnorm/Ynorm/Znorm, so
+        # they were excluded from `sub` above.  We look them up in the full
+        # df here so each ellipsoid gets the colour the user chose for that
+        # cluster's sphere marker rather than the mode of the data-row Color
+        # column (which colours individual scatter points, not clusters).
+        centroid_sphere_map: Dict[Tuple[str, int], str] = {}
+        if (
+            "Sphere" in df.columns
+            and "Centroid_X" in df.columns
+            and "Cluster" in df.columns
+        ):
+            cen_mask = (
+                df["Cluster"].notna()
+                & df["Centroid_X"].notna()
+                & df["Sphere"].notna()
+                & df["Xnorm"].isna()      # centroid rows have no norm coords
+            )
+            for _, crow in df[cen_mask].iterrows():
+                try:
+                    c_id = int(float(crow["Cluster"]))
+                    sph = str(crow["Sphere"]).strip()
+                    if sph:
+                        centroid_sphere_map[c_id] = sph
+                except (TypeError, ValueError):
+                    pass
+
         for stamp, group in included.groupby("_stamp"):
             pts = group[["Xnorm", "Ynorm", "Znorm"]].to_numpy(dtype=float)
             if pts.shape[0] < 2:
@@ -374,26 +401,31 @@ class EllipsoidManager:
                         self._fits_tone[(stamp, c_int)] = fit_ellipsoid(
                             cpts, prior_variance=norm_prior_variance,
                         )
-                        # Harvest the colour the user assigned to this
-                        # cluster's data points (mirrors the Sphere colour
-                        # on the centroid row when one exists). Mode value
-                        # is robust to occasional inconsistencies.
-                        try:
-                            colours = (
-                                cgroup["Color"].dropna().astype(str).str.strip()
-                                if "Color" in cgroup.columns else None
+                        # Primary: use the Sphere colour the user set on the
+                        # centroid row for this cluster.  Fall back to the
+                        # mode of the data rows' Color column so legacy
+                        # datasets without centroid Sphere values still work.
+                        if c_int in centroid_sphere_map:
+                            self._tone_colour[(stamp, c_int)] = (
+                                centroid_sphere_map[c_int]
                             )
-                            if colours is not None and not colours.empty:
-                                mode_series = colours.mode()
-                                if not mode_series.empty:
-                                    self._tone_colour[(stamp, c_int)] = (
-                                        str(mode_series.iloc[0])
-                                    )
-                        except Exception as ce:
-                            self.logger.debug(
-                                "Colour harvest failed for %s/%s: %s",
-                                stamp, cluster_val, ce,
-                            )
+                        else:
+                            try:
+                                colours = (
+                                    cgroup["Color"].dropna().astype(str).str.strip()
+                                    if "Color" in cgroup.columns else None
+                                )
+                                if colours is not None and not colours.empty:
+                                    mode_series = colours.mode()
+                                    if not mode_series.empty:
+                                        self._tone_colour[(stamp, c_int)] = (
+                                            str(mode_series.iloc[0])
+                                        )
+                            except Exception as ce:
+                                self.logger.debug(
+                                    "Colour harvest failed for %s/%s: %s",
+                                    stamp, cluster_val, ce,
+                                )
                     except Exception as e:
                         self.logger.warning(
                             "Per-tone fit failed for %s cluster %s: %s",

@@ -521,7 +521,47 @@ class KmeansManager:
             print(f"Xnorm: min={X[:,0].min():.4f}, max={X[:,0].max():.4f}")
             print(f"Ynorm: min={X[:,1].min():.4f}, max={X[:,1].max():.4f}")
             print(f"Znorm: min={X[:,2].min():.4f}, max={X[:,2].max():.4f}")
-            
+
+            # ── Pre-clustering data-quality checks ───────────────────────
+            # 1. Range check: all values should be normalised to [0, 1].
+            bad_rows = []
+            ids_col = subset_data['DataID'] if 'DataID' in subset_data.columns else None
+            for i, row_vec in enumerate(X):
+                if row_vec.min() < 0.0 or row_vec.max() > 1.0:
+                    label = str(ids_col.iloc[i]) if ids_col is not None else f'index {i}'
+                    bad_rows.append(f"{label}: X={row_vec[0]:.4f} Y={row_vec[1]:.4f} Z={row_vec[2]:.4f}")
+            if bad_rows:
+                warn_msg = (
+                    "WARNING: the following rows have un-normalised coordinates "
+                    "(values outside [0,1]) and will distort K-means:\n\n"
+                    + "\n".join(bad_rows)
+                    + "\n\nCheck for missing /100 normalization or stale centroid data in those rows."
+                )
+                self.logger.warning(warn_msg)
+                messagebox.showwarning("Data Validation", warn_msg)
+
+            # 2. Mahalanobis outlier check (flags statistically distant points).
+            if len(X) >= max(n_clusters + 2, 6):
+                try:
+                    from sklearn.covariance import MinCovDet
+                    mcd = MinCovDet(support_fraction=0.75, random_state=42).fit(X)
+                    m_dist = mcd.mahalanobis(X) ** 0.5   # in sigma units
+                    threshold = 3.5
+                    outlier_idx = np.where(m_dist > threshold)[0]
+                    if len(outlier_idx):
+                        out_lines = []
+                        for oi in outlier_idx:
+                            lbl = str(ids_col.iloc[oi]) if ids_col is not None else f'index {oi}'
+                            out_lines.append(f"{lbl} (d={m_dist[oi]:.1f}σ)")
+                        self.logger.warning(
+                            "Mahalanobis outliers (>%.1f\u03c3): %s", threshold,
+                            ", ".join(out_lines)
+                        )
+                        print(f"\u26a0\ufe0f  Mahalanobis outliers (>{threshold}\u03c3): " + "; ".join(out_lines))
+                except Exception as _mcd_e:
+                    self.logger.debug("Mahalanobis check skipped: %s", _mcd_e)
+            # ─────────────────────────────────────────────────────────────
+
             # Verify we have enough data points for the requested number of clusters
             if len(X) < n_clusters:
                 raise ValueError(f"Not enough data points ({len(X)}) for {n_clusters} clusters")
