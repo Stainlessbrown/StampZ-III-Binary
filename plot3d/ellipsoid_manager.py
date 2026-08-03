@@ -454,9 +454,16 @@ class EllipsoidManager:
         for (stamp, cluster), fit in (self._fits_tone or {}).items():
             if not self.visibility_states.get(stamp, True):
                 continue
-            # Use the cluster's own colour from the data if available,
-            # otherwise fall back to the per-stamp cycling colour.
             raw_colour = self._tone_colour.get((stamp, cluster))
+            # Honour the shared Sphere / Ellipsoid Visibility toggle: if the
+            # colour assigned to this cluster has been toggled off in the
+            # panel, skip the ellipsoid as well as the sphere.
+            if raw_colour and self.is_color_visible is not None:
+                try:
+                    if not self.is_color_visible(raw_colour):
+                        continue
+                except Exception:
+                    pass
             colour = raw_colour or self._stamp_colour(stamp)
             self._draw_one(fit, colour)
 
