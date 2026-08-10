@@ -686,17 +686,46 @@ class KMeansFileHandler:
                     self.logger.warning(f"Could not remove lock file: {str(e)}")
     
     def _calculate_centroids(self):
-        """Calculate centroids for each cluster."""
+        """Return the centroid coordinates for each cluster.
+
+        Priority: use Centroid_X/Y/Z already stored in the DataFrame rows.
+        apply_kmeans() sets these correctly for both K-means (cluster mean)
+        and K-medoids (actual medoid data point).  Only fall back to
+        recalculating the mean from Xnorm/Ynorm/Znorm if those columns are
+        absent or empty for a cluster — which should not happen in normal
+        operation but keeps the method robust.
+        """
         cluster_centroids = {}
+        has_centroid_cols = all(
+            c in self.data.columns
+            for c in ('Centroid_X', 'Centroid_Y', 'Centroid_Z')
+        )
         for cluster_num in self.data['Cluster'].dropna().unique():
             cluster_mask = self.data['Cluster'] == cluster_num
-            centroid = [
-                self.data.loc[cluster_mask, 'Xnorm'].mean(),
-                self.data.loc[cluster_mask, 'Ynorm'].mean(),
-                self.data.loc[cluster_mask, 'Znorm'].mean()
-            ]
+            centroid = None
+            if has_centroid_cols:
+                rows = self.data.loc[cluster_mask]
+                cx = rows['Centroid_X'].dropna()
+                cy = rows['Centroid_Y'].dropna()
+                cz = rows['Centroid_Z'].dropna()
+                if not cx.empty and not cy.empty and not cz.empty:
+                    # For both K-means and K-medoids every row in the
+                    # cluster carries the same centroid value; iloc[0]
+                    # is sufficient.
+                    centroid = [float(cx.iloc[0]),
+                                float(cy.iloc[0]),
+                                float(cz.iloc[0])]
+            if centroid is None:
+                # Fallback: compute cluster mean from raw norm coordinates.
+                centroid = [
+                    self.data.loc[cluster_mask, 'Xnorm'].mean(),
+                    self.data.loc[cluster_mask, 'Ynorm'].mean(),
+                    self.data.loc[cluster_mask, 'Znorm'].mean(),
+                ]
             cluster_centroids[int(cluster_num)] = centroid
-            self.logger.info(f"Calculated centroid for cluster {int(cluster_num)}: {centroid}")
+            self.logger.info(
+                f"Calculated centroid for cluster {int(cluster_num)}: {centroid}"
+            )
         return cluster_centroids
     
     def _verify_centroid_data(self, verify_doc, rows_to_verify, cluster_col_idx, centroid_col_indices):

@@ -591,12 +591,24 @@ class HueWheelViewer:
         from colorspacious import cspace_convert
         ring_colors = []
         for h in hue_angles:
-            a_star = 55.0 * np.cos(np.deg2rad(h))
-            b_star = 55.0 * np.sin(np.deg2rad(h))
-            lab = np.array([65.0, a_star, b_star])
-            rgb = cspace_convert(lab, 'CIELab', 'sRGB1')
-            rgb = np.clip(rgb, 0, 1)
-            ring_colors.append(rgb)
+            cos_h = np.cos(np.deg2rad(h))
+            sin_h = np.sin(np.deg2rad(h))
+            # Gamut-boundary search: most saturated in-gamut CIELab colour
+            # for this hue direction (avoids yellow→chartreuse artefact).
+            best_rgb = None
+            for L_try in (80, 70, 85, 60, 90, 50):
+                for C_try in range(100, 9, -10):
+                    rgb_try = cspace_convert(
+                        np.array([L_try, C_try * cos_h, C_try * sin_h]),
+                        'CIELab', 'sRGB1'
+                    )
+                    if np.all(rgb_try >= -0.01) and np.all(rgb_try <= 1.01):
+                        best_rgb = np.clip(rgb_try, 0.0, 1.0)
+                        break
+                if best_rgb is not None:
+                    break
+            ring_colors.append(best_rgb if best_rgb is not None
+                               else np.array([0.5, 0.5, 0.5]))
         
         # Plot the colored ring using scatter with small overlapping points
         ax.scatter(

@@ -775,7 +775,10 @@ class Plot3DApp:
             # Update sphere manager references and render spheres
             self.sphere_manager.update_references(ax, self.canvas, self.df)
             self._update_sphere_toggles()  # Update sphere visibility toggles
-            self.sphere_manager.render_spheres()
+            if self.show_spheres_layer.get():
+                self.sphere_manager.render_spheres()
+            else:
+                self.sphere_manager.clear_spheres()
             # Update + render ellipsoids (additive layer; does not affect spheres or scatter)
             try:
                 if hasattr(self, 'ellipsoid_manager') and self.ellipsoid_manager is not None:
@@ -1512,7 +1515,8 @@ class Plot3DApp:
         # --- Sphere circles -------------------------------------------------------
         self.sphere_manager.update_references(ax, self.canvas, self.df)
         self._update_sphere_toggles()
-        self.sphere_manager.render_spheres_2d(ax, plane)
+        if self.show_spheres_layer.get():
+            self.sphere_manager.render_spheres_2d(ax, plane)
         
         # --- Linear trendline (projected) -----------------------------------------
         if self.show_trendline.get():
@@ -1717,6 +1721,11 @@ class Plot3DApp:
         
         # Cylindrical L*C*h* 3D mode
         self._cylindrical_mode = False
+
+        # Layer visibility: show spheres and/or ellipsoids independently
+        self.show_spheres_layer    = tk.BooleanVar(value=True)
+        # ellipsoid_master_visible is initialised later (after Tk root exists)
+        # here we just document that the pair lives in _init_variables.
         
         # Initialize color-filtered trend line variables
         self.show_red_trendline = tk.BooleanVar(value=False)
@@ -1758,37 +1767,67 @@ class Plot3DApp:
     
     # Methods removed since we're now using the main scrollbar
     
+    def _on_sphere_layer_toggle(self):
+        """Master toggle for the sphere layer."""
+        if self.show_spheres_layer.get():
+            self.sphere_manager.render_spheres()
+        else:
+            self.sphere_manager.clear_spheres()
+            try:
+                self.canvas.draw_idle()
+            except Exception:
+                pass
+
     def _update_sphere_toggles(self):
         """Update sphere visibility toggles based on current data."""
         try:
             # Clear existing toggles
             for widget in self.toggle_frame.winfo_children():
                 widget.destroy()
-            
+
+            # ── Layer selector — show spheres and/or ellipsoids ──────────────
+            layer_row = ttk.Frame(self.toggle_frame)
+            layer_row.grid(row=0, column=0, sticky='ew', padx=5, pady=(4, 2))
+            ttk.Label(layer_row, text="Show:",
+                      font=("Arial", 9, "bold")).pack(side=tk.LEFT, padx=(0, 6))
+            ttk.Checkbutton(
+                layer_row, text="Spheres",
+                variable=self.show_spheres_layer,
+                command=self._on_sphere_layer_toggle,
+            ).pack(side=tk.LEFT, padx=4)
+            if hasattr(self, 'ellipsoid_master_visible'):
+                ttk.Checkbutton(
+                    layer_row, text="Ellipsoids",
+                    variable=self.ellipsoid_master_visible,
+                    command=self._on_ellipsoid_master_toggle,
+                ).pack(side=tk.LEFT, padx=4)
+            ttk.Separator(self.toggle_frame,
+                          orient=tk.HORIZONTAL).grid(row=1, column=0,
+                                                     sticky='ew', pady=3)
+            # ──────────────────────────────────────────────────────────
+
             # Get active colors from sphere manager
             active_colors = self.sphere_manager.get_active_colors()
-            
+
             if not active_colors:
-                # Show message if no spheres are available
                 msg_label = ttk.Label(
-                    self.toggle_frame, 
-                    text="No spheres available",
+                    self.toggle_frame,
+                    text="No cluster colours set",
                     foreground='gray'
                 )
-                msg_label.grid(row=0, column=0, padx=5, pady=5)
+                msg_label.grid(row=2, column=0, padx=5, pady=5)
                 return
-            
+
             # Get DataID mapping for each sphere color
             color_data_ids = self.sphere_manager.get_color_data_ids()
-            
-            # Create toggle for each active color with proper styling
+
+            # Per-colour toggles (rows 2+)
             for i, color in enumerate(active_colors):
                 if color not in self.sphere_toggle_vars:
                     self.sphere_toggle_vars[color] = tk.BooleanVar(value=True)
-                
-                # Create container frame for better visibility
+
                 toggle_container = ttk.Frame(self.toggle_frame)
-                toggle_container.grid(row=i, column=0, sticky='ew', padx=5, pady=2)
+                toggle_container.grid(row=i + 2, column=0, sticky='ew', padx=5, pady=2)
                 toggle_container.grid_columnconfigure(1, weight=1)
                 
                 # Build label: color name + DataIDs (if any)
@@ -1826,14 +1865,13 @@ class Plot3DApp:
             print(f"Error updating sphere toggles: {str(e)}")
     
     def _on_sphere_toggle(self, color: str):
-        """Handle sphere visibility toggle."""
-        print(f"\n🔴 SPHERE TOGGLE DEBUG: {color}")
+        """Handle sphere/ellipsoid visibility toggle."""
         if hasattr(self, 'sphere_manager'):
-            print(f"  Sphere manager exists, calling toggle_visibility({color})")
             self.sphere_manager.toggle_visibility(color)
-            print(f"  Toggle completed")
-        else:
-            print(f"  ❌ No sphere manager found!")
+        # Re-render ellipsoids so the per-colour toggle isolates individual
+        # cluster ellipsoids (is_color_visible is checked inside _render_tone).
+        if hasattr(self, 'ellipsoid_manager') and self.ellipsoid_manager:
+            self.ellipsoid_manager.render()
 
     # ------------------------------------------------------------------ #
     # Ellipsoid visibility wiring (peer of the sphere panel above)
@@ -2021,16 +2059,20 @@ class Plot3DApp:
                 command=self._on_label_type_changed
             ).pack(side=tk.LEFT, padx=2)
         
-        # Initialize rotation controls early to ensure they're available for plot creation
+        # Rotation & Views — collapsible (collapsed by default to save panel space)
+        rotation_section = CollapsibleSection(
+            self.control_frame, "🔄 Rotation & Views", expanded=False
+        )
+        rotation_section.grid(row=3, column=0, sticky='ew', padx=5, pady=5)
         self.rotation_controls = RotationControls(
-            self.control_frame,
+            rotation_section.content_frame,
             on_rotation_change=self._rotation_changed_callback,
             trendline_manager=self.trendline_manager,
             plotly_callback=self._open_plotly_view,
             hue_wheel_callback=self._open_hue_wheel_view,
             hue_wheel_3d_callback=self._toggle_cylindrical_view
         )
-        self.rotation_controls.grid(row=3, column=0, sticky='ew', padx=5, pady=5)
+        self.rotation_controls.pack(fill=tk.BOTH, expand=True)
         
         # Initialize zoom controls in a collapsible section (expanded by default)
         zoom_section = CollapsibleSection(self.control_frame, "🔍 Zoom Controls", expanded=True)
@@ -2131,8 +2173,8 @@ class Plot3DApp:
             rotation_controls=self.rotation_controls,
         )
 
-        # Create group display / K-means section in a collapsible section
-        kmeans_section = CollapsibleSection(self.control_frame, "📊 K-means Clustering", expanded=False)
+        # K-means section
+        kmeans_section = CollapsibleSection(self.control_frame, "📊 K-means", expanded=False)
         kmeans_section.grid(row=6, column=0, sticky='ew', padx=5, pady=5)
         
         # Create group display frame inside collapsible section
@@ -2147,9 +2189,13 @@ class Plot3DApp:
             on_visibility_change=self.refresh_plot
         )
         
+        # K-medoids section (separate from K-means)
+        kmedoids_section = CollapsibleSection(self.control_frame, "📐 K-medoids", expanded=False)
+        kmedoids_section.grid(row=7, column=0, sticky='ew', padx=5, pady=5)
+
         # Create trendline section in a collapsible section
         trendline_section = CollapsibleSection(self.control_frame, "📏 Trend Lines", expanded=False)
-        trendline_section.grid(row=7, column=0, sticky='ew', padx=5, pady=5)
+        trendline_section.grid(row=8, column=0, sticky='ew', padx=5, pady=5)
         
         # Create inner frame for trendline controls
         self.trendline_frame = ttk.Frame(trendline_section.content_frame)
@@ -2222,7 +2268,7 @@ class Plot3DApp:
 
         # Create ΔE Analysis section in a collapsible section
         delta_e_section = CollapsibleSection(self.control_frame, "🔬 ΔE Analysis", expanded=False)
-        delta_e_section.grid(row=8, column=0, sticky='ew', padx=5, pady=5)
+        delta_e_section.grid(row=9, column=0, sticky='ew', padx=5, pady=5)
         
         # Create ΔE Manager GUI inside collapsible section
         if hasattr(self, 'delta_e_manager') and self.delta_e_manager:
@@ -2252,7 +2298,7 @@ class Plot3DApp:
         
         # Create Pairwise ΔE section as its own collapsible section
         pairwise_section = CollapsibleSection(self.control_frame, "🔬 Pairwise ΔE", expanded=False)
-        pairwise_section.grid(row=9, column=0, sticky='ew', padx=5, pady=5)
+        pairwise_section.grid(row=10, column=0, sticky='ew', padx=5, pady=5)
         print(f"DEBUG PAIRWISE: manager exists={hasattr(self, 'pairwise_delta_e_manager')}")
         if hasattr(self, 'pairwise_delta_e_manager') and self.pairwise_delta_e_manager:
             try:
@@ -2270,20 +2316,21 @@ class Plot3DApp:
         else:
             print("WARNING: pairwise_delta_e_manager not available - GUI will be empty")
         
-        # Create K-Means clustering GUI inside kmeans_section
+        # Compact K-means panel inside kmeans_section
         if hasattr(self, 'kmeans_manager') and self.kmeans_manager:
-            kmeans_frame = self.kmeans_manager.create_gui(kmeans_section.content_frame)
-            if kmeans_frame:
-                kmeans_frame.pack(fill=tk.BOTH, expand=True)
-                print("K-Means clustering GUI created successfully")
-            else:
-                print("Warning: Failed to create K-Means clustering GUI")
-        else:
-            print("Warning: K-Means manager not available")
+            km_panel = self.kmeans_manager.create_compact_gui(
+                kmeans_section.content_frame, 'K-means'
+            )
+            km_panel.pack(fill=tk.BOTH, expand=True)
+            # Compact K-medoids panel in its own section
+            kmed_panel = self.kmeans_manager.create_compact_gui(
+                kmedoids_section.content_frame, 'K-medoids'
+            )
+            kmed_panel.pack(fill=tk.BOTH, expand=True)
         
         # Create sphere visibility section in a collapsible section
         sphere_section = CollapsibleSection(self.control_frame, "🚪 Sphere Visibility", expanded=False)
-        sphere_section.grid(row=10, column=0, sticky='ew', padx=5, pady=5)
+        sphere_section.grid(row=11, column=0, sticky='ew', padx=5, pady=5)
         
         # Create sphere visibility frame inside the section with grid layout for canvas + scrollbar
         sphere_frame = ttk.Frame(sphere_section.content_frame)
@@ -2332,7 +2379,7 @@ class Plot3DApp:
         # Ellipsoid Visibility section (peer of the Sphere Visibility panel)
         # ------------------------------------------------------------------ #
         ellipsoid_section = CollapsibleSection(self.control_frame, "🥚 Ellipsoid Visibility", expanded=False)
-        ellipsoid_section.grid(row=11, column=0, sticky='ew', padx=5, pady=5)
+        ellipsoid_section.grid(row=12, column=0, sticky='ew', padx=5, pady=5)
         ell_frame = ttk.Frame(ellipsoid_section.content_frame)
         ell_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         # Master on/off
@@ -2714,14 +2761,29 @@ class Plot3DApp:
         ring_z = np.full_like(ring_x, 1.0)  # Slightly above z=0
         ring_colors = []
         for h_deg in ring_angles:
-            # Build a CIELab color at L*=65, C*=55 for each hue angle
-            a_star = 55.0 * np.cos(np.deg2rad(h_deg))
-            b_star = 55.0 * np.sin(np.deg2rad(h_deg))
-            lab = np.array([65.0, a_star, b_star])
-            rgb = cspace_convert(lab, 'CIELab', 'sRGB1')
-            # Clamp to [0, 1] — some CIELab colors fall outside sRGB gamut
-            rgb = np.clip(rgb, 0, 1)
-            ring_colors.append(rgb)
+            h_rad_i = np.deg2rad(h_deg)
+            cos_h, sin_h = np.cos(h_rad_i), np.sin(h_rad_i)
+            # Find the most saturated in-gamut CIELab colour for this hue
+            # direction by stepping down from high chroma until the sRGB
+            # conversion fits inside [0, 1].  This avoids the fixed-parameter
+            # problem where yellow (h≈90°) looked chartreuse because
+            # L*=65, C*=55 in that direction renders greenish rather than vivid
+            # yellow (which needs L*≈80, C*≈80+).
+            best_rgb = None
+            for L_try in (80, 70, 85, 60, 90, 50):
+                for C_try in range(100, 9, -10):
+                    lab_try = np.array([L_try,
+                                        C_try * cos_h,
+                                        C_try * sin_h])
+                    rgb_try = cspace_convert(lab_try, 'CIELab', 'sRGB1')
+                    if np.all(rgb_try >= -0.01) and np.all(rgb_try <= 1.01):
+                        best_rgb = np.clip(rgb_try, 0.0, 1.0)
+                        break
+                if best_rgb is not None:
+                    break
+            if best_rgb is None:
+                best_rgb = np.array([0.5, 0.5, 0.5])  # fallback
+            ring_colors.append(best_rgb)
         ax.scatter(ring_x, ring_y, ring_z, c=ring_colors, s=80, alpha=0.9,
                    edgecolors='none', zorder=5, depthshade=False)
 

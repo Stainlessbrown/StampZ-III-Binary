@@ -148,6 +148,73 @@ class KmeansManager:
         
         self.logger.info("KmeansManager initialized successfully")
     
+    def create_compact_gui(self, parent, method: str):
+        """Create a compact, self-contained clustering panel for one method.
+
+        Used when K-means and K-medoids have separate collapsible sections.
+        Each panel owns its own Rows / k entries.  When Apply is clicked the
+        shared manager attributes (start_row, end_row, cluster_count,
+        cluster_method) are redirected to this panel's entries so that the
+        existing _apply_kmeans_gui() / save_cluster_assignments() logic
+        works without modification.
+        """
+        # Initialise cluster_method lazily (requires an active Tk root)
+        if not hasattr(self, 'cluster_method') or self.cluster_method is None:
+            self.cluster_method = tk.StringVar(value=method)
+
+        frame = tk.Frame(parent)
+
+        row_frame = tk.Frame(frame)
+        row_frame.pack(fill=tk.X, padx=5, pady=(5, 2))
+
+        tk.Label(row_frame, text="Rows:", font=("Arial", 9)).pack(side=tk.LEFT)
+        start_e = tk.Entry(row_frame, width=4)
+        start_e.insert(0, "8")
+        start_e.pack(side=tk.LEFT, padx=1)
+
+        tk.Label(row_frame, text="-", font=("Arial", 9)).pack(side=tk.LEFT)
+        end_e = tk.Entry(row_frame, width=4)
+        end_e.insert(0, "999")
+        end_e.pack(side=tk.LEFT, padx=1)
+
+        tk.Label(row_frame, text="k=", font=("Arial", 9)).pack(side=tk.LEFT, padx=(3, 0))
+        k_e = tk.Entry(row_frame, width=2)
+        k_e.insert(0, "3")
+        k_e.pack(side=tk.LEFT, padx=1)
+
+        btn_frame = tk.Frame(row_frame)
+        btn_frame.pack(side=tk.RIGHT, padx=2)
+
+        def do_apply():
+            # Redirect the manager’s shared entry references to this panel
+            # so _apply_kmeans_gui() picks up the correct values.
+            self.start_row = start_e
+            self.end_row = end_e
+            self.cluster_count = k_e
+            self.cluster_method.set(method)
+            self._apply_kmeans_gui()
+
+        tk.Button(
+            btn_frame, text="Apply", width=6,
+            relief=tk.RAISED, bg='#e1e1e1',
+            font=('Arial', 9, 'bold'), pady=1,
+            command=do_apply,
+        ).pack(side=tk.TOP, pady=1)
+
+        tk.Button(
+            btn_frame, text="Save", width=6,
+            relief=tk.RAISED, bg='#e6f3ff', fg='dark blue',
+            font=('Arial', 9, 'bold'), pady=1,
+            command=self.save_cluster_assignments,
+        ).pack(side=tk.TOP, pady=1)
+
+        tk.Button(
+            row_frame, text="?", width=2,
+            command=self._show_workflow_guide,
+        ).pack(side=tk.LEFT, padx=2)
+
+        return frame
+
     def create_gui(self, parent):
         """Create the GUI controls for clustering"""
         self.frame = tk.LabelFrame(parent, text="Clustering")
