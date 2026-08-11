@@ -208,11 +208,6 @@ class KmeansManager:
             command=self.save_cluster_assignments,
         ).pack(side=tk.TOP, pady=1)
 
-        tk.Button(
-            row_frame, text="?", width=2,
-            command=self._show_workflow_guide,
-        ).pack(side=tk.LEFT, padx=2)
-
         return frame
 
     def create_gui(self, parent):
