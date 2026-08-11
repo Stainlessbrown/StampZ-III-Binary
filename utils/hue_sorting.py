@@ -140,7 +140,7 @@ def sort_colors_philatelic(colors_rgb: List[Tuple[int, int, int]]) -> List[Tuple
             sort_key = (1, l, s)  # Group 1: grays, then by lightness
         elif l > 0.85 and s < 0.2:  # White - bright and unsaturated
             sort_key = (2, -l, s)  # Group 2: whites, brightest first
-        elif s < 0.65 and l < 0.5:  # Browns - low-medium saturation AND low lightness
+        elif s < 0.65 and l < 0.5 and (h < 70 or h > 340):  # Browns - dark/muted AND orange-red to orange-yellow hue
             sort_key = (3, h, l, s)  # Group 3: browns by hue, then lightness
         else:  # Chromatic colors - bright, saturated colors
             sort_key = (4, h, s, l)  # Group 4: by hue, then saturation, then lightness
@@ -169,7 +169,7 @@ def get_hue_group(r: int, g: int, b: int) -> HueGroup:
         return HueGroup.WHITE  
     elif s < 0.2:
         return HueGroup.GRAY
-    elif s < 0.65 and l < 0.5:  # Browns: low-medium saturation AND low lightness
+    elif s < 0.65 and l < 0.5 and (h < 70 or h > 340):  # Browns: dark/muted AND orange-red to orange-yellow hue
         return HueGroup.BROWN
     else:
         return HueGroup.CHROMATIC
