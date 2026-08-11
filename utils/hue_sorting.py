@@ -217,8 +217,9 @@ def filter_by_hue_range(colors_rgb: List[Tuple[int, int, int]],
     for rgb in colors_rgb:
         group = get_hue_group(*rgb)
         
-        # Only filter chromatic colors by hue
-        if group not in [HueGroup.CHROMATIC, HueGroup.BROWN]:
+        # Include chromatic, brown, and muted/gray colours — only exclude
+        # true black and white where hue angle is meaningless
+        if group in [HueGroup.BLACK, HueGroup.WHITE]:
             continue
             
         h, s, l = rgb_to_hsl(*rgb)
@@ -286,9 +287,11 @@ def get_user_friendly_hue_ranges() -> Dict[str, Tuple[float, float]]:
         'Brown': 'BROWN',
         
         # Primary colors and adjacent ranges
-        'Red': (0, 30),
+        # Red covers 337-22° (wider to catch deep crimsons/pink-reds)
+        # Orange uses centre 37° range 45° → 15–60° — closes the 15-30° gap
+        'Red': (0, 45),
         'Red-Orange': (15, 30),
-        'Orange': (45, 30),
+        'Orange': (37, 45),
         'Orange-Yellow': (75, 30),
         'Yellow': (75, 30),
         'Yellow-Green': (105, 30),

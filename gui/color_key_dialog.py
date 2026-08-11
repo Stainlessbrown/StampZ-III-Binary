@@ -68,60 +68,75 @@ class ColorKeyDialog:
     # ================================================================ #
 
     def _build_ui(self):
-        # ── Top toolbar ─────────────────────────────────────────────
-        tb = ttk.Frame(self.root)
-        tb.pack(fill=tk.X, padx=8, pady=4)
+        # ── Two-row toolbar ──────────────────────────────────────────
+        toolbar = ttk.Frame(self.root)
+        toolbar.pack(fill=tk.X, padx=8, pady=4)
 
-        ttk.Label(tb, text="Library:").pack(side=tk.LEFT)
+        # ── Row 1: library selector + hue filter + refresh + status ─
+        row1 = ttk.Frame(toolbar)
+        row1.pack(fill=tk.X, pady=(0, 2))
+
+        ttk.Label(row1, text="Library:").pack(side=tk.LEFT)
         self._lib_var = tk.StringVar()
-        self._lib_combo = ttk.Combobox(tb, textvariable=self._lib_var,
+        self._lib_combo = ttk.Combobox(row1, textvariable=self._lib_var,
                                        state="readonly", width=22)
-        self._lib_combo.pack(side=tk.LEFT, padx=(2, 8))
+        self._lib_combo.pack(side=tk.LEFT, padx=(2, 10))
         self._lib_combo.bind("<<ComboboxSelected>>", self._on_library_changed)
 
-        ttk.Label(tb, text="Hue:").pack(side=tk.LEFT)
-        self._hue_var = tk.StringVar(value="All Colors")
-        self._hue_combo = ttk.Combobox(tb, textvariable=self._hue_var,
-                                       state="readonly", width=18)
-        self._hue_combo.pack(side=tk.LEFT, padx=(2, 8))
-        self._hue_combo.bind("<<ComboboxSelected>>", self._on_hue_changed)
+        # Multi-select hue listbox — identical behaviour to Library tab
+        hue_outer = ttk.Frame(row1)
+        hue_outer.pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Label(hue_outer, text="Hue (Ctrl+Click for multiple):",
+                  font=("Arial", 8)).pack(anchor=tk.W)
+        hue_inner = ttk.Frame(hue_outer)
+        hue_inner.pack()
+        self._hue_listbox = tk.Listbox(
+            hue_inner, selectmode=tk.MULTIPLE, height=4, width=20,
+            exportselection=False)
+        self._hue_listbox.pack(side=tk.LEFT)
+        hue_sb = ttk.Scrollbar(hue_inner, orient=tk.VERTICAL,
+                               command=self._hue_listbox.yview)
+        hue_sb.pack(side=tk.LEFT, fill=tk.Y)
+        self._hue_listbox.configure(yscrollcommand=hue_sb.set)
+        self._hue_listbox.bind("<<ListboxSelect>>", self._on_hue_changed)
 
-        ttk.Button(tb, text="🔄 Refresh",
+        ttk.Button(row1, text="\U0001f504 Refresh",
                    command=self._refresh_swatches).pack(side=tk.LEFT, padx=4)
 
-        ttk.Separator(tb, orient=tk.VERTICAL).pack(side=tk.LEFT,
-                                                    fill=tk.Y, padx=10)
+        # Status right-aligned in row 1
+        self._status = ttk.Label(row1, text="Select a library to begin.",
+                                 foreground="gray")
+        self._status.pack(side=tk.RIGHT, padx=8)
 
-        ttk.Button(tb, text="📂 Open Stamp Image",
+        # ── Row 2: stamp image tools + layout controls ───────────────
+        row2 = ttk.Frame(toolbar)
+        row2.pack(fill=tk.X)
+
+        ttk.Button(row2, text="\U0001f4c2 Open Stamp Image",
                    command=self._open_stamp).pack(side=tk.LEFT, padx=2)
-        ttk.Button(tb, text="✖ Clear",
+        ttk.Button(row2, text="\u2716 Clear",
                    command=self._clear_stamp).pack(side=tk.LEFT, padx=2)
 
-        ttk.Separator(tb, orient=tk.VERTICAL).pack(side=tk.LEFT,
-                                                    fill=tk.Y, padx=10)
+        ttk.Separator(row2, orient=tk.VERTICAL).pack(side=tk.LEFT,
+                                                     fill=tk.Y, padx=10)
 
-        ttk.Label(tb, text="Columns:").pack(side=tk.LEFT)
+        ttk.Label(row2, text="Columns:").pack(side=tk.LEFT)
         self._cols_var = tk.IntVar(value=self.COLS)
-        ttk.Spinbox(tb, from_=1, to=8, width=3,
+        ttk.Spinbox(row2, from_=1, to=8, width=3,
                     textvariable=self._cols_var,
                     command=self._refresh_swatches).pack(side=tk.LEFT, padx=2)
 
-        ttk.Separator(tb, orient=tk.VERTICAL).pack(side=tk.LEFT,
-                                                    fill=tk.Y, padx=10)
+        ttk.Separator(row2, orient=tk.VERTICAL).pack(side=tk.LEFT,
+                                                     fill=tk.Y, padx=10)
 
-        ttk.Label(tb, text="Stamp Scale:").pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Label(row2, text="Stamp Scale:").pack(side=tk.LEFT, padx=(0, 4))
         self._scale_var = tk.IntVar(value=40)   # 40 % default
         for pct in (40, 60):
             ttk.Radiobutton(
-                tb, text=f"{pct}%", value=pct,
+                row2, text=f"{pct}%", value=pct,
                 variable=self._scale_var,
                 command=self._on_scale_changed,
             ).pack(side=tk.LEFT, padx=2)
-
-        # Status (right-aligned)
-        self._status = ttk.Label(tb, text="Select a library to begin.",
-                                 foreground="gray")
-        self._status.pack(side=tk.RIGHT, padx=8)
 
         # ── Scrollable canvas ────────────────────────────────────────
         cf = ttk.Frame(self.root)
@@ -194,8 +209,10 @@ class ColorKeyDialog:
             from utils.color_library import ColorLibrary
             from utils.hue_sorting import get_available_hue_names
             self._library = ColorLibrary(lib_name)
-            self._hue_combo["values"] = ["All Colors"] + get_available_hue_names()
-            self._hue_var.set("All Colors")
+            self._hue_listbox.delete(0, tk.END)
+            for opt in ["All Colors"] + get_available_hue_names():
+                self._hue_listbox.insert(tk.END, opt)
+            self._hue_listbox.selection_set(0)  # default: All Colors
             self._refresh_swatches()
         except Exception as exc:
             self._status.configure(text=f"Error loading library: {exc}")
@@ -207,18 +224,21 @@ class ColorKeyDialog:
         if self._library is None:
             return
         self._all_colors = self._library.get_all_colors()
-        hue_sel = self._hue_var.get()
-        if hue_sel and hue_sel != "All Colors":
+        selected_indices = self._hue_listbox.curselection()
+        selected_hues = [self._hue_listbox.get(i) for i in selected_indices]
+        if selected_hues and "All Colors" not in selected_hues:
             try:
                 from utils.hue_sorting import filter_by_friendly_name
                 rgb_tuples = [
                     (int(lc.rgb[0]), int(lc.rgb[1]), int(lc.rgb[2]))
                     for lc in self._all_colors
                 ]
-                filtered_rgb = set(filter_by_friendly_name(rgb_tuples, hue_sel))
+                all_filtered = set()
+                for hue_name in selected_hues:
+                    all_filtered.update(filter_by_friendly_name(rgb_tuples, hue_name))
                 self._all_colors = [
                     lc for lc in self._all_colors
-                    if (int(lc.rgb[0]), int(lc.rgb[1]), int(lc.rgb[2])) in filtered_rgb
+                    if (int(lc.rgb[0]), int(lc.rgb[1]), int(lc.rgb[2])) in all_filtered
                 ]
             except Exception as exc:
                 print(f"Hue filter error: {exc}")
