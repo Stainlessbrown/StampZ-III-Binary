@@ -788,6 +788,8 @@ class Plot3DApp:
                     self.ellipsoid_manager.render()
             except Exception as _ell_e:
                 print(f"Warning: ellipsoid render failed: {_ell_e}")
+            # Draw any pinned DataID labels on top of the 3D scatter
+            self._draw_pinned_labels(ax)
             # Adjust layout and refresh
             self.fig.tight_layout()
             
@@ -1724,6 +1726,9 @@ class Plot3DApp:
 
         # Layer visibility: show spheres and/or ellipsoids independently
         self.show_spheres_layer    = tk.BooleanVar(value=True)
+
+        # Pinned DataID labels (persist across refreshes for PNG export)
+        self._pinned_labels: list = []   # list of {data_id, x, y, z}
         # ellipsoid_master_visible is initialised later (after Tk root exists)
         # here we just document that the pair lives in _init_variables.
         
@@ -1736,7 +1741,7 @@ class Plot3DApp:
         """Create frame for sphere visibility toggles."""
         try:
             # Create a labeled frame for sphere visibility controls
-            sphere_frame = ttk.LabelFrame(self.control_frame, text="Sphere / Ellipsoid Visibility")
+            sphere_frame = ttk.LabelFrame(self.control_frame, text="Sphere/Ellipsoid Visibility")
             sphere_frame.grid(row=10, column=0, sticky='nsew', padx=5, pady=5)
             
             # Force minimum size and prevent frame from shrinking
@@ -1767,6 +1772,86 @@ class Plot3DApp:
     
     # Methods removed since we're now using the main scrollbar
     
+    # ------------------------------------------------------------------ #
+    # Pinned labels
+    # ------------------------------------------------------------------ #
+
+    def _pin_current_point(self):
+        """Pin the currently highlighted point's DataID label on the plot."""
+        if len(self._pinned_labels) >= 10:
+            messagebox.showinfo("Pin Limit", "Maximum 10 labels pinned. Remove one first.")
+            return
+        if not self.highlight_manager or not self.highlight_manager.last_highlighted_data_id:
+            messagebox.showinfo("No Point Selected",
+                                "Select a point first (click in the plot or use Find by Row).")
+            return
+        data_id = str(self.highlight_manager.last_highlighted_data_id)
+        if any(p['data_id'] == data_id for p in self._pinned_labels):
+            return   # already pinned
+        idx = self.highlight_manager.last_highlighted_index
+        if idx is not None and self.df is not None and idx in self.df.index:
+            row = self.df.loc[idx]
+            x, y, z = row.get('Xnorm'), row.get('Ynorm'), row.get('Znorm')
+            if pd.notna(x) and pd.notna(y) and pd.notna(z):
+                self._pinned_labels.append({
+                    'data_id': data_id,
+                    'x': float(x), 'y': float(y), 'z': float(z),
+                })
+                self._refresh_pin_ui()
+                self.refresh_plot()
+
+    def _clear_pinned_labels(self):
+        """Remove all pinned labels."""
+        self._pinned_labels.clear()
+        self._refresh_pin_ui()
+        self.refresh_plot()
+
+    def _remove_selected_pin(self):
+        """Remove the label currently selected in the listbox."""
+        if not hasattr(self, '_pin_listbox'):
+            return
+        sel = self._pin_listbox.curselection()
+        if not sel:
+            return
+        del self._pinned_labels[sel[0]]
+        self._refresh_pin_ui()
+        self.refresh_plot()
+
+    def _refresh_pin_ui(self):
+        """Sync the listbox and count label with _pinned_labels."""
+        if not hasattr(self, '_pin_listbox'):
+            return
+        self._pin_listbox.delete(0, tk.END)
+        for p in self._pinned_labels:
+            self._pin_listbox.insert(tk.END, p['data_id'])
+        if hasattr(self, '_pin_count_label'):
+            self._pin_count_label.configure(text=f"{len(self._pinned_labels)} / 10")
+
+    def _draw_pinned_labels(self, ax) -> None:
+        """Render pinned DataID labels on the 3D axes so they appear in PNG exports."""
+        if not self._pinned_labels:
+            return
+        for pin in self._pinned_labels:
+            try:
+                ax.text(
+                    pin['x'], pin['y'], pin['z'],
+                    f" {pin['data_id']}",
+                    fontsize=8, fontweight='bold',
+                    color='black',
+                    bbox=dict(
+                        boxstyle='round,pad=0.25',
+                        facecolor='lightyellow',
+                        alpha=0.88,
+                        edgecolor='#555',
+                        linewidth=0.5,
+                    ),
+                    zorder=60,
+                )
+            except Exception as _e:
+                print(f"DEBUG: pinned label draw failed for {pin.get('data_id')}: {_e}")
+
+    # ------------------------------------------------------------------ #
+
     def _on_sphere_layer_toggle(self):
         """Master toggle for the sphere layer."""
         if self.show_spheres_layer.get():
@@ -2172,6 +2257,28 @@ class Plot3DApp:
             self.use_rgb,
             rotation_controls=self.rotation_controls,
         )
+
+        # ── Pinned labels panel (inside Point ID section) ────────────────
+        pin_frame = ttk.LabelFrame(point_id_section.content_frame,
+                                   text="📌 Pinned Labels (max 10)")
+        pin_frame.pack(fill=tk.X, padx=5, pady=(4, 5))
+
+        btn_row = ttk.Frame(pin_frame)
+        btn_row.pack(fill=tk.X, padx=4, pady=(4, 2))
+        ttk.Button(btn_row, text="📌 Pin", width=6,
+                   command=self._pin_current_point).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_row, text="🗑 Clear All", width=9,
+                   command=self._clear_pinned_labels).pack(side=tk.LEFT, padx=2)
+        self._pin_count_label = ttk.Label(btn_row, text="0 / 10",
+                                          font=("Arial", 8), foreground="gray")
+        self._pin_count_label.pack(side=tk.LEFT, padx=6)
+
+        self._pin_listbox = tk.Listbox(pin_frame, height=4,
+                                       font=("Arial", 8), selectmode=tk.SINGLE)
+        self._pin_listbox.pack(fill=tk.X, padx=4, pady=2)
+        ttk.Button(pin_frame, text="Remove Selected",
+                   command=self._remove_selected_pin).pack(fill=tk.X, padx=4, pady=(0, 4))
+        # ───────────────────────────────────────────────────────────
 
         # K-means section
         kmeans_section = CollapsibleSection(self.control_frame, "📊 K-means", expanded=False)

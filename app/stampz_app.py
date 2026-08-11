@@ -267,6 +267,15 @@ class StampZApp:
         """Delegate to analysis manager."""
         return self.analysis_manager.open_black_ink_extractor()
 
+    def open_color_key(self):
+        """Open the Colour Key dialog."""
+        try:
+            from gui.color_key_dialog import open_color_key
+            open_color_key(self.root, app=self)
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("Error", f"Failed to open Colour Key:\n\n{str(e)}")
+
     def open_layer_separator(self):
         """Open the stamp layer separator dialog."""
         try:

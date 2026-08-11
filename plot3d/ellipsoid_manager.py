@@ -470,22 +470,19 @@ class EllipsoidManager:
     def _draw_one(self, fit: EllipsoidFit, colour: str) -> None:
         # Suppress matplotlib's divide/overflow warnings on near-degenerate
         # ellipsoids; render output is correct, the warnings are cosmetic.
+        #
+        # Only draw the outer 2σ shell.  Drawing both 1σ and 2σ shells
+        # causes a visually confusing “sphere inside another sphere” effect
+        # when the cluster is approximately isotropic (especially in per-tone
+        # mode where each cluster is tight and the two shells look identical).
+        # A single semi-transparent 2σ shell conveys the cluster extent
+        # clearly; the major-axis line below shows the elongation direction.
         with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
-            try:
-                Xi, Yi, Zi = ellipsoid_mesh(fit, sigma=DEFAULT_SIGMA_INNER)
-                inner = self.ax.plot_surface(
-                    Xi, Yi, Zi,
-                    color=colour, alpha=DEFAULT_ALPHA_INNER,
-                    linewidth=0, antialiased=True,
-                )
-                self._artists.append(inner)
-            except Exception as e:
-                self.logger.warning("Inner ellipsoid render failed: %s", e)
             try:
                 Xo, Yo, Zo = ellipsoid_mesh(fit, sigma=DEFAULT_SIGMA_OUTER, n_u=22, n_v=12)
                 outer = self.ax.plot_surface(
                     Xo, Yo, Zo,
-                    color=colour, alpha=DEFAULT_ALPHA_OUTER,
+                    color=colour, alpha=DEFAULT_ALPHA_INNER,  # use inner alpha — slightly more opaque
                     linewidth=0, antialiased=True,
                 )
                 self._artists.append(outer)

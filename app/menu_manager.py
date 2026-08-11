@@ -177,6 +177,10 @@ class MenuManager:
             label="Image Separation...",
             command=self.app.open_layer_separator
         )
+        self.color_menu.add_command(
+            label="Colour Key...",
+            command=self.app.open_color_key
+        )
         self.color_menu.add_separator()
         
         # Note: Export to Unified Data Logger options have been moved to the Compare window
