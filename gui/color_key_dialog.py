@@ -40,10 +40,11 @@ class ColorKeyDialog:
         self._swatches   = []   # List of (name, RGBA PIL Image)
 
         # Stamp image pan state
-        self._stamp_pil    = None   # PIL Image (RGB) at original resolution
-        self._stamp_offset = [0, 0]
-        self._drag_start   = None
-        self._photo_ref    = None   # keep reference to prevent GC
+        self._stamp_pil     = None   # PIL Image (RGB) at original resolution
+        self._stamp_display = None   # cached scaled version used for rendering
+        self._stamp_offset  = [0, 0]
+        self._drag_start    = None
+        self._photo_ref     = None   # keep reference to prevent GC
 
         # Build window
         self.root = tk.Toplevel(parent)
@@ -104,6 +105,18 @@ class ColorKeyDialog:
         ttk.Spinbox(tb, from_=1, to=8, width=3,
                     textvariable=self._cols_var,
                     command=self._refresh_swatches).pack(side=tk.LEFT, padx=2)
+
+        ttk.Separator(tb, orient=tk.VERTICAL).pack(side=tk.LEFT,
+                                                    fill=tk.Y, padx=10)
+
+        ttk.Label(tb, text="Stamp Scale:").pack(side=tk.LEFT, padx=(0, 4))
+        self._scale_var = tk.IntVar(value=40)   # 40 % default
+        for pct in (40, 60):
+            ttk.Radiobutton(
+                tb, text=f"{pct}%", value=pct,
+                variable=self._scale_var,
+                command=self._on_scale_changed,
+            ).pack(side=tk.LEFT, padx=2)
 
         # Status (right-aligned)
         self._status = ttk.Label(tb, text="Select a library to begin.",
@@ -230,6 +243,30 @@ class ColorKeyDialog:
     # Stamp image
     # ================================================================ #
 
+    def _rebuild_stamp_display(self):
+        """(Re-)create the scaled display version of the stamp image.
+
+        LANCZOS downsampling averages neighbouring pixels, which reduces the
+        visible halftone / grain from high-DPI scans and gives a more
+        realistic 'viewed at normal distance' appearance.
+        """
+        if self._stamp_pil is None:
+            self._stamp_display = None
+            return
+        pct   = max(5, min(100, self._scale_var.get()))
+        scale = pct / 100.0
+        w, h  = self._stamp_pil.size
+        new_w = max(1, int(w * scale))
+        new_h = max(1, int(h * scale))
+        self._stamp_display = self._stamp_pil.resize(
+            (new_w, new_h), Image.LANCZOS
+        )
+
+    def _on_scale_changed(self):
+        """Called when the Stamp Scale spinbox value changes."""
+        self._rebuild_stamp_display()
+        self._render()
+
     def _open_stamp(self):
         path = filedialog.askopenfilename(
             parent=self.root,
@@ -246,9 +283,13 @@ class ColorKeyDialog:
             pil, _ = load_image(path)
             self._stamp_pil    = pil.convert("RGB")
             self._stamp_offset = [0, 0]
+            self._rebuild_stamp_display()
             w, h = self._stamp_pil.size
+            pct  = self._scale_var.get()
             self._status.configure(
-                text=f"{os.path.basename(path)}  ({w}×{h})  ·  Drag to pan"
+                text=f"{os.path.basename(path)}  ({w}\u00d7{h})  ·  "
+                     f"{pct}% scale ({self._stamp_display.width}\u00d7"
+                     f"{self._stamp_display.height})  ·  Drag to pan"
             )
             self._render()
         except Exception as exc:
@@ -257,8 +298,9 @@ class ColorKeyDialog:
                                  parent=self.root)
 
     def _clear_stamp(self):
-        self._stamp_pil    = None
-        self._stamp_offset = [0, 0]
+        self._stamp_pil     = None
+        self._stamp_display = None
+        self._stamp_offset  = [0, 0]
         self._status.configure(text="Stamp image cleared.")
         self._render()
 
@@ -309,15 +351,17 @@ class ColorKeyDialog:
         # --- Base layer: dark grey background or panned stamp image ---
         base = Image.new("RGB", (cw, ch), (64, 64, 64))
 
-        if self._stamp_pil is not None:
+        # Use the pre-scaled display version (faster render, reduces grain)
+        stamp = self._stamp_display or self._stamp_pil
+        if stamp is not None:
             ox, oy  = self._stamp_offset
-            iw, ih  = self._stamp_pil.size
+            iw, ih  = stamp.size
             src_x0  = max(0, -ox)
             src_y0  = max(0, -oy)
             src_x1  = min(iw, cw - ox)
             src_y1  = min(ih, ch - oy)
             if src_x1 > src_x0 and src_y1 > src_y0:
-                region = self._stamp_pil.crop((src_x0, src_y0, src_x1, src_y1))
+                region = stamp.crop((src_x0, src_y0, src_x1, src_y1))
                 base.paste(region, (max(0, ox), max(0, oy)))
 
         # --- Overlay each swatch (RGBA with transparent oval) ---
