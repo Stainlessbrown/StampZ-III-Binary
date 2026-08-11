@@ -1329,6 +1329,11 @@ class HighlightManager:
             self.highlight_texts.append(text_label)
             
             print(f"DEBUG: Highlighted point at row {spreadsheet_row} (index {df_index}): {data_id}")
+
+            # Store for the Pin Label feature — use the DataFrame label index
+            # (same convention as _select_point_by_index) so Pin can locate the row.
+            self.last_highlighted_index   = self.data_df.index[df_index]
+            self.last_highlighted_data_id = str(data_id)
             
         except Exception as e:
             print(f"Error highlighting single point at index {df_index}: {e}")

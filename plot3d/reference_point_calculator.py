@@ -1361,7 +1361,18 @@ class ReferencePointCalculator:
                     try:
                         self.logger.info("Performing save verification")
                         verify_doc = ezodf.opendoc(self.file_path)
-                        verify_sheet = verify_doc.sheets[0]
+                        # Use the named sheet (same as the save), NOT sheets[0].
+                        # For multi-sheet files sheets[0] is usually the first
+                        # (often empty) sheet, causing spurious "cell is empty"
+                        # verification failures even when the save succeeded.
+                        if self.sheet_name:
+                            verify_sheet = next(
+                                (s for s in verify_doc.sheets
+                                 if s.name == self.sheet_name),
+                                verify_doc.sheets[0]
+                            )
+                        else:
+                            verify_sheet = verify_doc.sheets[0]
                         
                         # Check first few updates
                         check_count = min(5, len(updates))
@@ -1403,6 +1414,13 @@ class ReferencePointCalculator:
                                       f"Successfully calculated and updated ΔE values for {len(updates)} rows.\n\n"
                                       f"Using reference point from row {self.reference_point_row}.\n"
                                       f"Row range: {start_row}-{end_row}")
+                    # Trigger a plot refresh so ΔE values appear immediately
+                    # without the user needing to click Refresh manually.
+                    if self.on_data_update:
+                        try:
+                            self.on_data_update(None)
+                        except Exception:
+                            pass
                 except ValueError as ve:
                     self.logger.error(f"Validation error: {ve}")
                     messagebox.showerror("Validation Error", str(ve))

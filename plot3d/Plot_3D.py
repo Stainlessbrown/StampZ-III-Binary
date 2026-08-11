@@ -1828,13 +1828,37 @@ class Plot3DApp:
             self._pin_count_label.configure(text=f"{len(self._pinned_labels)} / 10")
 
     def _draw_pinned_labels(self, ax) -> None:
-        """Render pinned DataID labels on the 3D axes so they appear in PNG exports."""
+        """Render pinned DataID labels on the 3D axes so they appear in PNG exports.
+
+        Each label consists of:
+          • a small red × marker at the exact data-point coordinates
+          • a short dotted grey connector line
+          • a text box at a small offset so the label doesn't sit on the point
+        """
         if not self._pinned_labels:
             return
         for pin in self._pinned_labels:
             try:
+                x, y, z = pin['x'], pin['y'], pin['z']
+
+                # Exact-point marker so it's clear which scatter dot is labelled
+                ax.scatter([x], [y], [z],
+                           c='red', s=55, marker='x',
+                           linewidths=1.8, zorder=62)
+
+                # Offset for the text box (normalised space)
+                tx, ty, tz = x + 0.025, y + 0.025, z + 0.015
+
+                # Dotted connector line from point to label
+                ax.plot3D(
+                    [x, tx], [y, ty], [z, tz],
+                    linestyle=':', color='#444',
+                    linewidth=0.9, zorder=59,
+                )
+
+                # Label box at the offset position
                 ax.text(
-                    pin['x'], pin['y'], pin['z'],
+                    tx, ty, tz,
                     f" {pin['data_id']}",
                     fontsize=8, fontweight='bold',
                     color='black',
