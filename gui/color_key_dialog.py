@@ -79,12 +79,12 @@ class ColorKeyDialog:
         self._lib_combo.pack(side=tk.LEFT, padx=(2, 8))
         self._lib_combo.bind("<<ComboboxSelected>>", self._on_library_changed)
 
-        ttk.Label(tb, text="Category:").pack(side=tk.LEFT)
-        self._cat_var = tk.StringVar(value="All")
-        self._cat_combo = ttk.Combobox(tb, textvariable=self._cat_var,
+        ttk.Label(tb, text="Hue:").pack(side=tk.LEFT)
+        self._hue_var = tk.StringVar(value="All Colors")
+        self._hue_combo = ttk.Combobox(tb, textvariable=self._hue_var,
                                        state="readonly", width=18)
-        self._cat_combo.pack(side=tk.LEFT, padx=(2, 8))
-        self._cat_combo.bind("<<ComboboxSelected>>", self._on_category_changed)
+        self._hue_combo.pack(side=tk.LEFT, padx=(2, 8))
+        self._hue_combo.bind("<<ComboboxSelected>>", self._on_hue_changed)
 
         ttk.Button(tb, text="🔄 Refresh",
                    command=self._refresh_swatches).pack(side=tk.LEFT, padx=4)
@@ -192,24 +192,36 @@ class ColorKeyDialog:
             return
         try:
             from utils.color_library import ColorLibrary
+            from utils.hue_sorting import get_available_hue_names
             self._library = ColorLibrary(lib_name)
-            cats = ["All"] + self._library.get_categories()
-            self._cat_combo["values"] = cats
-            self._cat_var.set("All")
+            self._hue_combo["values"] = ["All Colors"] + get_available_hue_names()
+            self._hue_var.set("All Colors")
             self._refresh_swatches()
         except Exception as exc:
             self._status.configure(text=f"Error loading library: {exc}")
 
-    def _on_category_changed(self, _event=None):
+    def _on_hue_changed(self, _event=None):
         self._refresh_swatches()
 
     def _refresh_swatches(self):
         if self._library is None:
             return
-        cat = self._cat_var.get()
-        self._all_colors = self._library.get_all_colors(
-            category=None if cat == "All" else cat
-        )
+        self._all_colors = self._library.get_all_colors()
+        hue_sel = self._hue_var.get()
+        if hue_sel and hue_sel != "All Colors":
+            try:
+                from utils.hue_sorting import filter_by_friendly_name
+                rgb_tuples = [
+                    (int(lc.rgb[0]), int(lc.rgb[1]), int(lc.rgb[2]))
+                    for lc in self._all_colors
+                ]
+                filtered_rgb = set(filter_by_friendly_name(rgb_tuples, hue_sel))
+                self._all_colors = [
+                    lc for lc in self._all_colors
+                    if (int(lc.rgb[0]), int(lc.rgb[1]), int(lc.rgb[2])) in filtered_rgb
+                ]
+            except Exception as exc:
+                print(f"Hue filter error: {exc}")
         self.COLS = max(1, self._cols_var.get())
 
         self._swatches = []
