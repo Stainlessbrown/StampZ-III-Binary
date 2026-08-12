@@ -273,54 +273,30 @@ def get_variety_hue_ranges(variety_type: str) -> List[Tuple[str, float, float]]:
 
 def get_user_friendly_hue_ranges() -> Dict[str, Tuple[float, float]]:
     """
-    Get user-friendly hue range names with their corresponding hue ranges.
-    Perfect for UI dropdowns and user selection.
-    
-    Returns:
-        Dictionary mapping friendly names to (center_hue, range) tuples
-        Special keys for achromatic colors: 'BLACK', 'GRAY', 'WHITE', 'BROWN'
+    Simplified philatelic hue ranges: primary + secondary colours + achromatic.
+    All ranges are derived from LCH h\u00b0 computed directly from L*a*b* values.
+
+    Green is intentionally wide (98\u2013198\u00b0) to cover the full range of philatelic
+    greens: olive-yellows (~100\u00b0), chromium greens (~135\u00b0) and blue-greens /
+    Pasteur-style greens (~165\u00b0).  Blue and Violet overlap at the boundary
+    (~285\u2013295\u00b0) to avoid gaps.
     """
     return {
-        # Achromatic colors (special handling)
-        'Black': 'BLACK',
-        'Gray': 'GRAY', 
-        'White': 'WHITE',
-        'Brown': 'BROWN',
-        
-        # Primary colors and adjacent ranges
-        # Red covers 337-22° (wider to catch deep crimsons/pink-reds)
-        # Orange uses centre 37° range 45° → 15–60° — closes the 15-30° gap
-        'Red': (0, 45),
-        'Red-Orange': (15, 30),
-        'Orange': (37, 45),
-        'Orange-Yellow': (75, 30),
-        'Yellow': (75, 30),
-        'Yellow-Green': (105, 30),
-        # Green spans 95–175° in LCH to cover philatelic greens:
-        # olive-greens (~100°), chromium greens (~135°), Pasteur/blue-greens (~165°)
-        'Green': (135, 80),
-        'Green-Blue': (163, 30),
-        'Blue': (240, 30),
-        'Blue-Violet': (255, 30),
-        'Violet': (285, 30),
-        'Violet-Red': (315, 30),
-        
-        # Broader ranges
-        'All Reds': (0, 60),        # Red + Red-Orange
-        'All Oranges': (30, 60),    # Red-Orange + Orange + Orange-Yellow
-        'All Yellows': (60, 60),    # Orange-Yellow + Yellow + Yellow-Green
-        'All Greens': (135, 90),    # Full philatelic green range ~90–180°
-        'All Blues': (210, 120),    # Green-Blue + Blue + Blue-Violet
-        'All Violets': (300, 60),   # Blue-Violet + Violet + Violet-Red
-        
-        # Combined achromatic
-        'All Achromatic': 'ALL_ACHROMATIC',  # Black + Gray + White
-        'All Neutrals': 'ALL_NEUTRALS',      # Black + Gray + White + Brown
-        
-        # Stamp-specific ranges
-        'Pink to Red-Orange': (15, 45),   # Common stamp variety
-        'Brown Tones': 'BROWN',           # All browns
-        'Deep Blues': (240, 40),          # Navy, royal blue range
+        # Achromatic groups
+        'Black':  'BLACK',
+        'Gray':   'GRAY',
+        'White':  'WHITE',
+        'Brown':  'BROWN',
+
+        # Primary colours
+        'Red':    (355, 50),   # 330– 20°  (wraps) — reds, crimsons, carmines
+        'Yellow': (85,  60),   #  55\u2013115\u00b0 — yellows, yellow-greens, olives
+        'Blue':   (240, 110),  # 185\u2013295\u00b0 — blues, blue-greens, outremer
+
+        # Secondary colours
+        'Orange': (40,  60),   #  10\u2013 70\u00b0 — oranges, red-oranges
+        'Green':  (148, 100),  #  98\u2013198\u00b0 — full philatelic green range
+        'Violet': (315, 60),   # 285\u2013345\u00b0 — violets, blue-violets, mauves
     }
 
 def filter_by_friendly_name(colors_rgb: List[Tuple[int, int, int]], 
@@ -366,23 +342,11 @@ def filter_by_friendly_name(colors_rgb: List[Tuple[int, int, int]],
 
 def get_available_hue_names() -> List[str]:
     """
-    Get list of all available user-friendly hue range names.
-    Perfect for populating UI dropdowns.
-    
-    Returns:
-        List of friendly hue range names in logical order
+    Return hue filter names in display order: achromatic first, then
+    primary and secondary colours in spectral order.
     """
-    ranges = get_user_friendly_hue_ranges()
-    
-    # Group them logically for UI - achromatic first, then chromatic
-    achromatic = ['Black', 'Gray', 'White', 'Brown']
-    achromatic_groups = ['All Achromatic', 'All Neutrals']
-    primary = ['Red', 'Orange', 'Yellow', 'Green', 'Blue', 'Violet']
-    adjacent = ['Red-Orange', 'Orange-Yellow', 'Yellow-Green', 'Green-Blue', 'Blue-Violet', 'Violet-Red']
-    broad = ['All Reds', 'All Oranges', 'All Yellows', 'All Greens', 'All Blues', 'All Violets']
-    special = ['Pink to Red-Orange', 'Brown Tones', 'Deep Blues']
-    
-    return achromatic + achromatic_groups + primary + adjacent + broad + special
+    return ['Black', 'Gray', 'White', 'Brown',
+            'Red', 'Orange', 'Yellow', 'Green', 'Blue', 'Violet']
 
 # ================================================================ #
 # LCH-based matching (uses Lab values directly, no RGB round-trip) #
@@ -400,14 +364,15 @@ def _get_hue_group_lch(L: float, C: float, h: float) -> HueGroup:
     """Classify a colour from LCH values.
 
     Thresholds (philatelic use):
-    - BLACK   : L* < 15
+    - BLACK   : L* < 10  (near-pure black only; dark chromatic colours
+                 like Midnight Green L*=14 remain chromatic)
     - WHITE   : L* > 85 and C* < 10
     - GRAY    : C* < 15  (near-neutral, hue meaningless)
     - BROWN   : warm hue (5°–75°), C* < 45, L* < 70
                   catches bistre, sepia, chestnut, ochre
     - CHROMATIC: everything else
     """
-    if L < 15:
+    if L < 10:
         return HueGroup.BLACK
     if L > 85 and C < 10:
         return HueGroup.WHITE
