@@ -289,7 +289,7 @@ def get_user_friendly_hue_ranges() -> Dict[str, Tuple[float, float]]:
         'Brown':  'BROWN',
 
         # Primary colours
-        'Red':    (355, 50),   # 330– 20°  (wraps) — reds, crimsons, carmines
+        'Red':    (15,  50),   # 350– 40°  (wraps) — reds, crimsons, carmines, light reds
         'Yellow': (85,  60),   #  55\u2013115\u00b0 — yellows, yellow-greens, olives
         'Blue':   (240, 110),  # 185\u2013295\u00b0 — blues, blue-greens, outremer
 
@@ -364,19 +364,20 @@ def _get_hue_group_lch(L: float, C: float, h: float) -> HueGroup:
     """Classify a colour from LCH values.
 
     Thresholds (philatelic use):
-    - BLACK   : L* < 10  (near-pure black only; dark chromatic colours
-                 like Midnight Green L*=14 remain chromatic)
+    - BLACK   : L* < 10, OR (L* < 15 and C* < 5) — true blacks and
+                 near-achromatic very-dark colours.  Dark chromatic colours
+                 like Midnight Green (L*=14, C*=29) remain CHROMATIC.
     - WHITE   : L* > 85 and C* < 10
-    - GRAY    : C* < 15  (near-neutral, hue meaningless)
+    - GRAY    : C* < 16  (near-neutral; hue angle is not meaningful)
     - BROWN   : warm hue (5°–75°), C* < 45, L* < 70
                   catches bistre, sepia, chestnut, ochre
     - CHROMATIC: everything else
     """
-    if L < 10:
+    if L < 10 or (L < 15 and C < 5):
         return HueGroup.BLACK
     if L > 85 and C < 10:
         return HueGroup.WHITE
-    if C < 15:
+    if C < 16:   # slight headroom catches near-neutral grays at exactly C*=15
         return HueGroup.GRAY
     # Brown: warm orange hue (5°-75°), moderate chroma, not too bright.
     # The 5° lower bound excludes very-red colours; the 75° upper bound
@@ -427,12 +428,13 @@ def matches_hue_filter_lab(
         return False
 
     # ── Chromatic / hue-range filters ──
-    # Exclude only black and white (hue angle is meaningless for those).
-    # BROWN colours appear under their own hue-range filters (e.g. Orange)
-    # AS WELL AS under the dedicated ‘Brown’ filter, so stamp libraries full
-    # of muted/dark warm tones are not silently hidden.
-    # GRAY (muted chromatics) is also included by hue angle.
-    if group in (HueGroup.BLACK, HueGroup.WHITE):
+    # Exclude BLACK, WHITE, and GRAY (C* < 16) — their hue angle is too
+    # weak to be meaningful.  CHROMATIC colors (C* ≥ 16) appear under
+    # their hue filter even when muted, so philatelic greens like the
+    # Pasteur grey-greens (C*≈20) still show up under Green.
+    # BROWN colours appear under their hue-range filter (e.g. Orange)
+    # AND under the dedicated ‘Brown’ filter.
+    if group in (HueGroup.BLACK, HueGroup.WHITE, HueGroup.GRAY):
         return False
     center_hue, hue_range = rv
     return _hue_in_range(h, center_hue, hue_range)
