@@ -296,8 +296,10 @@ def get_user_friendly_hue_ranges() -> Dict[str, Tuple[float, float]]:
         'Orange-Yellow': (75, 30),
         'Yellow': (75, 30),
         'Yellow-Green': (105, 30),
-        'Green': (120, 30),
-        'Green-Blue': (135, 30),
+        # Green spans 95–175° in LCH to cover philatelic greens:
+        # olive-greens (~100°), chromium greens (~135°), Pasteur/blue-greens (~165°)
+        'Green': (135, 80),
+        'Green-Blue': (163, 30),
         'Blue': (240, 30),
         'Blue-Violet': (255, 30),
         'Violet': (285, 30),
@@ -307,7 +309,7 @@ def get_user_friendly_hue_ranges() -> Dict[str, Tuple[float, float]]:
         'All Reds': (0, 60),        # Red + Red-Orange
         'All Oranges': (30, 60),    # Red-Orange + Orange + Orange-Yellow
         'All Yellows': (60, 60),    # Orange-Yellow + Yellow + Yellow-Green
-        'All Greens': (120, 60),    # Yellow-Green + Green + Green-Blue
+        'All Greens': (135, 90),    # Full philatelic green range ~90–180°
         'All Blues': (210, 120),    # Green-Blue + Blue + Blue-Violet
         'All Violets': (300, 60),   # Blue-Violet + Violet + Violet-Red
         
