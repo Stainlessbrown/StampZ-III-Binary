@@ -228,17 +228,10 @@ class ColorKeyDialog:
         selected_hues = [self._hue_listbox.get(i) for i in selected_indices]
         if selected_hues and "All Colors" not in selected_hues:
             try:
-                from utils.hue_sorting import filter_by_friendly_name
-                rgb_tuples = [
-                    (int(lc.rgb[0]), int(lc.rgb[1]), int(lc.rgb[2]))
-                    for lc in self._all_colors
-                ]
-                all_filtered = set()
-                for hue_name in selected_hues:
-                    all_filtered.update(filter_by_friendly_name(rgb_tuples, hue_name))
+                from utils.hue_sorting import matches_hue_filter_lab
                 self._all_colors = [
                     lc for lc in self._all_colors
-                    if (int(lc.rgb[0]), int(lc.rgb[1]), int(lc.rgb[2])) in all_filtered
+                    if any(matches_hue_filter_lab(lc.lab, h) for h in selected_hues)
                 ]
             except Exception as exc:
                 print(f"Hue filter error: {exc}")

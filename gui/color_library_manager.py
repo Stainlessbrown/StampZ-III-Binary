@@ -589,34 +589,12 @@ class ColorLibraryManager:
         
         if selected_hue_filters and 'All Colors' not in selected_hue_filters:
             try:
-                from utils.hue_sorting import filter_by_friendly_name
-                # Convert LibraryColor objects to RGB tuples for filtering
-                color_rgb_tuples = [(int(color.rgb[0]), int(color.rgb[1]), int(color.rgb[2])) for color in search_filtered]
-                
-                # Combine results from all selected hue filters
-                all_filtered_rgb = set()  # Use set to avoid duplicates
-                for hue_filter in selected_hue_filters:
-                    try:
-                        filtered_rgb = filter_by_friendly_name(color_rgb_tuples, hue_filter)
-                        all_filtered_rgb.update(filtered_rgb)
-                    except Exception as e:
-                        print(f"Warning: Failed to filter by '{hue_filter}': {e}")
-                
-                # Create mapping from RGB back to color objects
-                rgb_to_colors = {}
-                for color in search_filtered:
-                    rgb_key = (int(color.rgb[0]), int(color.rgb[1]), int(color.rgb[2]))
-                    if rgb_key not in rgb_to_colors:
-                        rgb_to_colors[rgb_key] = []
-                    rgb_to_colors[rgb_key].append(color)
-                
-                # Rebuild color list with only hue-filtered colors
-                self.filtered_colors = []
-                for rgb in all_filtered_rgb:
-                    if rgb in rgb_to_colors:
-                        self.filtered_colors.extend(rgb_to_colors[rgb])
-                        # Don't delete from mapping since we might have duplicates across filters
-                        
+                from utils.hue_sorting import matches_hue_filter_lab
+                self.filtered_colors = [
+                    color for color in search_filtered
+                    if any(matches_hue_filter_lab(color.lab, hf)
+                           for hf in selected_hue_filters)
+                ]
             except Exception as e:
                 print(f"Warning: Hue filtering failed, showing all colors: {e}")
                 self.filtered_colors = search_filtered

@@ -5,6 +5,7 @@ Provides functions to sort colors by hue with special handling for philatelic co
 Handles browns, grays, blacks, and whites appropriately for stamp analysis.
 """
 
+import math
 import numpy as np
 from typing import List, Tuple, Optional, Union, Dict
 from enum import Enum
@@ -380,6 +381,92 @@ def get_available_hue_names() -> List[str]:
     special = ['Pink to Red-Orange', 'Brown Tones', 'Deep Blues']
     
     return achromatic + achromatic_groups + primary + adjacent + broad + special
+
+# ================================================================ #
+# LCH-based matching (uses Lab values directly, no RGB round-trip) #
+# ================================================================ #
+
+def lab_to_lch(lab: Tuple[float, float, float]) -> Tuple[float, float, float]:
+    """Convert a CIE L*a*b* tuple to (L*, C*, h°) where h° is 0–360."""
+    L, a, b = lab
+    C = math.sqrt(a * a + b * b)
+    h = math.degrees(math.atan2(b, a)) % 360
+    return L, C, h
+
+
+def _get_hue_group_lch(L: float, C: float, h: float) -> HueGroup:
+    """Classify a colour from LCH values.
+
+    Thresholds (philatelic use):
+    - BLACK   : L* < 15
+    - WHITE   : L* > 85 and C* < 10
+    - GRAY    : C* < 15  (near-neutral, hue meaningless)
+    - BROWN   : warm hue (340°–75°), C* < 45, L* < 70
+                  catches bistre, sepia, chestnut, ochre
+    - CHROMATIC: everything else
+    """
+    if L < 15:
+        return HueGroup.BLACK
+    if L > 85 and C < 10:
+        return HueGroup.WHITE
+    if C < 15:
+        return HueGroup.GRAY
+    # Brown: warm hue AND moderate chroma AND not too bright
+    if (h < 75 or h > 340) and C < 45 and L < 70:
+        return HueGroup.BROWN
+    return HueGroup.CHROMATIC
+
+
+def _hue_in_range(h: float, center: float, span: float) -> bool:
+    """Return True if hue h (degrees) is within center ± span/2, wrapping at 360."""
+    half = span / 2.0
+    lo = (center - half) % 360
+    hi = (center + half) % 360
+    if lo <= hi:
+        return lo <= h <= hi
+    return h >= lo or h <= hi   # wraps through 0°
+
+
+def matches_hue_filter_lab(
+    lab: Tuple[float, float, float],
+    friendly_name: str,
+) -> bool:
+    """Return True if the Lab colour belongs to the named hue group.
+
+    Uses L*C*h° computed directly from the stored L*a*b* values — no RGB
+    round-trip.  Muted (low-chroma) colours with a discernible hue still
+    appear under their chromatic group; true browns appear only under ‘Brown’.
+    Black and White are excluded from chromatic filters.
+    """
+    L, C, h = lab_to_lch(lab)
+    group = _get_hue_group_lch(L, C, h)
+    ranges = get_user_friendly_hue_ranges()
+
+    if friendly_name not in ranges:
+        raise ValueError(f"Unknown hue range '{friendly_name}'")
+
+    rv = ranges[friendly_name]
+
+    # ── Achromatic / group-based filters ──
+    if isinstance(rv, str):
+        if rv == 'BLACK':            return group == HueGroup.BLACK
+        if rv == 'GRAY':             return group == HueGroup.GRAY
+        if rv == 'WHITE':            return group == HueGroup.WHITE
+        if rv == 'BROWN':            return group == HueGroup.BROWN
+        if rv == 'ALL_ACHROMATIC':   return group in (HueGroup.BLACK, HueGroup.GRAY, HueGroup.WHITE)
+        if rv == 'ALL_NEUTRALS':     return group in (HueGroup.BLACK, HueGroup.GRAY, HueGroup.WHITE, HueGroup.BROWN)
+        return False
+
+    # ── Chromatic / hue-range filters ──
+    # Exclude black and white (hue angle is meaningless for those).
+    # Exclude brown (it has its own dedicated filter so it doesn’t bleed
+    # into Orange / Yellow when users select those ranges).
+    # Include GRAY (muted chromatics) and CHROMATIC if h° is in range.
+    if group in (HueGroup.BLACK, HueGroup.WHITE, HueGroup.BROWN):
+        return False
+    center_hue, hue_range = rv
+    return _hue_in_range(h, center_hue, hue_range)
+
 
 def get_chromatic_hue_range(h: float) -> Optional[Tuple[str, Tuple[float, float]]]:
     """
