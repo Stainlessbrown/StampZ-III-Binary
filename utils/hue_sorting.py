@@ -401,7 +401,7 @@ def _get_hue_group_lch(L: float, C: float, h: float) -> HueGroup:
     - BLACK   : L* < 15
     - WHITE   : L* > 85 and C* < 10
     - GRAY    : C* < 15  (near-neutral, hue meaningless)
-    - BROWN   : warm hue (340°–75°), C* < 45, L* < 70
+    - BROWN   : warm hue (5°–75°), C* < 45, L* < 70
                   catches bistre, sepia, chestnut, ochre
     - CHROMATIC: everything else
     """
@@ -411,8 +411,10 @@ def _get_hue_group_lch(L: float, C: float, h: float) -> HueGroup:
         return HueGroup.WHITE
     if C < 15:
         return HueGroup.GRAY
-    # Brown: warm hue AND moderate chroma AND not too bright
-    if (h < 75 or h > 340) and C < 45 and L < 70:
+    # Brown: warm orange hue (5°-75°), moderate chroma, not too bright.
+    # The 5° lower bound excludes very-red colours; the 75° upper bound
+    # excludes pink/violet hues that wrap back around via h>340°.
+    if 5 < h < 75 and C < 45 and L < 70:
         return HueGroup.BROWN
     return HueGroup.CHROMATIC
 
@@ -458,11 +460,12 @@ def matches_hue_filter_lab(
         return False
 
     # ── Chromatic / hue-range filters ──
-    # Exclude black and white (hue angle is meaningless for those).
-    # Exclude brown (it has its own dedicated filter so it doesn’t bleed
-    # into Orange / Yellow when users select those ranges).
-    # Include GRAY (muted chromatics) and CHROMATIC if h° is in range.
-    if group in (HueGroup.BLACK, HueGroup.WHITE, HueGroup.BROWN):
+    # Exclude only black and white (hue angle is meaningless for those).
+    # BROWN colours appear under their own hue-range filters (e.g. Orange)
+    # AS WELL AS under the dedicated ‘Brown’ filter, so stamp libraries full
+    # of muted/dark warm tones are not silently hidden.
+    # GRAY (muted chromatics) is also included by hue angle.
+    if group in (HueGroup.BLACK, HueGroup.WHITE):
         return False
     center_hue, hue_range = rv
     return _hue_in_range(h, center_hue, hue_range)
