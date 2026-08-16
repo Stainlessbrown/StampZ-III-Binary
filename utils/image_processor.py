@@ -16,6 +16,16 @@ try:
 except ImportError:
     HAS_16BIT_LOADER = False
 
+# Camera RAW support via rawpy (wraps LibRaw)
+try:
+    import rawpy
+    HAS_RAWPY = True
+except ImportError:
+    HAS_RAWPY = False
+
+# Supported camera RAW extensions
+RAW_EXTENSIONS = {'.cr3', '.cr2', '.nef', '.arw', '.orf', '.rw2', '.dng'}
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -54,10 +64,49 @@ def load_image(file_path: Union[str, Path]) -> Tuple[Image.Image, dict]:
         file_path = Path(file_path)
         if not file_path.exists():
             raise ImageLoadError(f"File not found: {file_path}")
-            
-        if file_path.suffix.lower() not in ['.jpg', '.jpeg', '.png', '.tif', '.tiff']:
+
+        suffix = file_path.suffix.lower()
+        supported = {'.jpg', '.jpeg', '.png', '.tif', '.tiff'} | RAW_EXTENSIONS
+        if suffix not in supported:
             raise ImageLoadError(f"Unsupported file format: {file_path.suffix}")
-        
+
+        # ── Camera RAW files (CR3, CR2, NEF, ARW …) ────────────────────
+        if suffix in RAW_EXTENSIONS:
+            if not HAS_RAWPY:
+                raise ImageLoadError(
+                    "rawpy is required to open camera RAW files. "
+                    "Install it with: pip install rawpy"
+                )
+            try:
+                with rawpy.imread(str(file_path)) as raw:
+                    # Process with controlled settings for colorimetric accuracy:
+                    # • Camera-recorded white balance (consistent with stamp shots)
+                    # • No auto-brightness adjustment
+                    # • 16-bit output, sRGB gamma — matches scanner TIFF pipeline
+                    img_array = raw.postprocess(
+                        use_camera_wb=True,
+                        no_auto_bright=True,
+                        output_bps=16,
+                        gamma=(2.222, 4.5),   # sRGB standard
+                    )
+                # img_array is uint16 RGB (H × W × 3)
+                img_array_8bit = (img_array / 65535.0 * 255.0).astype(np.uint8)
+                image = Image.fromarray(img_array_8bit)
+                image._stampz_16bit_data = img_array
+                image._stampz_source_file = str(file_path)
+                metadata.update({
+                    'format_info': f"Camera RAW ({suffix.upper()}) loaded via rawpy — 16-bit, sRGB",
+                    'precision_preserved': True,
+                    'original_bit_depth': 16,
+                    'samples_per_pixel': 3,
+                    'photometric': 'RGB',
+                    'color_profile': 'sRGB (rawpy postprocess)',
+                })
+                logger.info(f"Loaded camera RAW {suffix.upper()} via rawpy: {file_path}")
+                return image, metadata
+            except Exception as e:
+                raise ImageLoadError(f"Failed to load RAW file {file_path}: {e}")
+
         # Handle TIFF files with 16-bit loader if available
         if file_path.suffix.lower() in ['.tif', '.tiff'] and HAS_16BIT_LOADER:
             try:

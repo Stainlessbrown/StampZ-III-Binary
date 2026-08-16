@@ -102,6 +102,15 @@ try:
 except Exception:
     pass
 
+# Collect rawpy (LibRaw) for camera RAW file support (CR3, CR2, NEF, ARW …)
+try:
+    rawpy_datas, rawpy_binaries, rawpy_hiddenimports = collect_all('rawpy')
+    datas += rawpy_datas
+    binaries += rawpy_binaries
+    hiddenimports += rawpy_hiddenimports
+except Exception:
+    pass
+
 # Add additional hidden imports
 hiddenimports += [
     'initialize_env',  # Critical: Entry point environment setup
@@ -177,6 +186,7 @@ hiddenimports += [
     'openpyxl',
     'tifffile',
     'tksheet',
+    'rawpy',
 ]
 
 # Exclude deprecated pkg_resources runtime hook to avoid dependency issues
