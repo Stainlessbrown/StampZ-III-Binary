@@ -248,8 +248,14 @@ class ColorComparisonManager(tk.Frame):
             self.filename_label.config(text=filename)
             print(f"DEBUG: Updated filename display: {filename}")
             
-            # Load the image (needed for color sampling)
-            self.current_image = Image.open(image_path)
+            # Load via load_image() so format corrections (e.g. VueScan gamma) apply
+            try:
+                from utils.image_processor import load_image as _load_image
+                self.current_image, _meta = _load_image(image_path)
+                print(f"DEBUG: set_analyzed_data (compare) gamma_corrected={_meta.get('linear_gamma_corrected')}")
+            except Exception as _le:
+                print(f"DEBUG: set_analyzed_data (compare) load_image failed ({_le}), using Image.open")
+                self.current_image = Image.open(image_path)
             
             # Create color analyzer
             from utils.color_analyzer import ColorAnalyzer

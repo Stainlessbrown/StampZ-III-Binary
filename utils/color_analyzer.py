@@ -776,9 +776,15 @@ class ColorAnalyzer:
             # before pixel sampling.
             try:
                 from utils.image_processor import load_image as _load_image
-                image, _ = _load_image(image_path)
-            except Exception:
+                image, meta = _load_image(image_path)
+                print(f"DIAG: load_image format_info={meta.get('format_info')}")
+                print(f"DIAG: linear_gamma_corrected={meta.get('linear_gamma_corrected')}")
+            except Exception as _le:
+                print(f"DIAG: load_image failed ({_le}), using Image.open fallback")
                 image = Image.open(image_path)  # fallback
+            import numpy as _np
+            _arr = _np.array(image)
+            print(f"DIAG: image mean pixel={_arr.mean():.1f} (should be >100 if gamma applied)")
             print(f"Loaded image: {image.size[0]}x{image.size[1]} pixels")
             
             # Extract colors using canvas coordinates
