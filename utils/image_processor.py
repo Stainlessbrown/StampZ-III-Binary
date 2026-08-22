@@ -29,6 +29,69 @@ RAW_EXTENSIONS = {'.cr3', '.cr2', '.nef', '.arw', '.orf', '.rw2', '.dng'}
 # Configure logging
 logger = logging.getLogger(__name__)
 
+
+def _apply_srgb_gamma_16bit(arr: np.ndarray) -> np.ndarray:
+    """Convert a linear 16-bit uint16 array to sRGB gamma-encoded uint16.
+
+    VueScan RAW TIFFs with ColorSpace=Uncalibrated store linear sensor
+    values.  The rest of the StampZ pipeline (and the Lab conversion) expect
+    sRGB gamma-encoded values, so we apply the standard IEC 61966-2-1 sRGB
+    transfer function here.
+
+    This is the inverse of the linearisation step inside any RGB→Lab
+    converter, so the resulting Lab values match those from a standard
+    gamma-encoded scan of the same stamp.
+    """
+    norm = arr.astype(np.float64) / 65535.0
+    srgb = np.where(
+        norm <= 0.0031308,
+        12.92 * norm,
+        1.055 * np.power(np.maximum(norm, 1e-12), 1.0 / 2.4) - 0.055,
+    )
+    return (np.clip(srgb, 0.0, 1.0) * 65535.0).astype(np.uint16)
+
+
+def _is_vuescan_linear_tiff(file_path) -> bool:
+    """Return True if this TIFF appears to be a VueScan linear RAW file.
+
+    Checks for three simultaneous conditions that uniquely identify a
+    VueScan 'Uncalibrated' RAW output:
+      • Software TIFF tag contains 'VueScan'
+      • EXIF ColorSpace tag is 0xFFFF (Uncalibrated)
+      • No embedded ICC profile
+    Standard scans (Epson Scan 2, SilverFast, Image Capture) fail at least
+    one of these tests and are left unchanged.
+    """
+    try:
+        import tifffile as _tf
+        with _tf.TiffFile(str(file_path)) as tif:
+            page = tif.pages[0]
+            tags = page.tags
+
+            # Tag 305: Software
+            sw_tag = tags.get(305)
+            software = str(sw_tag.value) if sw_tag is not None else ''
+
+            # Tag 34665: EXIF IFD pointer — tifffile resolves it to a dict
+            # containing the nested EXIF tags including ColorSpace (40961).
+            # ColorSpace values: 1 = sRGB, 65535 (0xFFFF) = Uncalibrated.
+            color_space = None
+            exif_tag = tags.get(34665)
+            if exif_tag is not None:
+                exif_dict = exif_tag.value or {}
+                color_space = exif_dict.get('ColorSpace')
+
+            # Tag 700 / info dict: ICC profile presence
+            has_icc = tags.get(34675) is not None  # Tag 34675 = ICC Profile
+
+            return (
+                'vuescan' in software.lower()
+                and color_space == 65535
+                and not has_icc
+            )
+    except Exception:
+        return False
+
 class ImageLoadError(Exception):
     """Exception raised when image loading fails."""
     pass
@@ -125,11 +188,24 @@ def load_image(file_path: Union[str, Path]) -> Tuple[Image.Image, dict]:
                 
                 # Convert numpy array to PIL Image
                 if tiff_metadata.get('true_16bit', False):
-                    # For 16-bit data, we need to scale down to 8-bit for display
-                    # but preserve the original 16-bit data as an attribute
+                    # Detect VueScan linear RAW and apply sRGB gamma so the
+                    # rest of the pipeline (Lab conversion, calibration) sees
+                    # correctly gamma-encoded values.
+                    is_linear = _is_vuescan_linear_tiff(file_path)
+                    if is_linear:
+                        img_array = _apply_srgb_gamma_16bit(img_array)
+                        metadata['format_info'] = (
+                            "VueScan linear RAW TIFF — sRGB gamma applied "
+                            "(Uncalibrated → sRGB)"
+                        )
+                        metadata['linear_gamma_corrected'] = True
+                        logger.info(f"VueScan linear RAW detected, sRGB gamma applied: {file_path}")
+                    else:
+                        metadata['linear_gamma_corrected'] = False
+
+                    # Scale to 8-bit for display; preserve 16-bit for analysis
                     img_array_8bit = (img_array / 65535.0 * 255.0).astype(np.uint8)
                     image = Image.fromarray(img_array_8bit)
-                    # Attach the original 16-bit data for use in rotation/save operations
                     image._stampz_16bit_data = img_array
                     image._stampz_source_file = str(file_path)
                     logger.info(f"Loaded 16-bit TIFF with full precision, attached _stampz_16bit_data: {file_path}")
