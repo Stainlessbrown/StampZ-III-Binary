@@ -58,43 +58,67 @@ def apply_calibration_to_rgb(rgb: Tuple[float, float, float]) -> Tuple[float, fl
     return rgb
 
 
-# Patch layout for the StampZ calibration target (v2.0 — 3×4 grid)
-# Maps grid position (row, col) in the scanned image to (name, digital_rgb)
-# Target is oriented with Black at top-left when scanned
-# 12 cells: 11 unique colors + 1 duplicate White
+# Patch layout for the StampZ calibration target (v3.0 — 4×5 grid, 20 patches)
+# Maps grid position (row, col) to (name, approximate_display_rgb).
+# Black patch must be at top-left when the target is scanned / photographed.
 #
-# RGB values derived from spectrometer-measured L*a*b* (June 2026).
-# These are the ACTUAL printed colors, not the design-intended values.
+# Approximate RGB values are derived from the spectrometer Lab readings below
+# and are used only for display and initial ΔE estimation.  The Lab values in
+# PATCH_LAB are the authoritative ground-truth for calibration quality metrics.
+#
+# Spectrometer measurements: August 2026.
 PATCH_MAP = {
-    (0, 0): ("Black",         (0x00, 0x00, 0x00)),
-    (0, 1): ("Rose",          (0xd1, 0x00, 0x6d)),
-    (0, 2): ("Light Gray",    (0xc4, 0xc3, 0xbb)),
-    (1, 0): ("Buff",          (0xf0, 0xdb, 0xbb)),
-    (1, 1): ("White",         (0xf1, 0xf0, 0xe7)),
-    (1, 2): ("Violet",        (0x9a, 0x86, 0xcd)),
-    (2, 0): ("Brown",         (0x87, 0x32, 0x00)),
-    (2, 1): ("White 2",       (0xf1, 0xf0, 0xe7)),
-    (2, 2): ("Lavender",      (0xc8, 0xab, 0xd9)),
-    (3, 0): ("Red",           (0xd4, 0x00, 0x00)),
-    (3, 1): ("Magenta",       (0xc0, 0x00, 0x6d)),
-    (3, 2): ("Dark Green",    (0x00, 0x54, 0x00)),
+    # Row 0 — neutrals
+    (0, 0): ("Black",        ( 0,   0,   0)),
+    (0, 1): ("25% Gray",     (53,  53,  57)),
+    (0, 2): ("50% Gray",     (112, 113, 117)),
+    (0, 3): ("75% Gray",     (179, 180, 179)),
+    # Row 1 — light tones
+    (1, 0): ("White",        (236, 238, 244)),
+    (1, 1): ("Buff",         (218, 214, 201)),
+    (1, 2): ("Brown",        (126,  70,  15)),
+    (1, 3): ("Orange",       (185, 103,  15)),
+    # Row 2 — reds / pinks / blue
+    (2, 0): ("Red",          (197,  12,   0)),
+    (2, 1): ("Rose",         (208,   0, 100)),
+    (2, 2): ("Fuschia",      (193,   0, 105)),
+    (2, 3): ("Blue",         ( 89, 135, 185)),
+    # Row 3 — violets / greens / yellow
+    (3, 0): ("Violet",       (151, 140, 215)),
+    (3, 1): ("Mauve",        (190, 172, 220)),
+    (3, 2): ("Green",        ( 37,  99,  24)),
+    (3, 3): ("Yellow",       (172, 169,  85)),
+    # Row 4 — deep blues / warm tones / green
+    (4, 0): ("Ultramarine",  ( 32,  52, 134)),
+    (4, 1): ("Bronz",        (160, 116,  54)),
+    (4, 2): ("Cyan/Teal",    ( 70, 148, 163)),
+    (4, 3): ("Yellow-Green", ( 62, 180,  44)),
 }
 
-# Spectrometer-measured L*a*b* reference values for each patch.
-# Primary ground-truth data; RGB above is derived from these.
+# Spectrometer-measured L*a*b* reference values — scanner target print.
+# These are the ACTUAL printed Lab values, not the Scribus design intent.
+# Measured August 2026 with contact spectrometer.
 PATCH_LAB = {
-    "Black":      (0.00,    0.00,    0.00),
-    "Rose":       (44.55,  75.41,   -0.64),
-    "Light Gray": (78.87,  -1.26,    4.08),
-    "Buff":       (88.40,   2.51,   18.33),
-    "White":      (94.91,  -1.54,    4.39),
-    "Violet":     (60.37,  22.70,  -33.87),
-    "Brown":      (32.84,  33.64,   56.43),
-    "White 2":    (94.91,  -1.54,    4.39),
-    "Lavender":   (74.09,  18.86,  -19.28),
-    "Red":        (44.07,  70.10,   75.75),
-    "Magenta":    (40.86,  72.68,   -6.50),
-    "Dark Green": (30.25, -40.78,   42.00),
+    "Black":        ( 0.00,   0.00,   0.00),
+    "25% Gray":     (23.53,   0.51,  -1.10),
+    "50% Gray":     (45.79,  -0.03,  -1.38),
+    "75% Gray":     (69.65,  -0.68,   0.06),
+    "White":        (93.70,  -1.67,  -3.86),
+    "Buff":         (86.02,   2.81,   9.59),
+    "Brown":        (35.38,  25.35,  44.05),
+    "Orange":       (52.55,  36.68,  55.01),
+    "Red":          (42.77,  67.04,  59.57),
+    "Rose":         (44.95,  73.40,  -6.00),
+    "Fuschia":      (41.10,  69.82,  -9.63),
+    "Blue":         (52.91,  -4.39, -32.17),
+    "Violet":       (61.80,  22.11, -36.57),
+    "Mauve":        (72.52,  18.15, -25.06),
+    "Green":        (34.45, -29.08,  40.05),
+    "Yellow":       (67.95,  -0.35,  50.27),
+    "Ultramarine":  (29.57,  14.09, -38.28),
+    "Bronz":        (54.10,  17.91,  39.98),
+    "Cyan/Teal":    (54.88, -24.77, -11.51),
+    "Yellow-Green": (66.88, -53.28,  58.60),
 }
 
 # Ordered list of patch names for consistent iteration
@@ -151,9 +175,9 @@ class ScannerCalibration:
             logger.error(f"Failed to load reference data: {e}")
             return False
     
-    # Expected grid dimensions
-    GRID_COLS = 3
-    GRID_ROWS = 4
+    # Expected grid dimensions (4 columns × 5 rows = 20 patches)
+    GRID_COLS = 4
+    GRID_ROWS = 5
     
     def detect_patches(self, image_path: str) -> List[PatchResult]:
         """Auto-detect the color patches from a scanned target image.
