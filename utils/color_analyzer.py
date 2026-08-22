@@ -839,8 +839,12 @@ class ColorAnalyzer:
             List of ColorMeasurement objects, or None if failed
         """
         try:
-            # Load image
-            image = Image.open(image_path)
+            # Load via load_image() so format corrections (e.g. VueScan gamma) apply
+            try:
+                from utils.image_processor import load_image as _load_image
+                image, _ = _load_image(image_path)
+            except Exception:
+                image = Image.open(image_path)
             print(f"Loaded image: {image.size[0]}x{image.size[1]} pixels")
             
             # Extract colors
