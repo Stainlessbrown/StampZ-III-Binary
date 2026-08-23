@@ -189,7 +189,15 @@ class ScannerCalibration:
             List of PatchResult objects with scanned RGB values
         """
         try:
-            img = Image.open(image_path)
+            # Use load_image() so format corrections (e.g. VueScan sRGB gamma)
+            # are applied before patch detection and colour sampling.
+            try:
+                from .image_processor import load_image as _load_image
+                img, _meta = _load_image(image_path)
+                logger.info(f"detect_patches: gamma_corrected={_meta.get('linear_gamma_corrected')}")
+            except Exception as _le:
+                logger.warning(f"detect_patches: load_image failed ({_le}), using Image.open")
+                img = Image.open(image_path)
             arr = np.array(img)
             if arr.ndim == 2:
                 # Grayscale — can't calibrate
