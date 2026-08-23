@@ -60,22 +60,29 @@ class ColorAnalyzer:
         self.print_type = print_type
     
     def rgb_to_lab(self, rgb: Tuple[float, float, float]) -> Tuple[float, float, float]:
-        """Convert RGB to CIE L*a*b* color space.
+        """Convert RGB to CIE L*a*b* color space, applying active calibration matrix.
         
         Args:
             rgb: RGB values as (r, g, b) floats 0-255
             
         Returns:
-            L*a*b* values as (L, a, b) floats
+            L*a*b* values as (L, a, b) floats, corrected by the active
+            calibration Lab affine matrix when one is available.
         """
         if HAS_COLORSPACIOUS:
-            # Use precise conversion via colorspacious
             rgb_float = [c/255.0 for c in rgb]
-            lab = cspace_convert(rgb_float, "sRGB1", "CIELab")
-            return tuple(lab)
+            lab = tuple(cspace_convert(rgb_float, "sRGB1", "CIELab"))
         else:
-            # Use approximation if colorspacious not available
-            return self._rgb_to_lab_approximation(rgb)
+            lab = self._rgb_to_lab_approximation(rgb)
+
+        # Apply scanner calibration Lab-space correction matrix if active
+        try:
+            from utils.scanner_calibration import apply_lab_calibration
+            lab = apply_lab_calibration(lab)
+        except Exception:
+            pass
+
+        return lab
     
     def _rgb_to_lab_approximation(self, rgb: Tuple[float, float, float]) -> Tuple[float, float, float]:
         """Approximate RGB to L*a*b* conversion.
@@ -777,14 +784,8 @@ class ColorAnalyzer:
             try:
                 from utils.image_processor import load_image as _load_image
                 image, meta = _load_image(image_path)
-                print(f"DIAG: load_image format_info={meta.get('format_info')}")
-                print(f"DIAG: linear_gamma_corrected={meta.get('linear_gamma_corrected')}")
             except Exception as _le:
-                print(f"DIAG: load_image failed ({_le}), using Image.open fallback")
                 image = Image.open(image_path)  # fallback
-            import numpy as _np
-            _arr = _np.array(image)
-            print(f"DIAG: image mean pixel={_arr.mean():.1f} (should be >100 if gamma applied)")
             print(f"Loaded image: {image.size[0]}x{image.size[1]} pixels")
             
             # Extract colors using canvas coordinates

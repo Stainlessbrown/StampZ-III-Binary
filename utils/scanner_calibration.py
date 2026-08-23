@@ -58,6 +58,21 @@ def apply_calibration_to_rgb(rgb: Tuple[float, float, float]) -> Tuple[float, fl
     return rgb
 
 
+def apply_lab_calibration(
+    lab: Tuple[float, float, float]
+) -> Tuple[float, float, float]:
+    """Apply the active calibration’s Lab affine matrix to a (L*, a*, b*) tuple.
+
+    Call this immediately after any sRGB→Lab conversion to correct
+    scanner-specific colour-matrix errors that per-channel RGB correction
+    cannot fix.  Returns the tuple unchanged when no calibration is active
+    or no Lab matrix has been derived.
+    """
+    if _active_calibration and _active_calibration.is_valid:
+        return _active_calibration.apply_lab_correction(lab)
+    return lab
+
+
 # Patch layout for the StampZ calibration target (v3.0 — 4×5 grid, 20 patches)
 # Maps grid position (row, col) to (name, approximate_display_rgb).
 # Black patch must be at top-left when the target is scanned / photographed.
@@ -340,6 +355,29 @@ class ScannerCalibration:
         
         self.correction_coefficients = coefficients
         self.correction_order = 1
+
+        # ── Derive Lab affine correction matrix ───────────────────────────
+        # A 4×3 affine matrix maps (L*, a*, b*, 1) → (L*', a*', b*') in Lab
+        # space, correcting cross-channel colour-matrix errors that the
+        # per-channel RGB polynomial cannot reach.
+        self.lab_matrix: Optional[list] = None
+        try:
+            from colorspacious import cspace_convert as _csc
+            sl = np.array([
+                _csc(np.array(p.scanned_rgb) / 255.0, 'sRGB1', 'CIELab')
+                for p in fit_patches
+            ])
+            rl = np.array([PATCH_LAB[p.name] for p in fit_patches
+                           if p.name in PATCH_LAB])
+            if len(sl) == len(rl) and len(sl) >= 4:
+                X_lab = np.hstack([sl, np.ones((len(sl), 1))])
+                M, _, _, _ = np.linalg.lstsq(X_lab, rl, rcond=None)
+                self.lab_matrix = M.tolist()   # 4×3, stored as list-of-lists
+                logger.info("Lab affine matrix derived from "
+                            f"{len(sl)} patches")
+        except Exception as _e:
+            logger.warning(f"Lab matrix derivation failed: {_e}")
+
         self.is_valid = True
         self.created_date = datetime.now().isoformat()
         
@@ -440,13 +478,14 @@ class ScannerCalibration:
         self.scanner_info = scanner_info
         
         profile = {
-            'version': '1.1',
+            'version': '1.2',
             'type': 'StampZ Scanner Calibration Profile',
             'correction_order': getattr(self, 'correction_order', 2),
             'profile_name': self.profile_name,
             'scanner_info': self.scanner_info,
             'created_date': self.created_date,
             'correction_coefficients': self.correction_coefficients,
+            'lab_matrix': getattr(self, 'lab_matrix', None),
             'patch_results': [
                 {
                     'name': p.name,
@@ -485,6 +524,7 @@ class ScannerCalibration:
                 profile = json.load(f)
             
             self.correction_coefficients = profile['correction_coefficients']
+            self.lab_matrix = profile.get('lab_matrix', None)
             self.profile_name = profile.get('profile_name', '')
             self.scanner_info = profile.get('scanner_info', '')
             self.created_date = profile.get('created_date', '')
@@ -512,6 +552,20 @@ class ScannerCalibration:
             self.is_valid = False
             return False
     
+    def apply_lab_correction(
+        self, lab: Tuple[float, float, float]
+    ) -> Tuple[float, float, float]:
+        """Apply the Lab affine matrix to a (L*, a*, b*) tuple.
+
+        Returns the tuple unchanged if no matrix has been derived or loaded.
+        """
+        if not getattr(self, 'lab_matrix', None):
+            return lab
+        M = np.array(self.lab_matrix)          # shape (4, 3)
+        v = np.array([lab[0], lab[1], lab[2], 1.0])
+        corrected = v @ M                       # shape (3,)
+        return (float(corrected[0]), float(corrected[1]), float(corrected[2]))
+
     def get_calibration_quality(self) -> Optional[Dict[str, Any]]:
         """Get quality metrics for the current calibration.
         
