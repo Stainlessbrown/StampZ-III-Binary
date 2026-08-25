@@ -543,7 +543,9 @@ class ColorComparisonManager(tk.Frame):
         count = len(enabled_samples)
         
         avg_rgb = (total_r/count, total_g/count, total_b/count)
-        avg_lab = self.library.rgb_to_lab(avg_rgb)
+        # Use calibrated converter so the active scanner calibration matrix is applied
+        from utils.color_analyzer import ColorAnalyzer as _CA
+        avg_lab = _CA().rgb_to_lab(avg_rgb)
         
         # Clear previous matches
         for widget in self.matches_frame.winfo_children():

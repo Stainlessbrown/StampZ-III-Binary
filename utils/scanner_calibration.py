@@ -303,7 +303,9 @@ class ScannerCalibration:
     # Patches above this threshold are outside the printer's reproducible gamut
     # and would skew the correction model. They are still detected and displayed
     # but do not influence the correction coefficients.
-    GAMUT_THRESHOLD = 50.0
+    # Set to 60 to capture near-gamut reds (ΔE ~52) that would otherwise
+    # leave the red region without a calibration anchor point.
+    GAMUT_THRESHOLD = 60.0
     
     def compute_correction(self) -> Dict[str, Any]:
         """Compute per-channel linear correction from detected patches.

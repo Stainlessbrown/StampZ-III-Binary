@@ -290,8 +290,7 @@ class SampleResultsManager(tk.Frame):
             rgb_values = []
             for s in group_samples:
                 rgb = s['rgb']
-                lab = (self.library.rgb_to_lab(rgb)
-                       if self.library else analyzer.rgb_to_lab(rgb))
+                lab = analyzer.rgb_to_lab(rgb)  # always use calibrated converter
                 lab_values.append(lab)
                 rgb_values.append(rgb)
             if not lab_values:
@@ -333,7 +332,7 @@ class SampleResultsManager(tk.Frame):
             rgb = sample['rgb']
             rgb_stddev = sample.get('rgb_stddev', None)
             lab_stddev = sample.get('lab_stddev', None)
-            lab = self.library.rgb_to_lab(rgb) if self.library else None
+            lab = analyzer.rgb_to_lab(rgb)  # always use calibrated converter
             
             top_text = get_conditional_color_values_text(rgb, lab, compact=True)
 
@@ -484,8 +483,7 @@ class SampleResultsManager(tk.Frame):
         rgb_values = []
         for sample in samples:
             rgb = sample['rgb']
-            lab = (self.library.rgb_to_lab(rgb)
-                   if self.library else analyzer.rgb_to_lab(rgb))
+            lab = analyzer.rgb_to_lab(rgb)  # always use calibrated converter
             lab_values.append(lab)
             rgb_values.append(rgb)
         
