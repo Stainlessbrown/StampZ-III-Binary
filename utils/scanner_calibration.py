@@ -73,23 +73,6 @@ def apply_lab_calibration(
     return lab
 
 
-def apply_direct_calibration(
-    rgb: Tuple[float, float, float]
-) -> Optional[Tuple[float, float, float]]:
-    """Apply the direct RGB→Lab matrix if one has been derived.
-
-    This single-step approach maps scanner RGB directly to corrected Lab
-    without an intermediate sRGB→Lab conversion, eliminating cross-channel
-    errors that arise from correcting R, G, B independently.
-
-    Returns None if no direct matrix is available (caller should fall back
-    to the standard pipeline + Lab affine matrix).
-    """
-    if _active_calibration and _active_calibration.is_valid:
-        return _active_calibration.apply_direct_rgb_to_lab(rgb)
-    return None
-
-
 # Patch layout for the StampZ calibration target (v3.0 — 4×5 grid, 20 patches)
 # Maps grid position (row, col) to (name, approximate_display_rgb).
 # Black patch must be at top-left when the target is scanned / photographed.
@@ -303,10 +286,26 @@ class ScannerCalibration:
                         digital_rgb=digital_rgb,
                         scanned_rgb=(float(mean_rgb[0]), float(mean_rgb[1]), float(mean_rgb[2])),
                     )
-                    # Calculate pre-correction ΔE
-                    result.delta_e_before = self._delta_e_rgb(
-                        result.scanned_rgb, result.digital_rgb
-                    )
+                    # Calculate pre-correction ΔE using perceptual Lab distance
+                    # against spectrometer reference (PATCH_LAB) when available.
+                    # Previously used Euclidean RGB distance vs approximate
+                    # digital_rgb, which over-excluded Red (Euclidean RGB ~60
+                    # even though perceptual ΔE vs spectrometer was only ~17).
+                    if name in PATCH_LAB:
+                        try:
+                            from colorspacious import cspace_convert as _csc
+                            sl = _csc(mean_rgb / 255.0, 'sRGB1', 'CIELab')
+                            ref = np.array(PATCH_LAB[name])
+                            diff = sl - ref
+                            result.delta_e_before = float(np.sqrt(np.dot(diff, diff)))
+                        except Exception:
+                            result.delta_e_before = self._delta_e_rgb(
+                                result.scanned_rgb, result.digital_rgb
+                            )
+                    else:
+                        result.delta_e_before = self._delta_e_rgb(
+                            result.scanned_rgb, result.digital_rgb
+                        )
                     self.patch_results.append(result)
             
             logger.info(f"Detected {len(self.patch_results)} patches from {image_path}")
@@ -320,9 +319,10 @@ class ScannerCalibration:
     # Patches above this threshold are outside the printer's reproducible gamut
     # and would skew the correction model. They are still detected and displayed
     # but do not influence the correction coefficients.
-    # Set to 60 to capture near-gamut reds (ΔE ~52) that would otherwise
-    # leave the red region without a calibration anchor point.
-    GAMUT_THRESHOLD = 60.0
+    # Red (ΔE ~52) is intentionally excluded: including it distorts the matrix
+    # for neutrals and near-neutral patches. Red stamp accuracy is limited by
+    # the scanner's gamut and cannot be fixed with a linear matrix.
+    GAMUT_THRESHOLD = 50.0
     
     def compute_correction(self) -> Dict[str, Any]:
         """Compute per-channel linear correction from detected patches.
@@ -375,7 +375,10 @@ class ScannerCalibration:
         self.correction_coefficients = coefficients
         self.correction_order = 1
 
-        # ── Derive Lab affine correction matrix (legacy two-step approach) ───
+        # ── Derive Lab affine correction matrix ───────────────────────────
+        # A 4×3 affine matrix maps (L*, a*, b*, 1) → (L*', a*', b*') in Lab
+        # space, correcting cross-channel colour-matrix errors that the
+        # per-channel RGB polynomial cannot reach.
         self.lab_matrix: Optional[list] = None
         try:
             from colorspacious import cspace_convert as _csc
@@ -388,30 +391,11 @@ class ScannerCalibration:
             if len(sl) == len(rl) and len(sl) >= 4:
                 X_lab = np.hstack([sl, np.ones((len(sl), 1))])
                 M, _, _, _ = np.linalg.lstsq(X_lab, rl, rcond=None)
-                self.lab_matrix = M.tolist()
-                logger.info(f"Lab affine matrix derived from {len(sl)} patches")
+                self.lab_matrix = M.tolist()   # 4×3, stored as list-of-lists
+                logger.info("Lab affine matrix derived from "
+                            f"{len(sl)} patches")
         except Exception as _e:
             logger.warning(f"Lab matrix derivation failed: {_e}")
-
-        # ── Derive direct RGB→Lab matrix (associate’s single-step approach) ──
-        # Maps [R/255, G/255, B/255, 1] → [L*, a*, b*] directly from the
-        # calibration data, handling cross-channel interactions without an
-        # intermediate sRGB→Lab conversion.  This is the primary correction
-        # method; the Lab affine matrix above is kept as fallback for older
-        # profiles that pre-date this improvement.
-        self.direct_rgb_lab_matrix: Optional[list] = None
-        try:
-            scanned_norm = np.array([p.scanned_rgb for p in fit_patches]) / 255.0
-            ref_lab = np.array([PATCH_LAB[p.name] for p in fit_patches
-                                if p.name in PATCH_LAB])
-            if len(scanned_norm) == len(ref_lab) and len(scanned_norm) >= 4:
-                X_rgb = np.hstack([scanned_norm, np.ones((len(scanned_norm), 1))])
-                M_direct, _, _, _ = np.linalg.lstsq(X_rgb, ref_lab, rcond=None)
-                self.direct_rgb_lab_matrix = M_direct.tolist()   # 4×3
-                logger.info(f"Direct RGB→Lab matrix derived from "
-                            f"{len(scanned_norm)} patches")
-        except Exception as _e:
-            logger.warning(f"Direct RGB→Lab matrix derivation failed: {_e}")
 
         self.is_valid = True
         self.created_date = datetime.now().isoformat()
@@ -521,7 +505,6 @@ class ScannerCalibration:
             'created_date': self.created_date,
             'correction_coefficients': self.correction_coefficients,
             'lab_matrix': getattr(self, 'lab_matrix', None),
-            'direct_rgb_lab_matrix': getattr(self, 'direct_rgb_lab_matrix', None),
             'patch_results': [
                 {
                     'name': p.name,
@@ -561,7 +544,6 @@ class ScannerCalibration:
             
             self.correction_coefficients = profile['correction_coefficients']
             self.lab_matrix = profile.get('lab_matrix', None)
-            self.direct_rgb_lab_matrix = profile.get('direct_rgb_lab_matrix', None)
             self.profile_name = profile.get('profile_name', '')
             self.scanner_info = profile.get('scanner_info', '')
             self.created_date = profile.get('created_date', '')
@@ -601,29 +583,7 @@ class ScannerCalibration:
         M = np.array(self.lab_matrix)          # shape (4, 3)
         v = np.array([lab[0], lab[1], lab[2], 1.0])
         corrected = v @ M                       # shape (3,)
-        # Clamp L* to valid range — matrix extrapolation can produce negative
-        # L* for very dark areas, which causes colorspacious CAM02-UCS errors.
-        return (max(0.0, min(100.0, float(corrected[0]))),
-                float(corrected[1]), float(corrected[2]))
-
-    def apply_direct_rgb_to_lab(
-        self, rgb: Tuple[float, float, float]
-    ) -> Optional[Tuple[float, float, float]]:
-        """Apply the direct RGB→Lab matrix to a (R, G, B) 0-255 tuple.
-
-        Returns None if no direct matrix has been derived or loaded, so
-        the caller can fall back to the standard pipeline.
-        """
-        if not getattr(self, 'direct_rgb_lab_matrix', None):
-            return None
-        M = np.array(self.direct_rgb_lab_matrix)  # shape (4, 3)
-        r, g, b = rgb
-        v = np.array([r / 255.0, g / 255.0, b / 255.0, 1.0])
-        corrected = v @ M                           # shape (3,)
-        # Clamp L* to valid range — matrix extrapolation can produce negative
-        # L* for very dark areas, which causes colorspacious CAM02-UCS errors.
-        return (max(0.0, min(100.0, float(corrected[0]))),
-                float(corrected[1]), float(corrected[2]))
+        return (float(corrected[0]), float(corrected[1]), float(corrected[2]))
 
     def get_calibration_quality(self) -> Optional[Dict[str, Any]]:
         """Get quality metrics for the current calibration.
