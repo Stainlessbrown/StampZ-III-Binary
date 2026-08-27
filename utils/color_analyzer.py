@@ -60,22 +60,34 @@ class ColorAnalyzer:
         self.print_type = print_type
     
     def rgb_to_lab(self, rgb: Tuple[float, float, float]) -> Tuple[float, float, float]:
-        """Convert RGB to CIE L*a*b* color space, applying active calibration matrix.
-        
+        """Convert RGB to CIE L*a*b* color space, applying active calibration.
+
+        Uses the direct RGB→Lab calibration matrix when available (single-step,
+        cross-channel correction).  Falls back to the standard sRGB→Lab
+        conversion followed by the Lab affine matrix for older profiles.
+
         Args:
             rgb: RGB values as (r, g, b) floats 0-255
-            
+
         Returns:
-            L*a*b* values as (L, a, b) floats, corrected by the active
-            calibration Lab affine matrix when one is available.
+            L*a*b* values as (L, a, b) floats, calibration-corrected when active.
         """
+        # Primary: direct RGB→Lab matrix (handles cross-channel in one step)
+        try:
+            from utils.scanner_calibration import apply_direct_calibration
+            result = apply_direct_calibration(rgb)
+            if result is not None:
+                return result
+        except Exception:
+            pass
+
+        # Fallback: standard sRGB→Lab + Lab affine matrix
         if HAS_COLORSPACIOUS:
             rgb_float = [c/255.0 for c in rgb]
             lab = tuple(cspace_convert(rgb_float, "sRGB1", "CIELab"))
         else:
             lab = self._rgb_to_lab_approximation(rgb)
 
-        # Apply scanner calibration Lab-space correction matrix if active
         try:
             from utils.scanner_calibration import apply_lab_calibration
             lab = apply_lab_calibration(lab)
