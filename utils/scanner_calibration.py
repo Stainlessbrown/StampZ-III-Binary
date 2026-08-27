@@ -63,14 +63,25 @@ def apply_lab_calibration(
 ) -> Tuple[float, float, float]:
     """Apply the active calibration’s Lab affine matrix to a (L*, a*, b*) tuple.
 
-    Call this immediately after any sRGB→Lab conversion to correct
-    scanner-specific colour-matrix errors that per-channel RGB correction
-    cannot fix.  Returns the tuple unchanged when no calibration is active
-    or no Lab matrix has been derived.
+    Retained for backward compatibility. TPS correction is preferred when
+    available — call apply_tps_calibration() first.
     """
     if _active_calibration and _active_calibration.is_valid:
         return _active_calibration.apply_lab_correction(lab)
     return lab
+
+
+def apply_tps_calibration(
+    lab: Tuple[float, float, float]
+) -> Optional[Tuple[float, float, float]]:
+    """Apply the active calibration’s Thin-Plate Spline model to a Lab tuple.
+
+    Returns corrected (L*, a*, b*) when a TPS model is available, or
+    None if no model has been fitted (caller should use uncalibrated Lab).
+    """
+    if _active_calibration and _active_calibration.is_valid:
+        return _active_calibration.apply_tps_correction(lab)
+    return None
 
 
 # Patch layout for the StampZ calibration target (v3.0 — 4×5 grid, 20 patches)
@@ -375,10 +386,7 @@ class ScannerCalibration:
         self.correction_coefficients = coefficients
         self.correction_order = 1
 
-        # ── Derive Lab affine correction matrix ───────────────────────────
-        # A 4×3 affine matrix maps (L*, a*, b*, 1) → (L*', a*', b*') in Lab
-        # space, correcting cross-channel colour-matrix errors that the
-        # per-channel RGB polynomial cannot reach.
+        # ── Derive Lab affine matrix (retained for legacy profiles) ─────────
         self.lab_matrix: Optional[list] = None
         try:
             from colorspacious import cspace_convert as _csc
@@ -391,11 +399,68 @@ class ScannerCalibration:
             if len(sl) == len(rl) and len(sl) >= 4:
                 X_lab = np.hstack([sl, np.ones((len(sl), 1))])
                 M, _, _, _ = np.linalg.lstsq(X_lab, rl, rcond=None)
-                self.lab_matrix = M.tolist()   # 4×3, stored as list-of-lists
-                logger.info("Lab affine matrix derived from "
-                            f"{len(sl)} patches")
+                self.lab_matrix = M.tolist()
         except Exception as _e:
             logger.warning(f"Lab matrix derivation failed: {_e}")
+
+        # ── Derive Thin-Plate Spline (TPS) correction ─────────────────────
+        # TPS interpolates locally: accurate patches receive near-zero
+        # correction while poorly-fitting patches receive larger corrections,
+        # without the global distortions of a linear affine matrix.
+        # Inputs normalised: L÷100, a÷128, b÷128 for equal axis weighting.
+        # Leave-one-out cross-validation gives an honest per-patch ΔE.
+        self.tps_data: Optional[dict] = None
+        self._tps_models = None          # in-memory only, re-fitted on load
+        self.tps_loo_errors: Optional[list] = None
+        try:
+            from colorspacious import cspace_convert as _csc
+            scanner_labs = np.array([
+                _csc(np.array(p.scanned_rgb) / 255.0, 'sRGB1', 'CIELab')
+                for p in fit_patches if p.name in PATCH_LAB
+            ])
+            ref_labs = np.array([
+                PATCH_LAB[p.name]
+                for p in fit_patches if p.name in PATCH_LAB
+            ])
+            patch_names_tps = [
+                p.name for p in fit_patches if p.name in PATCH_LAB
+            ]
+            if len(scanner_labs) >= 4:
+                norm_scale = np.array([100.0, 128.0, 128.0])
+                X = scanner_labs / norm_scale
+                Y = ref_labs / norm_scale
+                models = self._fit_tps_models(X, Y)
+                if models is not None:
+                    self._tps_models = models
+                    self.tps_data = {
+                        'scanner_labs': scanner_labs.tolist(),
+                        'ref_labs': ref_labs.tolist(),
+                        'norm_scale': norm_scale.tolist(),
+                        'patch_names': patch_names_tps,
+                    }
+                    # Leave-one-out cross-validation
+                    loo = []
+                    for i in range(len(X)):
+                        Xi = np.delete(X, i, axis=0)
+                        Yi = np.delete(Y, i, axis=0)
+                        loo_models = self._fit_tps_models(Xi, Yi)
+                        if loo_models is not None:
+                            pred = np.array([
+                                float(loo_models[d](X[i:i+1, :])[0]) * norm_scale[d]
+                                for d in range(3)
+                            ])
+                            ref = ref_labs[i]
+                            de = float(np.sqrt(np.sum((pred - ref) ** 2)))
+                        else:
+                            de = float('nan')
+                        loo.append({'patch': patch_names_tps[i], 'delta_e_loo': round(de, 2)})
+                    self.tps_loo_errors = loo
+                    mean_loo = np.mean([e['delta_e_loo'] for e in loo
+                                        if not np.isnan(e['delta_e_loo'])])
+                    logger.info(f"TPS fitted ({len(X)} patches), "
+                                f"leave-one-out mean ΔE = {mean_loo:.2f}")
+        except Exception as _e:
+            logger.warning(f"TPS fitting failed: {_e}")
 
         self.is_valid = True
         self.created_date = datetime.now().isoformat()
@@ -505,6 +570,8 @@ class ScannerCalibration:
             'created_date': self.created_date,
             'correction_coefficients': self.correction_coefficients,
             'lab_matrix': getattr(self, 'lab_matrix', None),
+            'tps_data': getattr(self, 'tps_data', None),
+            'tps_loo_errors': getattr(self, 'tps_loo_errors', None),
             'patch_results': [
                 {
                     'name': p.name,
@@ -544,6 +611,18 @@ class ScannerCalibration:
             
             self.correction_coefficients = profile['correction_coefficients']
             self.lab_matrix = profile.get('lab_matrix', None)
+            self.tps_data = profile.get('tps_data', None)
+            self.tps_loo_errors = profile.get('tps_loo_errors', None)
+            self._tps_models = None
+            # Re-fit TPS models from stored training data
+            if self.tps_data:
+                try:
+                    norm_scale = np.array(self.tps_data['norm_scale'])
+                    X = np.array(self.tps_data['scanner_labs']) / norm_scale
+                    Y = np.array(self.tps_data['ref_labs']) / norm_scale
+                    self._tps_models = self._fit_tps_models(X, Y)
+                except Exception as _e:
+                    logger.warning(f"TPS model re-fit on load failed: {_e}")
             self.profile_name = profile.get('profile_name', '')
             self.scanner_info = profile.get('scanner_info', '')
             self.created_date = profile.get('created_date', '')
@@ -571,6 +650,57 @@ class ScannerCalibration:
             self.is_valid = False
             return False
     
+    @staticmethod
+    def _fit_tps_models(X: np.ndarray, Y: np.ndarray):
+        """Fit 3 Thin-Plate Spline RBF models (one per Lab output channel).
+
+        Args:
+            X: (N, 3) normalised scanner Lab values
+            Y: (N, 3) normalised reference Lab values
+
+        Returns:
+            List of 3 fitted RBFInterpolant objects, or None if unavailable.
+        """
+        try:
+            from scipy.interpolate import RBFInterpolant
+            return [
+                RBFInterpolant(X, Y[:, d], kernel='thin_plate_spline', smoothing=0)
+                for d in range(3)
+            ]
+        except ImportError:
+            logger.warning("scipy.interpolate.RBFInterpolant not available — "
+                           "install scipy >= 1.7 for TPS calibration")
+            return None
+        except Exception as _e:
+            logger.warning(f"TPS model fitting failed: {_e}")
+            return None
+
+    def apply_tps_correction(
+        self, lab: Tuple[float, float, float]
+    ) -> Optional[Tuple[float, float, float]]:
+        """Apply the TPS model to a (L*, a*, b*) tuple.
+
+        Returns corrected Lab when a model is available, or None so the
+        caller can fall back to uncalibrated Lab.
+        L* is clamped to [0, 100] to prevent physically impossible values.
+        """
+        models = getattr(self, '_tps_models', None)
+        tps_data = getattr(self, 'tps_data', None)
+        if not models or not tps_data:
+            return None
+        try:
+            norm_scale = np.array(tps_data['norm_scale'])
+            x = np.array([lab[0], lab[1], lab[2]]) / norm_scale
+            corrected = [
+                float(models[d](x.reshape(1, -1))[0]) * norm_scale[d]
+                for d in range(3)
+            ]
+            corrected[0] = max(0.0, min(100.0, corrected[0]))
+            return (corrected[0], corrected[1], corrected[2])
+        except Exception as _e:
+            logger.debug(f"TPS apply failed: {_e}")
+            return None
+
     def apply_lab_correction(
         self, lab: Tuple[float, float, float]
     ) -> Tuple[float, float, float]:
@@ -583,21 +713,25 @@ class ScannerCalibration:
         M = np.array(self.lab_matrix)          # shape (4, 3)
         v = np.array([lab[0], lab[1], lab[2], 1.0])
         corrected = v @ M                       # shape (3,)
-        return (float(corrected[0]), float(corrected[1]), float(corrected[2]))
+        # Clamp L* to valid range — matrix extrapolation can produce negative
+        # L* for very dark areas, which causes colorspacious CAM02-UCS errors.
+        return (max(0.0, min(100.0, float(corrected[0]))),
+                float(corrected[1]), float(corrected[2]))
 
     def get_calibration_quality(self) -> Optional[Dict[str, Any]]:
         """Get quality metrics for the current calibration.
-        
+
         Returns:
-            Dict with quality metrics, or None if not calibrated
+            Dict with quality metrics (including TPS LOO errors if available),
+            or None if not calibrated.
         """
         if not self.is_valid or not self.patch_results:
             return None
-        
+
         delta_e_before = [p.delta_e_before for p in self.patch_results]
         delta_e_after = [p.delta_e_after for p in self.patch_results]
-        
-        return {
+
+        result = {
             'avg_delta_e_before': sum(delta_e_before) / len(delta_e_before),
             'avg_delta_e_after': sum(delta_e_after) / len(delta_e_after),
             'max_delta_e_before': max(delta_e_before),
@@ -607,7 +741,13 @@ class ScannerCalibration:
             'profile_name': self.profile_name,
             'created_date': self.created_date,
         }
-    
+        if getattr(self, 'tps_loo_errors', None):
+            loo_values = [e['delta_e_loo'] for e in self.tps_loo_errors
+                          if not math.isnan(e['delta_e_loo'])]
+            result['tps_loo_mean'] = sum(loo_values) / len(loo_values) if loo_values else None
+            result['tps_loo_errors'] = self.tps_loo_errors
+        return result
+
     # ---- Internal helpers ----
     
     @staticmethod

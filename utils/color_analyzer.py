@@ -60,13 +60,14 @@ class ColorAnalyzer:
         self.print_type = print_type
     
     def rgb_to_lab(self, rgb: Tuple[float, float, float]) -> Tuple[float, float, float]:
-        """Convert RGB to CIE L*a*b* color space.
+        """Convert RGB to CIE L*a*b* color space, with optional TPS calibration.
 
-        Uses the standard non-linear sRGB→Lab conversion via colorspacious.
-        The Lab affine matrix calibration is retained in saved profiles for
-        future camera use, but is not applied here — testing showed it
-        makes scanner measurements worse rather than better due to the
-        highly non-uniform error pattern of consumer flatbed scanners.
+        Pipeline:
+        1. colorspacious sRGB→Lab (correct non-linear physics)
+        2. If a TPS (Thin-Plate Spline) calibration model is active,
+           apply it to correct scanner-specific colour errors locally
+           without global distortion.
+        3. Fallback: uncalibrated Lab if no TPS model is available.
 
         Args:
             rgb: RGB values as (r, g, b) floats 0-255
@@ -76,8 +77,20 @@ class ColorAnalyzer:
         """
         if HAS_COLORSPACIOUS:
             rgb_float = [c/255.0 for c in rgb]
-            return tuple(cspace_convert(rgb_float, "sRGB1", "CIELab"))
-        return self._rgb_to_lab_approximation(rgb)
+            lab = tuple(cspace_convert(rgb_float, "sRGB1", "CIELab"))
+        else:
+            lab = self._rgb_to_lab_approximation(rgb)
+
+        # Apply TPS calibration if available (returns None if not fitted)
+        try:
+            from utils.scanner_calibration import apply_tps_calibration
+            corrected = apply_tps_calibration(lab)
+            if corrected is not None:
+                return corrected
+        except Exception:
+            pass
+
+        return lab
     
     def _rgb_to_lab_approximation(self, rgb: Tuple[float, float, float]) -> Tuple[float, float, float]:
         """Approximate RGB to L*a*b* conversion.
