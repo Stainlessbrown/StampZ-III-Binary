@@ -2,803 +2,569 @@
 """
 Scanner Calibration Module for StampZ
 
-Provides scanner normalization using the StampZ printed color target.
-The target is a 3×4 grid of 12 patches (11 unique colors + 1 duplicate White)
-selected for accurate reproduction by photo-lab printers.
+CR30-grounded 20-patch scanner characterization.
 
-Maps scanner RGB output to a standard reference color space so that color libraries
-and measurements are comparable across different scanners.
+The calibration model follows the newer test approach:
+    scanner RGB -> linearized RGB -> affine XYZ transform -> CIE Lab
 
-Correction model: per-channel linear fit from in-gamut patches
-(scanned values → digital reference values).
+The CR30 CIE L*a*b* measurements are the calibration ground truth. RGB is
+retained only where StampZ needs it to read image pixels, display swatches,
+or maintain compatibility with older runtime callers.
+
+Target layout: 4 columns x 5 rows, Black at top-left.
 """
 
+from __future__ import annotations
+
 import json
-import os
-import math
 import logging
+import os
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
+
 import numpy as np
 from PIL import Image
-from typing import Dict, List, Tuple, Optional, Any
-from dataclasses import dataclass, asdict
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-# Module-level active calibration instance
-_active_calibration: Optional['ScannerCalibration'] = None
+# ---------------------------------------------------------------------
+# Ground truth: CR30 spectrometer values supplied for the 20-patch target
+# ---------------------------------------------------------------------
+PATCH_NAMES = [
+    "Black", "25% Gray", "50% Gray", "75% Gray",
+    "White", "Buff", "Brown", "Orange",
+    "Red", "Rose", "Fuschia", "Blue",
+    "Violet", "Mauve", "Green", "Yellow",
+    "Ultramarine", "Bronze", "Cyan/Teal", "Yellow-Green",
+]
+
+CR30_LAB_TARGETS = np.array([
+    [10.00,   0.00,   0.00],   # Black - practical V600 floor
+    [23.53,   0.51,  -1.10],   # 25% Gray
+    [45.79,  -0.03,  -1.38],   # 50% Gray
+    [69.65,  -0.68,  -0.06],   # 75% Gray
+    [93.70,  -1.67,  -3.68],   # White - target paper
+    [86.02,   2.81,   9.59],   # Buff
+    [35.38,  25.35,  44.05],   # Brown
+    [52.55,  36.68,  55.01],   # Orange
+    [43.77,  67.04,  59.57],   # Red
+    [44.95,  73.40,  -6.00],   # Rose
+    [41.10,  69.82,  -9.63],   # Fuschia
+    [52.91,  -4.39, -32.17],   # Blue
+    [61.80,  22.11, -36.57],   # Violet
+    [72.52,  18.15, -25.06],   # Mauve
+    [34.45, -29.08,  40.05],   # Green
+    [67.95,  -0.35,  50.27],   # Yellow
+    [29.57,  14.09, -38.28],   # Ultramarine
+    [54.10,  17.91,  39.98],   # Bronze
+    [54.98, -24.77, -11.51],   # Cyan/Teal
+    [66.88, -53.28,  58.60],   # Yellow-Green
+], dtype=np.float64)
+
+PATCH_LAB: Dict[str, Tuple[float, float, float]] = {
+    name: tuple(float(v) for v in lab)
+    for name, lab in zip(PATCH_NAMES, CR30_LAB_TARGETS)
+}
+
+GRID_ROWS = 5
+GRID_COLS = 4
+
+# D65 / 2-degree standard observer, normalized Y=1.
+D65_WHITE = np.array([0.95047, 1.00000, 1.08883], dtype=np.float64)
 
 
-def get_active_calibration() -> Optional['ScannerCalibration']:
-    """Get the currently active scanner calibration, or None if not calibrated."""
+# ---------------------------------------------------------------------
+# Color-science helpers
+# ---------------------------------------------------------------------
+def _srgb_to_linear(rgb01: np.ndarray) -> np.ndarray:
+    rgb01 = np.asarray(rgb01, dtype=np.float64)
+    return np.where(
+        rgb01 > 0.04045,
+        ((rgb01 + 0.055) / 1.055) ** 2.4,
+        rgb01 / 12.92,
+    )
+
+
+def _linear_to_srgb(rgb_linear: np.ndarray) -> np.ndarray:
+    rgb_linear = np.asarray(rgb_linear, dtype=np.float64)
+    # The transfer function is only defined for non-negative light values.
+    x = np.maximum(rgb_linear, 0.0)
+    return np.where(
+        x > 0.0031308,
+        1.055 * np.power(x, 1.0 / 2.4) - 0.055,
+        12.92 * x,
+    )
+
+
+def lab_to_xyz(lab_array: np.ndarray) -> np.ndarray:
+    """Convert CIE Lab (D65) rows to normalized XYZ rows."""
+    lab = np.atleast_2d(np.asarray(lab_array, dtype=np.float64))
+    L, a, b = lab[:, 0], lab[:, 1], lab[:, 2]
+
+    fy = (L + 16.0) / 116.0
+    fx = fy + (a / 500.0)
+    fz = fy - (b / 200.0)
+
+    delta = 6.0 / 29.0
+
+    def f_inv(t: np.ndarray) -> np.ndarray:
+        return np.where(
+            t > delta,
+            t ** 3,
+            3.0 * (delta ** 2) * (t - 4.0 / 29.0),
+        )
+
+    xyz = np.stack([f_inv(fx), f_inv(fy), f_inv(fz)], axis=1)
+    return xyz * D65_WHITE
+
+
+def xyz_to_lab(xyz_array: np.ndarray) -> np.ndarray:
+    """Convert normalized XYZ rows to CIE Lab (D65)."""
+    xyz = np.atleast_2d(np.asarray(xyz_array, dtype=np.float64))
+    ratio = xyz / D65_WHITE
+
+    delta = 6.0 / 29.0
+    delta3 = delta ** 3
+
+    def f(t: np.ndarray) -> np.ndarray:
+        return np.where(
+            t > delta3,
+            np.cbrt(t),
+            t / (3.0 * delta ** 2) + 4.0 / 29.0,
+        )
+
+    fx, fy, fz = f(ratio[:, 0]), f(ratio[:, 1]), f(ratio[:, 2])
+    L = 116.0 * fy - 16.0
+    a = 500.0 * (fx - fy)
+    b = 200.0 * (fy - fz)
+    return np.stack([L, a, b], axis=1)
+
+
+def srgb_to_xyz(rgb_array: np.ndarray) -> np.ndarray:
+    """Convert sRGB-like 0..1 rows to normalized XYZ (D65)."""
+    rgb = np.atleast_2d(np.asarray(rgb_array, dtype=np.float64))
+    linear = _srgb_to_linear(rgb)
+    m = np.array([
+        [0.4124564, 0.3575761, 0.1804375],
+        [0.2126729, 0.7151522, 0.0721750],
+        [0.0193339, 0.1191920, 0.9503041],
+    ], dtype=np.float64)
+    return linear @ m.T
+
+
+def xyz_to_srgb(xyz_array: np.ndarray) -> np.ndarray:
+    """Convert normalized XYZ rows (D65) to display sRGB 0..1."""
+    xyz = np.atleast_2d(np.asarray(xyz_array, dtype=np.float64))
+    m_inv = np.array([
+        [ 3.2404542, -1.5371385, -0.4985314],
+        [-0.9692660,  1.8760108,  0.0415560],
+        [ 0.0556434, -0.2040259,  1.0572252],
+    ], dtype=np.float64)
+    linear = xyz @ m_inv.T
+    return np.clip(_linear_to_srgb(linear), 0.0, 1.0)
+
+
+def srgb_to_lab(rgb_array: np.ndarray) -> np.ndarray:
+    return xyz_to_lab(srgb_to_xyz(rgb_array))
+
+
+def lab_to_srgb(lab_array: np.ndarray) -> np.ndarray:
+    return xyz_to_srgb(lab_to_xyz(lab_array))
+
+
+def delta_e_76(lab1: np.ndarray, lab2: np.ndarray) -> np.ndarray:
+    a = np.atleast_2d(np.asarray(lab1, dtype=np.float64))
+    b = np.atleast_2d(np.asarray(lab2, dtype=np.float64))
+    return np.linalg.norm(a - b, axis=1)
+
+
+Y_TARGETS_XYZ = lab_to_xyz(CR30_LAB_TARGETS)
+
+# Reference RGB is only for GUI swatches; it is never calibration truth.
+_REFERENCE_RGB_01 = lab_to_srgb(CR30_LAB_TARGETS)
+REFERENCE_RGB_255 = np.rint(_REFERENCE_RGB_01 * 255.0).astype(int)
+
+
+@dataclass
+class PatchResult:
+    name: str
+    grid_position: Tuple[int, int]
+    reference_lab: Tuple[float, float, float]
+    scanned_rgb: Tuple[float, float, float]
+    scanned_lab: Tuple[float, float, float]
+    corrected_lab: Optional[Tuple[float, float, float]] = None
+    corrected_rgb: Optional[Tuple[float, float, float]] = None
+    delta_e_before: float = 0.0
+    delta_e_after: float = 0.0
+
+    @property
+    def digital_rgb(self) -> Tuple[int, int, int]:
+        """Legacy GUI name: display RGB generated from CR30 Lab reference."""
+        idx = PATCH_NAMES.index(self.name)
+        rgb = REFERENCE_RGB_255[idx]
+        return int(rgb[0]), int(rgb[1]), int(rgb[2])
+
+
+# ---------------------------------------------------------------------
+# Active calibration API expected by StampZ
+# ---------------------------------------------------------------------
+_active_calibration: Optional["ScannerCalibration"] = None
+
+
+def get_active_calibration() -> Optional["ScannerCalibration"]:
     return _active_calibration
 
 
-def set_active_calibration(calibration: Optional['ScannerCalibration']) -> None:
-    """Set the active scanner calibration."""
+def set_active_calibration(calibration: Optional["ScannerCalibration"]) -> None:
     global _active_calibration
     _active_calibration = calibration
-    if calibration:
-        logger.info("Scanner calibration activated")
-    else:
-        logger.info("Scanner calibration deactivated")
+    logger.info("Scanner calibration %s", "activated" if calibration else "deactivated")
 
 
-def apply_calibration_to_rgb(rgb: Tuple[float, float, float]) -> Tuple[float, float, float]:
-    """Apply active calibration to an RGB tuple. Returns uncorrected values if no calibration active.
-    
-    Args:
-        rgb: RGB values as (r, g, b) floats 0-255
-        
-    Returns:
-        Corrected RGB values as (r, g, b) floats 0-255
+def apply_calibration_to_rgb(
+    rgb: Tuple[float, float, float]
+) -> Tuple[float, float, float]:
+    """Legacy runtime bridge: calibrated physical color rendered back to sRGB.
+
+    The calibration itself is NOT performed in RGB space. This function exists
+    so older StampZ paths that expect corrected RGB continue to operate.
     """
     if _active_calibration and _active_calibration.is_valid:
         return _active_calibration.apply_correction(rgb)
     return rgb
 
 
+def apply_calibration_to_lab_from_rgb(
+    rgb: Tuple[float, float, float]
+) -> Tuple[float, float, float]:
+    """Preferred runtime path: scanner RGB directly to calibrated CIE Lab."""
+    if _active_calibration and _active_calibration.is_valid:
+        return _active_calibration.apply_to_lab(rgb)
+    rgb01 = np.array(rgb, dtype=np.float64).reshape(1, 3) / 255.0
+    lab = srgb_to_lab(rgb01)[0]
+    return tuple(float(v) for v in lab)
+
+
 def apply_lab_calibration(
     lab: Tuple[float, float, float]
 ) -> Tuple[float, float, float]:
-    """Apply the active calibration’s Lab affine matrix to a (L*, a*, b*) tuple.
+    """Compatibility bridge for callers that already converted scanner RGB to Lab.
 
-    Call this immediately after any sRGB→Lab conversion to correct
-    scanner-specific colour-matrix errors that per-channel RGB correction
-    cannot fix.  Returns the tuple unchanged when no calibration is active
-    or no Lab matrix has been derived.
+    This reconstructs the corresponding sRGB triplet, then applies the active
+    scanner RGB->XYZ characterization. New code should prefer
+    apply_calibration_to_lab_from_rgb() to avoid this round trip.
     """
-    if _active_calibration and _active_calibration.is_valid:
-        return _active_calibration.apply_lab_correction(lab)
-    return lab
-
-
-# Patch layout for the StampZ calibration target (v3.0 — 4×5 grid, 20 patches)
-# Maps grid position (row, col) to (name, approximate_display_rgb).
-# Black patch must be at top-left when the target is scanned / photographed.
-#
-# Approximate RGB values are derived from the spectrometer Lab readings below
-# and are used only for display and initial ΔE estimation.  The Lab values in
-# PATCH_LAB are the authoritative ground-truth for calibration quality metrics.
-#
-# Spectrometer measurements: August 2026.
-PATCH_MAP = {
-    # Row 0 — neutrals
-    (0, 0): ("Black",        ( 0,   0,   0)),
-    (0, 1): ("25% Gray",     (53,  53,  57)),
-    (0, 2): ("50% Gray",     (112, 113, 117)),
-    (0, 3): ("75% Gray",     (179, 180, 179)),
-    # Row 1 — light tones
-    (1, 0): ("White",        (236, 238, 244)),
-    (1, 1): ("Buff",         (218, 214, 201)),
-    (1, 2): ("Brown",        (126,  70,  15)),
-    (1, 3): ("Orange",       (185, 103,  15)),
-    # Row 2 — reds / pinks / blue
-    (2, 0): ("Red",          (197,  12,   0)),
-    (2, 1): ("Rose",         (208,   0, 100)),
-    (2, 2): ("Fuschia",      (193,   0, 105)),
-    (2, 3): ("Blue",         ( 89, 135, 185)),
-    # Row 3 — violets / greens / yellow
-    (3, 0): ("Violet",       (151, 140, 215)),
-    (3, 1): ("Mauve",        (190, 172, 220)),
-    (3, 2): ("Green",        ( 37,  99,  24)),
-    (3, 3): ("Yellow",       (172, 169,  85)),
-    # Row 4 — deep blues / warm tones / green
-    (4, 0): ("Ultramarine",  ( 32,  52, 134)),
-    (4, 1): ("Bronz",        (160, 116,  54)),
-    (4, 2): ("Cyan/Teal",    ( 70, 148, 163)),
-    (4, 3): ("Yellow-Green", ( 62, 180,  44)),
-}
-
-# Spectrometer-measured L*a*b* reference values — scanner target print.
-# These are the ACTUAL printed Lab values, not the Scribus design intent.
-# Measured August 2026 with contact spectrometer.
-PATCH_LAB = {
-    "Black":        ( 0.00,   0.00,   0.00),
-    "25% Gray":     (23.53,   0.51,  -1.10),
-    "50% Gray":     (45.79,  -0.03,  -1.38),
-    "75% Gray":     (69.65,  -0.68,   0.06),
-    "White":        (93.70,  -1.67,  -3.86),
-    "Buff":         (86.02,   2.81,   9.59),
-    "Brown":        (35.38,  25.35,  44.05),
-    "Orange":       (52.55,  36.68,  55.01),
-    "Red":          (42.77,  67.04,  59.57),
-    "Rose":         (44.95,  73.40,  -6.00),
-    "Fuschia":      (41.10,  69.82,  -9.63),
-    "Blue":         (52.91,  -4.39, -32.17),
-    "Violet":       (61.80,  22.11, -36.57),
-    "Mauve":        (72.52,  18.15, -25.06),
-    "Green":        (34.45, -29.08,  40.05),
-    "Yellow":       (67.95,  -0.35,  50.27),
-    "Ultramarine":  (29.57,  14.09, -38.28),
-    "Bronz":        (54.10,  17.91,  39.98),
-    "Cyan/Teal":    (54.88, -24.77, -11.51),
-    "Yellow-Green": (66.88, -53.28,  58.60),
-}
-
-# Ordered list of patch names for consistent iteration
-PATCH_NAMES = [name for _, (name, _) in sorted(PATCH_MAP.items())]
-
-
-@dataclass
-class PatchResult:
-    """Result of detecting and measuring a single color patch."""
-    name: str
-    grid_position: Tuple[int, int]
-    digital_rgb: Tuple[int, int, int]       # Known reference value
-    scanned_rgb: Tuple[float, float, float]  # Measured from user's scan
-    corrected_rgb: Optional[Tuple[float, float, float]] = None  # After correction
-    delta_e_before: float = 0.0              # ΔE before correction
-    delta_e_after: float = 0.0               # ΔE after correction
+    if not (_active_calibration and _active_calibration.is_valid):
+        return lab
+    rgb01 = lab_to_srgb(np.array(lab, dtype=np.float64).reshape(1, 3))[0]
+    return _active_calibration.apply_to_lab(tuple(float(v * 255.0) for v in rgb01))
 
 
 class ScannerCalibration:
-    """Scanner calibration using the StampZ color target.
-    
-    Uses per-channel 2nd-order polynomial correction to map scanner RGB
-    to the standard reference color space.
-    """
-    
-    def __init__(self):
-        self.reference_data: Optional[Dict] = None
+    """StampZ-compatible wrapper around the CR30 RGB->XYZ matrix method."""
+
+    GRID_ROWS = GRID_ROWS
+    GRID_COLS = GRID_COLS
+    # Kept only because the existing dialog references this attribute.
+    # The CR30 matrix fit uses all 20 patches, so none are excluded here.
+    GAMUT_THRESHOLD = float("inf")
+
+    def __init__(self) -> None:
         self.patch_results: List[PatchResult] = []
-        self.correction_coefficients: Optional[Dict[str, List[float]]] = None
-        self.is_valid: bool = False
-        self.profile_name: str = ""
-        self.created_date: str = ""
-        self.scanner_info: str = ""
-    
-    def load_reference(self, reference_path: Optional[str] = None) -> bool:
-        """Load reference values from JSON file.
-        
-        Args:
-            reference_path: Path to reference_values.json. If None, uses bundled default.
-            
-        Returns:
-            True if loaded successfully
-        """
-        if reference_path is None:
-            from .path_utils import get_calibration_dir
-            reference_path = os.path.join(get_calibration_dir(), "reference_values.json")
-        
-        try:
-            with open(reference_path, 'r') as f:
-                self.reference_data = json.load(f)
-            logger.info(f"Loaded reference data from {reference_path}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to load reference data: {e}")
-            return False
-    
-    # Expected grid dimensions (4 columns × 5 rows = 20 patches)
-    GRID_COLS = 4
-    GRID_ROWS = 5
-    
+        self.calibration_matrix: Optional[np.ndarray] = None  # 4 x 3
+        self.is_valid = False
+        self.profile_name = ""
+        self.created_date = ""
+        self.scanner_info = ""
+        self.source_target_path = ""
+        self._quality: Optional[Dict[str, Any]] = None
+
     def detect_patches(self, image_path: str) -> List[PatchResult]:
-        """Auto-detect the color patches from a scanned target image.
-        
-        Args:
-            image_path: Path to the scanned target TIFF/image
-            
-        Returns:
-            List of PatchResult objects with scanned RGB values
-        """
-        try:
-            # Use load_image() so format corrections (e.g. VueScan sRGB gamma)
-            # are applied before patch detection and colour sampling.
-            try:
-                from .image_processor import load_image as _load_image
-                img, _meta = _load_image(image_path)
-                logger.info(f"detect_patches: gamma_corrected={_meta.get('linear_gamma_corrected')}")
-            except Exception as _le:
-                logger.warning(f"detect_patches: load_image failed ({_le}), using Image.open")
-                img = Image.open(image_path)
-            arr = np.array(img)
-            if arr.ndim == 2:
-                # Grayscale — can't calibrate
-                raise ValueError("Image is grayscale. RGB image required for calibration.")
-            if arr.shape[2] == 4:
-                # RGBA — drop alpha
-                arr = arr[:, :, :3]
-            
-            h, w = arr.shape[:2]
-            gray = np.mean(arr.astype(float), axis=2)
-            
-            col_profile = np.mean(gray[h // 4:3 * h // 4, :], axis=0)
-            row_profile = np.mean(gray[:, w // 4:3 * w // 4], axis=1)
-            
-            # Find patch grid using brightness profile analysis. The
-            # threshold is adaptive (driven by each profile's own bright
-            # background level) so scans with darker paper-white — common
-            # on different scanner drivers / OSes / Vuescan presets — still
-            # detect the inter-patch gaps. If adaptive detection still
-            # mismatches the expected count, retry with a sweep of fixed
-            # thresholds before giving up.
-            col_ranges = self._detect_axis_ranges(col_profile, self.GRID_COLS)
-            row_ranges = self._detect_axis_ranges(row_profile, self.GRID_ROWS)
-            
-            # Fallback: very light patches (especially white) can blend with
-            # white paper and disappear from threshold-based detection.
-            # If we detect outer ranges but miss interior ones, infer a
-            # regular grid from the first/last detected centers.
-            if len(col_ranges) != self.GRID_COLS and len(col_ranges) >= 2:
-                inferred_cols = self._interpolate_grid_ranges(
-                    col_ranges, self.GRID_COLS, axis_size=w
-                )
-                if len(inferred_cols) == self.GRID_COLS:
-                    col_ranges = inferred_cols
-            if len(row_ranges) != self.GRID_ROWS and len(row_ranges) >= 2:
-                inferred_rows = self._interpolate_grid_ranges(
-                    row_ranges, self.GRID_ROWS, axis_size=h
-                )
-                if len(inferred_rows) == self.GRID_ROWS:
-                    row_ranges = inferred_rows
-            
-            if len(col_ranges) != self.GRID_COLS or len(row_ranges) != self.GRID_ROWS:
-                raise ValueError(
-                    f"Expected {self.GRID_COLS} columns × {self.GRID_ROWS} rows of patches, "
-                    f"found {len(col_ranges)} × {len(row_ranges)}. "
-                    f"Check that the target is properly cropped and oriented "
-                    f"(Black patch top-left)."
-                )
-            
-            # Extract average color from center 60% of each patch
-            self.patch_results = []
-            for ri, (ry1, ry2) in enumerate(row_ranges):
-                for ci, (cx1, cx2) in enumerate(col_ranges):
-                    pos = (ri, ci)
-                    if pos not in PATCH_MAP:
-                        continue
-                    
-                    name, digital_rgb = PATCH_MAP[pos]
-                    
-                    # Inset 20% from each edge to avoid border effects
-                    margin_x = int((cx2 - cx1) * 0.2)
-                    margin_y = int((ry2 - ry1) * 0.2)
-                    patch = arr[ry1 + margin_y:ry2 - margin_y,
-                                cx1 + margin_x:cx2 - margin_x]
-                    
-                    mean_rgb = np.mean(patch.reshape(-1, 3), axis=0)
-                    
-                    result = PatchResult(
-                        name=name,
-                        grid_position=pos,
-                        digital_rgb=digital_rgb,
-                        scanned_rgb=(float(mean_rgb[0]), float(mean_rgb[1]), float(mean_rgb[2])),
-                    )
-                    # Calculate pre-correction ΔE
-                    result.delta_e_before = self._delta_e_rgb(
-                        result.scanned_rgb, result.digital_rgb
-                    )
-                    self.patch_results.append(result)
-            
-            logger.info(f"Detected {len(self.patch_results)} patches from {image_path}")
-            return self.patch_results
-            
-        except Exception as e:
-            logger.error(f"Failed to detect patches: {e}")
-            raise
-    
-    # Maximum pre-correction ΔE for a patch to be included in the fit.
-    # Patches above this threshold are outside the printer's reproducible gamut
-    # and would skew the correction model. They are still detected and displayed
-    # but do not influence the correction coefficients.
-    # Set to 60 to capture near-gamut reds (ΔE ~52) that would otherwise
-    # leave the red region without a calibration anchor point.
-    GAMUT_THRESHOLD = 60.0
-    
+        """Sample the center 50% of each cell from a cropped 4x5 target scan."""
+        img = Image.open(image_path).convert("RGB")
+        arr = np.asarray(img, dtype=np.float64)
+        h, w, _ = arr.shape
+
+        if h < self.GRID_ROWS * 4 or w < self.GRID_COLS * 4:
+            raise ValueError("Target image is too small to sample a 4 x 5 grid reliably.")
+
+        cell_h = h / self.GRID_ROWS
+        cell_w = w / self.GRID_COLS
+        results: List[PatchResult] = []
+
+        for r in range(self.GRID_ROWS):
+            for c in range(self.GRID_COLS):
+                # Middle 50% of each nominal grid cell, matching Peter's test code.
+                y1 = int(round((r + 0.25) * cell_h))
+                y2 = int(round((r + 0.75) * cell_h))
+                x1 = int(round((c + 0.25) * cell_w))
+                x2 = int(round((c + 0.75) * cell_w))
+                crop = arr[y1:y2, x1:x2]
+                if crop.size == 0:
+                    raise ValueError(f"Empty sample region at target row {r + 1}, column {c + 1}.")
+
+                idx = r * self.GRID_COLS + c
+                name = PATCH_NAMES[idx]
+                ref_lab = CR30_LAB_TARGETS[idx]
+                mean_rgb = crop.mean(axis=(0, 1))
+                scan_lab = srgb_to_lab((mean_rgb / 255.0).reshape(1, 3))[0]
+                de_before = float(delta_e_76(scan_lab, ref_lab)[0])
+
+                results.append(PatchResult(
+                    name=name,
+                    grid_position=(r, c),
+                    reference_lab=tuple(float(v) for v in ref_lab),
+                    scanned_rgb=tuple(float(v) for v in mean_rgb),
+                    scanned_lab=tuple(float(v) for v in scan_lab),
+                    delta_e_before=de_before,
+                ))
+
+        if len(results) != 20:
+            raise ValueError(f"Expected 20 target patches; sampled {len(results)}.")
+
+        self.patch_results = results
+        self.source_target_path = image_path
+        logger.info("Sampled 20 CR30 target patches from %s", image_path)
+        return results
+
     def compute_correction(self) -> Dict[str, Any]:
-        """Compute per-channel linear correction from detected patches.
-        
-        Uses 1st-order (linear) fit per channel: corrected = a*x + b
-        where x is the scanned value and corrected maps to the digital reference.
-        
-        Patches with pre-correction ΔE above GAMUT_THRESHOLD are excluded from
-        the fit — they represent printer gamut limitations, not scanner error.
-        All patches still receive corrected values for display purposes.
-        
-        Returns:
-            Dict with correction quality metrics
-        """
-        if not self.patch_results:
-            raise ValueError("No patches detected. Run detect_patches() first.")
-        
-        # Filter to patches within printer gamut for the fit
-        fit_patches = [p for p in self.patch_results
-                       if p.delta_e_before <= self.GAMUT_THRESHOLD]
-        excluded_patches = [p for p in self.patch_results
-                           if p.delta_e_before > self.GAMUT_THRESHOLD]
-        
-        if len(fit_patches) < 3:
-            raise ValueError(
-                f"Only {len(fit_patches)} patches within gamut threshold "
-                f"(ΔE ≤ {self.GAMUT_THRESHOLD}). Need at least 3 for a fit."
-            )
-        
-        logger.info(
-            f"Using {len(fit_patches)} of {len(self.patch_results)} patches for fit "
-            f"({len(excluded_patches)} excluded, ΔE > {self.GAMUT_THRESHOLD})"
-        )
-        
-        # Build paired data arrays from in-gamut patches only
-        scanned = np.array([p.scanned_rgb for p in fit_patches])
-        reference = np.array([p.digital_rgb for p in fit_patches])
-        
-        coefficients = {}
-        channel_names = ['R', 'G', 'B']
-        
-        for ch_idx, ch_name in enumerate(channel_names):
-            x = scanned[:, ch_idx]
-            y = reference[:, ch_idx]
-            
-            # Fit 1st-order (linear): y = a*x + b
-            coeffs = np.polyfit(x, y, 1)
-            coefficients[ch_name] = coeffs.tolist()
-        
-        self.correction_coefficients = coefficients
-        self.correction_order = 1
+        """Fit Peter's affine linear-RGB -> CR30 XYZ matrix using all 20 patches."""
+        if len(self.patch_results) != 20:
+            raise ValueError("No complete 20-patch target is loaded. Run detect_patches() first.")
 
-        # ── Derive Lab affine correction matrix ───────────────────────────
-        # A 4×3 affine matrix maps (L*, a*, b*, 1) → (L*', a*', b*') in Lab
-        # space, correcting cross-channel colour-matrix errors that the
-        # per-channel RGB polynomial cannot reach.
-        self.lab_matrix: Optional[list] = None
-        try:
-            from colorspacious import cspace_convert as _csc
-            sl = np.array([
-                _csc(np.array(p.scanned_rgb) / 255.0, 'sRGB1', 'CIELab')
-                for p in fit_patches
-            ])
-            rl = np.array([PATCH_LAB[p.name] for p in fit_patches
-                           if p.name in PATCH_LAB])
-            if len(sl) == len(rl) and len(sl) >= 4:
-                X_lab = np.hstack([sl, np.ones((len(sl), 1))])
-                M, _, _, _ = np.linalg.lstsq(X_lab, rl, rcond=None)
-                self.lab_matrix = M.tolist()   # 4×3, stored as list-of-lists
-                logger.info("Lab affine matrix derived from "
-                            f"{len(sl)} patches")
-        except Exception as _e:
-            logger.warning(f"Lab matrix derivation failed: {_e}")
+        scanned_rgb01 = np.array([p.scanned_rgb for p in self.patch_results], dtype=np.float64) / 255.0
+        scanned_linear = _srgb_to_linear(scanned_rgb01)
+        x_input = np.hstack([scanned_linear, np.ones((len(scanned_linear), 1))])
 
+        weights, _, rank, _ = np.linalg.lstsq(x_input, Y_TARGETS_XYZ, rcond=None)
+        if rank < 4:
+            raise ValueError("Calibration target data are degenerate; could not solve a stable 4-parameter matrix.")
+
+        self.calibration_matrix = weights
         self.is_valid = True
         self.created_date = datetime.now().isoformat()
-        
-        # Calculate corrected values and post-correction ΔE for ALL patches
-        # (including excluded ones, for display purposes)
-        total_delta_e_before = 0
-        total_delta_e_after = 0
-        max_delta_e_after = 0
-        fit_delta_e_before = 0
-        fit_delta_e_after = 0
-        
-        fit_names = {p.name for p in fit_patches}
-        
-        for patch in self.patch_results:
-            patch.corrected_rgb = self.apply_correction(patch.scanned_rgb)
-            patch.delta_e_after = self._delta_e_rgb(
-                patch.corrected_rgb, patch.digital_rgb
-            )
-            total_delta_e_before += patch.delta_e_before
-            total_delta_e_after += patch.delta_e_after
-            max_delta_e_after = max(max_delta_e_after, patch.delta_e_after)
-            if patch.name in fit_names:
-                fit_delta_e_before += patch.delta_e_before
-                fit_delta_e_after += patch.delta_e_after
-        
-        n_fit = len(fit_patches)
-        n_all = len(self.patch_results)
-        quality = {
-            'avg_delta_e_before': fit_delta_e_before / n_fit,
-            'avg_delta_e_after': fit_delta_e_after / n_fit,
-            'max_delta_e_after': max_delta_e_after,
-            'patch_count': n_all,
-            'patches_used': n_fit,
-            'patches_excluded': len(excluded_patches),
-            'improvement_percent': (
-                (1 - fit_delta_e_after / fit_delta_e_before) * 100
-                if fit_delta_e_before > 0 else 0
-            ),
+
+        before = []
+        after = []
+        for p in self.patch_results:
+            corrected_lab = self.apply_to_lab(p.scanned_rgb)
+            p.corrected_lab = corrected_lab
+            p.delta_e_after = float(delta_e_76(
+                np.array(corrected_lab).reshape(1, 3),
+                np.array(p.reference_lab).reshape(1, 3),
+            )[0])
+            corrected_rgb = lab_to_srgb(np.array(corrected_lab).reshape(1, 3))[0] * 255.0
+            p.corrected_rgb = tuple(float(v) for v in corrected_rgb)
+            before.append(p.delta_e_before)
+            after.append(p.delta_e_after)
+
+        avg_before = float(np.mean(before))
+        avg_after = float(np.mean(after))
+        improvement = (1.0 - avg_after / avg_before) * 100.0 if avg_before > 0 else 0.0
+
+        self._quality = {
+            "avg_delta_e_before": avg_before,
+            "avg_delta_e_after": avg_after,
+            "max_delta_e_before": float(np.max(before)),
+            "max_delta_e_after": float(np.max(after)),
+            "patch_count": 20,
+            "patches_used": 20,
+            "patches_excluded": 0,
+            "improvement_percent": improvement,
+            "profile_name": self.profile_name,
+            "created_date": self.created_date,
+            "metric": "CIE76 Lab",
         }
-        
+
         logger.info(
-            f"Calibration computed: avg ΔE {quality['avg_delta_e_before']:.1f} → "
-            f"{quality['avg_delta_e_after']:.1f} ({quality['improvement_percent']:.0f}% improvement, "
-            f"{n_fit} patches used)"
+            "CR30 calibration computed: avg dE76 %.2f -> %.2f (%.1f%% improvement)",
+            avg_before, avg_after, improvement,
         )
-        
-        return quality
-    
+        return dict(self._quality)
+
+    def _rgb_to_calibrated_xyz(self, rgb: Tuple[float, float, float]) -> np.ndarray:
+        if self.calibration_matrix is None:
+            raise ValueError("No calibration matrix is loaded.")
+        rgb01 = np.clip(np.asarray(rgb, dtype=np.float64) / 255.0, 0.0, 1.0)
+        linear = _srgb_to_linear(rgb01)
+        vec = np.append(linear, 1.0)
+        xyz = vec @ self.calibration_matrix
+        # Small negative values can arise from an affine least-squares fit.
+        return np.maximum(xyz, 0.0)
+
+    def apply_to_lab(self, rgb: Tuple[float, float, float]) -> Tuple[float, float, float]:
+        """Convert scanner RGB directly to calibrated CR30-grounded CIE Lab."""
+        if not self.is_valid or self.calibration_matrix is None:
+            rgb01 = np.asarray(rgb, dtype=np.float64).reshape(1, 3) / 255.0
+            lab = srgb_to_lab(rgb01)[0]
+        else:
+            xyz = self._rgb_to_calibrated_xyz(rgb).reshape(1, 3)
+            lab = xyz_to_lab(xyz)[0]
+        return tuple(float(v) for v in lab)
+
     def apply_correction(self, rgb: Tuple[float, float, float]) -> Tuple[float, float, float]:
-        """Apply correction to an RGB tuple.
-        
-        Supports both linear (2 coefficients) and quadratic (3 coefficients)
-        profiles for backward compatibility.
-        
-        Args:
-            rgb: RGB values as (r, g, b) floats 0-255
-            
-        Returns:
-            Corrected RGB values, clamped to 0-255
-        """
-        if not self.correction_coefficients:
-            return rgb
-        
-        corrected = []
-        channel_names = ['R', 'G', 'B']
-        
-        for ch_idx, ch_name in enumerate(channel_names):
-            coeffs = self.correction_coefficients[ch_name]
-            x = float(rgb[ch_idx])
-            if len(coeffs) == 3:
-                # Quadratic: a*x² + b*x + c (legacy profiles)
-                y = coeffs[0] * x * x + coeffs[1] * x + coeffs[2]
-            else:
-                # Linear: a*x + b
-                y = coeffs[0] * x + coeffs[1]
-            # Clamp to valid range
-            y = max(0.0, min(255.0, y))
-            corrected.append(y)
-        
-        return (corrected[0], corrected[1], corrected[2])
-    
+        """Legacy RGB return path, rendered from the calibrated physical XYZ."""
+        if not self.is_valid or self.calibration_matrix is None:
+            return tuple(float(v) for v in rgb)
+        xyz = self._rgb_to_calibrated_xyz(rgb).reshape(1, 3)
+        rgb01 = xyz_to_srgb(xyz)[0]
+        return tuple(float(v * 255.0) for v in rgb01)
+
     def save_profile(self, path: str, name: str = "", scanner_info: str = "") -> bool:
-        """Save calibration profile to JSON file.
-        
-        Args:
-            path: Output file path
-            name: Profile name (e.g., "My Epson V600")
-            scanner_info: Optional scanner description
-            
-        Returns:
-            True if saved successfully
-        """
-        if not self.is_valid:
-            logger.error("Cannot save invalid calibration profile")
+        if not self.is_valid or self.calibration_matrix is None:
+            logger.error("Cannot save an invalid calibration profile")
             return False
-        
+
         self.profile_name = name
         self.scanner_info = scanner_info
-        
+        if self._quality is not None:
+            self._quality["profile_name"] = name
+            self._quality["created_date"] = self.created_date
+
         profile = {
-            'version': '1.2',
-            'type': 'StampZ Scanner Calibration Profile',
-            'correction_order': getattr(self, 'correction_order', 2),
-            'profile_name': self.profile_name,
-            'scanner_info': self.scanner_info,
-            'created_date': self.created_date,
-            'correction_coefficients': self.correction_coefficients,
-            'lab_matrix': getattr(self, 'lab_matrix', None),
-            'patch_results': [
-                {
-                    'name': p.name,
-                    'grid_position': list(p.grid_position),
-                    'digital_rgb': list(p.digital_rgb),
-                    'scanned_rgb': list(p.scanned_rgb),
-                    'corrected_rgb': list(p.corrected_rgb) if p.corrected_rgb else None,
-                    'delta_e_before': p.delta_e_before,
-                    'delta_e_after': p.delta_e_after,
-                }
-                for p in self.patch_results
-            ],
+            "version": "2.0",
+            "type": "StampZ Scanner Calibration Profile",
+            "calibration_model": "linear scanner RGB -> affine XYZ -> CIE Lab",
+            "illuminant": "D65",
+            "profile_name": self.profile_name,
+            "scanner_info": self.scanner_info,
+            "created_date": self.created_date,
+            "source_target_path": self.source_target_path,
+            "cr30_lab_targets": CR30_LAB_TARGETS.tolist(),
+            "calibration_matrix": self.calibration_matrix.tolist(),
+            "quality": self._quality,
+            "patch_results": [self._patch_to_dict(p) for p in self.patch_results],
         }
-        
+
         try:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, 'w') as f:
+            parent = os.path.dirname(path)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
                 json.dump(profile, f, indent=2)
-            logger.info(f"Saved calibration profile to {path}")
+            logger.info("Saved CR30 calibration profile to %s", path)
             return True
-        except Exception as e:
-            logger.error(f"Failed to save calibration profile: {e}")
+        except Exception as exc:
+            logger.error("Failed to save calibration profile: %s", exc)
             return False
-    
+
     def load_profile(self, path: str) -> bool:
-        """Load a calibration profile from JSON file.
-        
-        Args:
-            path: Path to profile JSON file
-            
-        Returns:
-            True if loaded successfully
-        """
         try:
-            with open(path, 'r') as f:
+            with open(path, "r", encoding="utf-8") as f:
                 profile = json.load(f)
-            
-            self.correction_coefficients = profile['correction_coefficients']
-            self.lab_matrix = profile.get('lab_matrix', None)
-            self.profile_name = profile.get('profile_name', '')
-            self.scanner_info = profile.get('scanner_info', '')
-            self.created_date = profile.get('created_date', '')
-            
-            # Restore patch results if available
-            self.patch_results = []
-            for p in profile.get('patch_results', []):
-                result = PatchResult(
-                    name=p['name'],
-                    grid_position=tuple(p['grid_position']),
-                    digital_rgb=tuple(p['digital_rgb']),
-                    scanned_rgb=tuple(p['scanned_rgb']),
-                    corrected_rgb=tuple(p['corrected_rgb']) if p.get('corrected_rgb') else None,
-                    delta_e_before=p.get('delta_e_before', 0),
-                    delta_e_after=p.get('delta_e_after', 0),
+
+            matrix = profile.get("calibration_matrix")
+            if matrix is None:
+                # Do not silently reinterpret legacy per-channel RGB profiles as
+                # CR30 matrix profiles. They are different calibration models.
+                raise ValueError(
+                    "This is a legacy RGB calibration profile and does not contain "
+                    "a CR30 calibration_matrix. Recalibrate with the 20-patch target."
                 )
-                self.patch_results.append(result)
-            
+
+            m = np.asarray(matrix, dtype=np.float64)
+            if m.shape != (4, 3):
+                raise ValueError(f"Invalid calibration matrix shape {m.shape}; expected (4, 3).")
+
+            self.calibration_matrix = m
+            self.profile_name = profile.get("profile_name", "")
+            self.scanner_info = profile.get("scanner_info", "")
+            self.created_date = profile.get("created_date", "")
+            self.source_target_path = profile.get("source_target_path", "")
+            self._quality = profile.get("quality")
+            self.patch_results = [
+                self._patch_from_dict(item)
+                for item in profile.get("patch_results", [])
+            ]
             self.is_valid = True
-            logger.info(f"Loaded calibration profile from {path}: {self.profile_name}")
+            logger.info("Loaded CR30 calibration profile from %s", path)
             return True
-            
-        except Exception as e:
-            logger.error(f"Failed to load calibration profile: {e}")
+        except Exception as exc:
+            logger.error("Failed to load calibration profile: %s", exc)
             self.is_valid = False
             return False
-    
-    def apply_lab_correction(
-        self, lab: Tuple[float, float, float]
-    ) -> Tuple[float, float, float]:
-        """Apply the Lab affine matrix to a (L*, a*, b*) tuple.
-
-        Returns the tuple unchanged if no matrix has been derived or loaded.
-        """
-        if not getattr(self, 'lab_matrix', None):
-            return lab
-        M = np.array(self.lab_matrix)          # shape (4, 3)
-        v = np.array([lab[0], lab[1], lab[2], 1.0])
-        corrected = v @ M                       # shape (3,)
-        return (float(corrected[0]), float(corrected[1]), float(corrected[2]))
 
     def get_calibration_quality(self) -> Optional[Dict[str, Any]]:
-        """Get quality metrics for the current calibration.
-        
-        Returns:
-            Dict with quality metrics, or None if not calibrated
-        """
-        if not self.is_valid or not self.patch_results:
+        if not self.is_valid:
             return None
-        
-        delta_e_before = [p.delta_e_before for p in self.patch_results]
-        delta_e_after = [p.delta_e_after for p in self.patch_results]
-        
+        if self._quality is not None:
+            q = dict(self._quality)
+            q["profile_name"] = self.profile_name
+            q["created_date"] = self.created_date
+            return q
+        if self.patch_results:
+            before = [p.delta_e_before for p in self.patch_results]
+            after = [p.delta_e_after for p in self.patch_results]
+            return {
+                "avg_delta_e_before": float(np.mean(before)),
+                "avg_delta_e_after": float(np.mean(after)),
+                "max_delta_e_before": float(np.max(before)),
+                "max_delta_e_after": float(np.max(after)),
+                "patch_count": len(self.patch_results),
+                "patches_used": len(self.patch_results),
+                "patches_excluded": 0,
+                "profile_name": self.profile_name,
+                "created_date": self.created_date,
+                "metric": "CIE76 Lab",
+            }
         return {
-            'avg_delta_e_before': sum(delta_e_before) / len(delta_e_before),
-            'avg_delta_e_after': sum(delta_e_after) / len(delta_e_after),
-            'max_delta_e_before': max(delta_e_before),
-            'max_delta_e_after': max(delta_e_after),
-            'min_delta_e_after': min(delta_e_after),
-            'patch_count': len(self.patch_results),
-            'profile_name': self.profile_name,
-            'created_date': self.created_date,
+            "profile_name": self.profile_name,
+            "created_date": self.created_date,
+            "avg_delta_e_after": 0.0,
+            "patch_count": 0,
+            "patches_used": 0,
+            "patches_excluded": 0,
+            "metric": "CIE76 Lab",
         }
-    
-    # ---- Internal helpers ----
-    
+
     @staticmethod
-    def _adaptive_threshold(profile: np.ndarray) -> float:
-        """Pick a sensible patch/paper threshold from a brightness profile.
-        
-        Sits the threshold a fixed margin below the apparent paper-white
-        level (95th-percentile of the profile). Clamped to a reasonable
-        range so a profile with no real bright background can't push the
-        threshold up to 254 (which would make every dark pixel a 'patch')
-        nor down so far that bright patches read as paper.
-        """
-        paper = float(np.percentile(profile, 95))
-        # Margin is proportional to the bright level so darker scans get
-        # a more aggressive cut.
-        thresh = paper - max(15.0, paper * 0.08)
-        return max(80.0, min(235.0, thresh))
-    
+    def _patch_to_dict(p: PatchResult) -> Dict[str, Any]:
+        return {
+            "name": p.name,
+            "grid_position": list(p.grid_position),
+            "reference_lab": list(p.reference_lab),
+            "scanned_rgb": list(p.scanned_rgb),
+            "scanned_lab": list(p.scanned_lab),
+            "corrected_lab": list(p.corrected_lab) if p.corrected_lab else None,
+            "corrected_rgb": list(p.corrected_rgb) if p.corrected_rgb else None,
+            "delta_e_before": p.delta_e_before,
+            "delta_e_after": p.delta_e_after,
+        }
+
     @staticmethod
-    def _ranges_look_fused(
-        ranges: List[Tuple[int, int]],
-        expected: int,
-    ) -> bool:
-        """Heuristic: detect when threshold-found ranges have fused multiple
-        real patches into single big blocks.
-        
-        A correctly detected target has each range covering one patch with
-        clean gaps between centres. When merging fuses adjacent rows, each
-        "range" ends up wider than the centre-to-centre spacing of the
-        next-detected one — a clear sanity-check failure.
-        """
-        if len(ranges) < 2 or expected <= 1:
-            return False
-        widths = [e - s for s, e in ranges]
-        centres = [(s + e) / 2.0 for s, e in ranges]
-        spacings = [centres[i + 1] - centres[i] for i in range(len(centres) - 1)]
-        if not spacings:
-            return False
-        median_w = float(np.median(widths))
-        median_sp = float(np.median(spacings))
-        if median_sp <= 0:
-            return True
-        # Real patches: width / spacing typically around 0.5–0.9.
-        # Fused: width ≥ spacing (often substantially greater).
-        return median_w > median_sp * 1.10
-    
-    @classmethod
-    def _detect_axis_ranges(
-        cls,
-        profile: np.ndarray,
-        expected: int,
-    ) -> List[Tuple[int, int]]:
-        """Detect ``expected`` patch ranges on one axis with retries.
-        
-        Tries the adaptive threshold first; if the count is wrong (or the
-        result looks fused — width ≫ spacing), sweeps a series of fixed
-        thresholds and keeps whichever attempt has the best match
-        (closest to ``expected``, then most ranges below it). Fused
-        results are treated as worse than under-counts so the
-        ``_interpolate_grid_ranges`` step downstream gets correctly-placed
-        anchors instead of bogus ones.
-        """
-        attempts: List[Tuple[int, int, List[Tuple[int, int]]]] = []
-        # Adaptive (image-driven) attempt first.
-        thresholds = [cls._adaptive_threshold(profile)]
-        # Fixed fallbacks span the realistic paper-white range across
-        # scanner drivers / Vuescan presets.
-        thresholds.extend([240.0, 220.0, 200.0, 180.0, 160.0])
-        
-        seen = set()
-        for t in thresholds:
-            key = round(t, 1)
-            if key in seen:
-                continue
-            seen.add(key)
-            ranges = cls._find_patch_ranges(profile, threshold=t)
-            fused = cls._ranges_look_fused(ranges, expected)
-            attempts.append((len(ranges), 1 if fused else 0, ranges))
-            if len(ranges) == expected and not fused:
-                return ranges
-        
-        # No attempt was a perfect match. Prefer non-fused over fused;
-        # within each group, prefer counts closest to expected, with ties
-        # broken toward more ranges (gives the grid interpolator more
-        # anchors).
-        attempts.sort(key=lambda x: (x[1], abs(x[0] - expected), -x[0]))
-        return attempts[0][2] if attempts else []
-    
-    @staticmethod
-    def _find_patch_ranges(
-        profile: np.ndarray,
-        threshold: float = 220,
-    ) -> List[Tuple[int, int]]:
-        """Find contiguous non-white regions in a 1D brightness profile.
-        
-        Args:
-            profile: 1D array of brightness values
-            threshold: Values below this are considered part of a patch.
-                Callers should usually go through ``_detect_axis_ranges``
-                which will pick an adaptive threshold; the default 220 is
-                kept for backward compatibility / direct callers.
-        
-        Returns:
-            List of (start, end) pixel ranges
-        """
-        in_patch = False
-        ranges = []
-        start = 0
-        
-        for i, val in enumerate(profile):
-            if not in_patch and val < threshold:
-                start = i
-                in_patch = True
-            elif in_patch and val >= threshold:
-                ranges.append((start, i))
-                in_patch = False
-        if in_patch:
-            ranges.append((start, len(profile)))
-        
-        if not ranges:
-            return []
-        
-        # Merge tiny gaps that are clearly printing/scan artifacts. The
-        # threshold scales with the median raw range width so a wide-patch
-        # / wide-scan target doesn't accidentally fuse real inter-patch
-        # gaps (the original hard-coded 30 px was bridging real ~25-30 px
-        # gaps on tighter target prints, which collapsed multiple rows
-        # into a single range and broke patch detection downstream).
-        raw_widths = [e - s for s, e in ranges if e > s]
-        median_w = float(np.median(raw_widths)) if raw_widths else 0.0
-        merge_gap_threshold = max(4.0, min(15.0, median_w * 0.05))
-        
-        merged = []
-        for r in ranges:
-            if merged and (r[0] - merged[-1][1]) < merge_gap_threshold:
-                merged[-1] = (merged[-1][0], r[1])
-            else:
-                merged.append(r)
-        
-        # Filter out tiny ranges (< 100 pixels) — noise/borders
-        return [(s, e) for s, e in merged if e - s > 100]
-    
-    @staticmethod
-    def _interpolate_grid_ranges(
-        detected: List[Tuple[int, int]],
-        expected: int,
-        axis_size: Optional[int] = None
-    ) -> List[Tuple[int, int]]:
-        """Infer a full regular grid from a partial set of detected ranges.
-        
-        This is used when one or more interior patches are too close in
-        brightness to the background (e.g. white patch on white paper).
-        
-        Args:
-            detected: Existing detected ranges (must be sorted)
-            expected: Expected number of ranges in this axis
-            axis_size: Optional axis length for bounds clipping
-        
-        Returns:
-            Reconstructed list of ranges, or original ranges if interpolation
-            is not feasible.
-        """
-        if len(detected) < 2 or len(detected) >= expected:
-            return detected
-        
-        widths = [e - s for s, e in detected if e > s]
-        if not widths:
-            return detected
-        avg_width = int(round(float(np.mean(widths))))
-        
-        first_center = (detected[0][0] + detected[0][1]) / 2.0
-        last_center = (detected[-1][0] + detected[-1][1]) / 2.0
-        if expected <= 1:
-            return detected
-        
-        spacing = (last_center - first_center) / (expected - 1)
-        half = avg_width // 2
-        
-        interpolated = []
-        for i in range(expected):
-            center = int(round(first_center + i * spacing))
-            start = center - half
-            end = center + half
-            
-            if axis_size is not None:
-                start = max(0, start)
-                end = min(axis_size, end)
-            
-            if end <= start:
-                return detected
-            interpolated.append((start, end))
-        
-        logger.info(
-            f"Interpolated {expected} ranges from {len(detected)} detected "
-            f"(width={avg_width}, spacing={spacing:.1f})"
+    def _patch_from_dict(data: Dict[str, Any]) -> PatchResult:
+        name = data["name"]
+        ref_lab = data.get("reference_lab", PATCH_LAB.get(name, (0.0, 0.0, 0.0)))
+        scanned_rgb = tuple(data.get("scanned_rgb", (0.0, 0.0, 0.0)))
+        scanned_lab = data.get("scanned_lab")
+        if scanned_lab is None:
+            rgb01 = np.asarray(scanned_rgb, dtype=np.float64).reshape(1, 3) / 255.0
+            scanned_lab = srgb_to_lab(rgb01)[0].tolist()
+        corrected_lab = data.get("corrected_lab")
+        corrected_rgb = data.get("corrected_rgb")
+        return PatchResult(
+            name=name,
+            grid_position=tuple(data.get("grid_position", (0, 0))),
+            reference_lab=tuple(float(v) for v in ref_lab),
+            scanned_rgb=tuple(float(v) for v in scanned_rgb),
+            scanned_lab=tuple(float(v) for v in scanned_lab),
+            corrected_lab=(tuple(float(v) for v in corrected_lab) if corrected_lab else None),
+            corrected_rgb=(tuple(float(v) for v in corrected_rgb) if corrected_rgb else None),
+            delta_e_before=float(data.get("delta_e_before", 0.0)),
+            delta_e_after=float(data.get("delta_e_after", 0.0)),
         )
-        return interpolated
-    
-    @staticmethod
-    def _delta_e_rgb(rgb1: Tuple[float, float, float],
-                     rgb2: Tuple[float, float, float]) -> float:
-        """Calculate Euclidean distance between two RGB values.
-        
-        This is a simple RGB distance, not perceptual ΔE in L*a*b*.
-        Used as a quick quality metric during calibration.
-        """
-        return math.sqrt(
-            (rgb1[0] - rgb2[0]) ** 2 +
-            (rgb1[1] - rgb2[1]) ** 2 +
-            (rgb1[2] - rgb2[2]) ** 2
-        )
+
+
+def calculate_calibration_matrix(
+    scanned_target_path: str,
+    output_matrix_path: str = "calibration_matrix.json",
+) -> np.ndarray:
+    """Standalone compatibility helper retained from Peter's test module."""
+    cal = ScannerCalibration()
+    cal.detect_patches(scanned_target_path)
+    cal.compute_correction()
+    assert cal.calibration_matrix is not None
+    with open(output_matrix_path, "w", encoding="utf-8") as f:
+        json.dump(cal.calibration_matrix.tolist(), f, indent=2)
+    return cal.calibration_matrix
