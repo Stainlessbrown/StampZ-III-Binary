@@ -334,7 +334,8 @@ class ScannerCalibration:
             raise ValueError("No complete 20-patch target is loaded. Run detect_patches() first.")
 
         scanned_rgb01 = np.array([p.scanned_rgb for p in self.patch_results], dtype=np.float64) / 255.0
-        scanned_linear = _srgb_to_linear(scanned_rgb01)
+        # scanned_linear = _srgb_to_linear(scanned_rgb01)
+        scanned_linear = scanned_rgb01
         x_input = np.hstack([scanned_linear, np.ones((len(scanned_linear), 1))])
 
         weights, _, rank, _ = np.linalg.lstsq(x_input, Y_TARGETS_XYZ, rcond=None)
@@ -387,8 +388,13 @@ class ScannerCalibration:
         if self.calibration_matrix is None:
             raise ValueError("No calibration matrix is loaded.")
         rgb01 = np.clip(np.asarray(rgb, dtype=np.float64) / 255.0, 0.0, 1.0)
-        linear = _srgb_to_linear(rgb01)
+
+        # VueScan 48-bit RAW is already linear -- do not apply inverse sRGB gamma
+        # linear = _srgb_to_linear(rgb01)
+        linear = rgb01
+
         vec = np.append(linear, 1.0)
+        
         xyz = vec @ self.calibration_matrix
         # Small negative values can arise from an affine least-squares fit.
         return np.maximum(xyz, 0.0)
