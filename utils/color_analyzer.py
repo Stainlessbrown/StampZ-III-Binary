@@ -81,16 +81,18 @@ class ColorAnalyzer:
         else:
             lab = self._rgb_to_lab_approximation(rgb)
 
-        # Apply TPS calibration if available (returns None if not fitted)
+        # Apply TPS calibration if available (returns None if not fitted))
         try:
-            from utils.scanner_calibration import apply_tps_calibration
-            corrected = apply_tps_calibration(lab)
-            if corrected is not None:
-                return corrected
-        except Exception:
-            pass
+            from utils.scanner_calibration import apply_calibration_to_lab_from_rgb
+            return apply_calibration_to_lab_from_rgb(rgb)
+        except Exception as e:
+            print(f"Warning: Scanner Lab calibration skipped: {e}")
 
-        return lab
+        if HAS_COLORSPACIOUS:
+            rgb_float = [c / 255.0 for c in rgb]
+            return tuple(cspace_convert(rgb_float, "sRGB1", "CIELab"))
+
+        return self._rgb_to_lab_approximation(rgb)
     
     def _rgb_to_lab_approximation(self, rgb: Tuple[float, float, float]) -> Tuple[float, float, float]:
         """Approximate RGB to L*a*b* conversion.
@@ -668,18 +670,6 @@ class ColorAnalyzer:
         
         print(f"Raw average RGB values: R={avg_r:.2f}, G={avg_g:.2f}, B={avg_b:.2f}")
         
-        # Apply scanner calibration correction if active
-        try:
-            from .scanner_calibration import get_active_calibration
-            calibration = get_active_calibration()
-            if calibration and calibration.is_valid:
-                corrected = calibration.apply_correction((avg_r, avg_g, avg_b))
-                if corrected:
-                    avg_r, avg_g, avg_b = corrected
-                    print(f"Calibration-corrected RGB: R={avg_r:.2f}, G={avg_g:.2f}, B={avg_b:.2f}")
-        except Exception as e:
-            print(f"Warning: Scanner calibration correction skipped: {e}")
-        
         print(f"Final average RGB values: R={avg_r:.2f}, G={avg_g:.2f}, B={avg_b:.2f}")
         
         return (avg_r, avg_g, avg_b)
@@ -794,6 +784,7 @@ class ColorAnalyzer:
                 image, meta = _load_image(image_path)
             except Exception as _le:
                 image = Image.open(image_path)  # fallback
+
             print(f"Loaded image: {image.size[0]}x{image.size[1]} pixels")
             
             # Extract colors using canvas coordinates
@@ -890,6 +881,7 @@ class ColorAnalyzer:
             List of measurement dictionaries with coordinate points and color values
         """
         measurements = []
+        print(f"CANVAS IMAGE: mode={image.mode}, size={image.size}")
         
         for i, marker in enumerate(canvas_coordinates, 1):
             if marker.get('is_preview', False):

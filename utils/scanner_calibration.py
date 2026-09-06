@@ -40,7 +40,7 @@ PATCH_NAMES = [
 ]
 
 CR30_LAB_TARGETS = np.array([
-    [10.00,   0.00,   0.00],   # Black - practical V600 floor
+    [0.00,   0.00,   0.00],   # Black - practical V600 floor
     [23.53,   0.51,  -1.10],   # 25% Gray
     [45.79,  -0.03,  -1.38],   # 50% Gray
     [69.65,  -0.68,  -0.06],   # 75% Gray
@@ -72,6 +72,15 @@ GRID_COLS = 4
 
 # D65 / 2-degree standard observer, normalized Y=1.
 D65_WHITE = np.array([0.95047, 1.00000, 1.08883], dtype=np.float64)
+
+def srgb_to_linear(rgb01: np.ndarray) -> np.ndarray:
+    """Convert gamma-encoded sRGB values in 0-1 range to linear RGB."""
+    rgb = np.asarray(rgb01, dtype=np.float64)
+    return np.where(
+        rgb <= 0.04045,
+        rgb / 12.92,
+        ((rgb + 0.055) / 1.055) ** 2.4,
+    )
 
 
 # ---------------------------------------------------------------------
@@ -272,7 +281,9 @@ class ScannerCalibration:
 
     def __init__(self) -> None:
         self.patch_results: List[PatchResult] = []
-        self.calibration_matrix: Optional[np.ndarray] = None  # 4 x 3
+        self.calibration_matrix: Optional[np.ndarray] = None  # 3 x 3
+        self.scanner_black_floor = np.zeros(3, dtype=np.float64)
+        self.scale_factor = 1.0
         self.is_valid = False
         self.profile_name = ""
         self.created_date = ""
@@ -282,8 +293,15 @@ class ScannerCalibration:
 
     def detect_patches(self, image_path: str) -> List[PatchResult]:
         """Sample the center 50% of each cell from a cropped 4x5 target scan."""
-        img = Image.open(image_path).convert("RGB")
+        try:
+            from utils.image_processor import load_image as _load_image
+            img, _ = _load_image(image_path)
+        except Exception:
+            img = Image.open(image_path)
+
+        img = img.convert("RGB")
         arr = np.asarray(img, dtype=np.float64)
+
         h, w, _ = arr.shape
 
         if h < self.GRID_ROWS * 4 or w < self.GRID_COLS * 4:
@@ -308,6 +326,7 @@ class ScannerCalibration:
                 name = PATCH_NAMES[idx]
                 ref_lab = CR30_LAB_TARGETS[idx]
                 mean_rgb = crop.mean(axis=(0, 1))
+                print(f"CAL PATCH {name}: RGB={mean_rgb[0]:.2f}, {mean_rgb[1]:.2f}, {mean_rgb[2]:.2f}")
                 scan_lab = srgb_to_lab((mean_rgb / 255.0).reshape(1, 3))[0]
                 de_before = float(delta_e_76(scan_lab, ref_lab)[0])
 
@@ -333,14 +352,38 @@ class ScannerCalibration:
         if len(self.patch_results) != 20:
             raise ValueError("No complete 20-patch target is loaded. Run detect_patches() first.")
 
-        scanned_rgb01 = np.array([p.scanned_rgb for p in self.patch_results], dtype=np.float64) / 255.0
-        # scanned_linear = _srgb_to_linear(scanned_rgb01)
-        scanned_linear = scanned_rgb01
-        x_input = np.hstack([scanned_linear, np.ones((len(scanned_linear), 1))])
+        scanned_rgb01 = np.array(
+            [p.scanned_rgb for p in self.patch_results],
+             dtype=np.float64
+            ) / 255.0
+
+        scanned_linear_rgb = srgb_to_linear(scanned_rgb01)
+
+        # Black-floor compensation in linear RGB space
+        self.scanner_black_floor = scanned_linear_rgb[0].copy()
+
+        scanned_subtracted = np.maximum(
+            scanned_linear_rgb - self.scanner_black_floor,
+            0.0
+        )
+
+        self.scale_factor = 1.0 / (
+        1.0 - self.scanner_black_floor.max()
+        )
+
+        scanned_linear = np.clip(
+        scanned_subtracted * self.scale_factor,
+        0.0,
+        1.0
+        )
+
+        x_input = scanned_linear
 
         weights, _, rank, _ = np.linalg.lstsq(x_input, Y_TARGETS_XYZ, rcond=None)
-        if rank < 4:
-            raise ValueError("Calibration target data are degenerate; could not solve a stable 4-parameter matrix.")
+        if rank < 3:
+            raise ValueError(
+                "Calibration target data are degenerate; could not solve a stable 3-parameter matrix."
+            )
 
         self.calibration_matrix = weights
         self.is_valid = True
@@ -389,25 +432,160 @@ class ScannerCalibration:
             raise ValueError("No calibration matrix is loaded.")
         rgb01 = np.clip(np.asarray(rgb, dtype=np.float64) / 255.0, 0.0, 1.0)
 
-        # VueScan 48-bit RAW is already linear -- do not apply inverse sRGB gamma
-        # linear = _srgb_to_linear(rgb01)
-        linear = rgb01
+        # StampZ's image loader gamma-encodes VueScan RAW for the normal image pipeline,
+        # so convert sampled sRGB values back to linear RGB before calibration.
+        linear_rgb = srgb_to_linear(rgb01)
 
-        vec = np.append(linear, 1.0)
-        
-        xyz = vec @ self.calibration_matrix
+        linear = np.maximum(
+            linear_rgb - self.scanner_black_floor,
+            0.0
+        )
+
+        linear = np.clip(
+            linear * self.scale_factor,
+            0.0,
+            1.0
+        )
+
+        xyz = linear @ self.calibration_matrix
+
         # Small negative values can arise from an affine least-squares fit.
         return np.maximum(xyz, 0.0)
 
-    def apply_to_lab(self, rgb: Tuple[float, float, float]) -> Tuple[float, float, float]:
-        """Convert scanner RGB directly to calibrated CR30-grounded CIE Lab."""
-        if not self.is_valid or self.calibration_matrix is None:
-            rgb01 = np.asarray(rgb, dtype=np.float64).reshape(1, 3) / 255.0
-            lab = srgb_to_lab(rgb01)[0]
-        else:
-            xyz = self._rgb_to_calibrated_xyz(rgb).reshape(1, 3)
-            lab = xyz_to_lab(xyz)[0]
-        return tuple(float(v) for v in lab)
+    def _local_lab_correction(self, lab: np.ndarray) -> np.ndarray:
+        """
+        Return the CR30-grounded local correction vector for an
+        uncalibrated Lab measurement.
+            
+        Tuned exploratory model:
+        - 3 nearest chromatic anchors
+        - strong local distance weighting
+        - hue-aware cylindrical Lab distance
+        - neutral influence increases smoothly as chroma approaches zero
+        """
+        lab = np.asarray(lab, dtype=np.float64)
+            
+        scanned = np.array(
+            [p.scanned_lab for p in self.patch_results],
+            dtype=np.float64
+            )
+        reference = np.array(
+            [p.reference_lab for p in self.patch_results],
+            dtype=np.float64
+            )
+            
+        if len(scanned) < 20:
+            return np.zeros(3, dtype=np.float64)
+            
+        corrections = reference - scanned
+            
+        anchor_chroma = np.hypot(scanned[:, 1], scanned[:, 2])
+        chromatic_idx = np.where(anchor_chroma >= 5.0)[0]
+        neutral_idx = np.where(anchor_chroma < 5.0)[0]
+            
+        L, a, b = lab
+        C = np.hypot(a, b)
+        H = np.arctan2(b, a)
+            
+        # -------------------------------------------------------------
+        # Chromatic anchors
+        # Tuned parameters from the 20-patch leave-one-out experiment.
+        # -------------------------------------------------------------
+        distances = []
+            
+        for idx in chromatic_idx:
+            La, aa, ba = scanned[idx]
+            
+            Ca = np.hypot(aa, ba)
+            Ha = np.arctan2(ba, aa)
+            
+            dh = np.arctan2(
+            np.sin(H - Ha),
+            np.cos(H - Ha)
+            )
+            
+            d = np.sqrt(
+            ((L - La) / 35.0) ** 2
+            + ((C - Ca) / 25.0) ** 2
+            + (dh / 0.35) ** 2
+            )        
+    
+            distances.append(d)
+    
+        distances = np.asarray(distances)
+    
+        order = np.argsort(distances)[:3]
+        chosen = chromatic_idx[order]
+        chosen_distances = distances[order]
+    
+        weights = 1.0 / ((chosen_distances + 0.05) ** 4)
+        weights /= np.sum(weights)
+    
+        chromatic_correction = np.sum(
+            corrections[chosen] * weights[:, None],
+            axis=0
+        )
+    
+        # -------------------------------------------------------------
+        # Neutral anchors
+        # Use nearby neutral patches primarily according to L*.
+        # -------------------------------------------------------------
+        neutral_L_distance = (
+        np.abs(scanned[neutral_idx, 0] - L) / 20.0
+        )
+    
+        neutral_order = np.argsort(neutral_L_distance)[:3]
+        neutral_chosen = neutral_idx[neutral_order]
+        neutral_distances = neutral_L_distance[neutral_order]
+    
+        neutral_weights = 1.0 / ((neutral_distances + 0.1) ** 2)
+        neutral_weights /= np.sum(neutral_weights)
+    
+        neutral_correction = np.sum(
+        corrections[neutral_chosen] * neutral_weights[:, None],
+        axis=0
+        )
+    
+        # -------------------------------------------------------------
+        # Smooth chroma-dependent blend.
+        # High-chroma colors rely mostly on chromatic anchors.
+        # Near-neutral colors increasingly use neutral anchors.
+        # -------------------------------------------------------------
+        alpha = C / (C + 4.0)
+    
+        correction = (
+        alpha * chromatic_correction
+        + (1.0 - alpha) * neutral_correction
+        )
+    
+        return correction
+        
+
+    def apply_to_lab(
+        self,
+        rgb: Tuple[float, float, float]
+    ) -> Tuple[float, float, float]:
+        """
+        Convert sampled scanner RGB to Lab, then apply the local
+        CR30-grounded measurement correction.
+
+        The source image pixels are never altered.
+        """
+        rgb01 = np.clip(
+            np.asarray(rgb, dtype=np.float64).reshape(1, 3) / 255.0,
+            0.0,
+            1.0
+        )
+
+        uncalibrated_lab = srgb_to_lab(rgb01)[0]
+
+        if not self.is_valid or len(self.patch_results) < 20:
+            return tuple(float(v) for v in uncalibrated_lab)
+
+        correction = self._local_lab_correction(uncalibrated_lab)
+        calibrated_lab = uncalibrated_lab + correction
+
+        return tuple(float(v) for v in calibrated_lab)
 
     def apply_correction(self, rgb: Tuple[float, float, float]) -> Tuple[float, float, float]:
         """Legacy RGB return path, rendered from the calibrated physical XYZ."""
@@ -439,6 +617,8 @@ class ScannerCalibration:
             "source_target_path": self.source_target_path,
             "cr30_lab_targets": CR30_LAB_TARGETS.tolist(),
             "calibration_matrix": self.calibration_matrix.tolist(),
+            "scanner_black_floor": self.scanner_black_floor.tolist(),
+            "scale_factor": self.scale_factor,
             "quality": self._quality,
             "patch_results": [self._patch_to_dict(p) for p in self.patch_results],
         }
@@ -470,10 +650,16 @@ class ScannerCalibration:
                 )
 
             m = np.asarray(matrix, dtype=np.float64)
-            if m.shape != (4, 3):
-                raise ValueError(f"Invalid calibration matrix shape {m.shape}; expected (4, 3).")
+            if m.shape != (3, 3):
+                raise ValueError(f"Invalid calibration matrix shape {m.shape}; expected (3, 3).")
 
             self.calibration_matrix = m
+            self.scanner_black_floor = np.asarray(
+                profile.get("scanner_black_floor", [0.0, 0.0, 0.0]),
+                dtype=np.float64
+            )
+            self.scale_factor = float(profile.get("scale_factor", 1.0))
+            
             self.profile_name = profile.get("profile_name", "")
             self.scanner_info = profile.get("scanner_info", "")
             self.created_date = profile.get("created_date", "")
