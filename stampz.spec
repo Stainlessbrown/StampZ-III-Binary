@@ -4,7 +4,7 @@ import os
 from PyInstaller.utils.hooks import collect_all
 
 # Version for PyInstaller spec - keep this in sync with __init__.py
-VERSION = '3.2.7'
+VERSION = '3.2.8'
 
 # Safely collect odfpy data files and imports
 try:
@@ -236,6 +236,9 @@ if os.path.exists('plot3d/zoom_presets.json'):
 # Explicitly add critical modules that PyInstaller might miss
 hiddenimports += ['initialize_env']
 
+print("HIDDENIMPORT COUNT:", len(hiddenimports))
+print("HAS sample_results_manager:", 'gui.sample_results_manager' in hiddenimports)
+print("HAS color_library_manager:", 'gui.color_library_manager' in hiddenimports)
 a = Analysis(
 ['main.py', 'initialize_env.py', 'gui/gauge_perforation_ui.py', 'gui/perforation_ui.py'],  # Explicitly include these modules
     pathex=['.'],
