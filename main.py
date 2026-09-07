@@ -12,25 +12,35 @@ from pathlib import Path
 
 # Try multiple Desktop locations (handles OneDrive Desktop redirection on Windows)
 _log_path = None
-_candidate_paths = [
-    Path.home() / "Desktop" / "StampZ_Debug_Log.txt",
-    Path.home() / "OneDrive" / "Desktop" / "StampZ_Debug_Log.txt",
-    Path.home() / "OneDrive - Personal" / "Desktop" / "StampZ_Debug_Log.txt",
-    Path(os.environ.get('APPDATA', Path.home())) / "StampZ-III" / "StampZ_Debug_Log.txt",
-]
-for _p in _candidate_paths:
-    try:
-        _p.parent.mkdir(parents=True, exist_ok=True)
-        with open(_p, 'w', encoding='utf-8') as _f:
-            _f.write(f"StampZ-III starting...\n")
-            _f.write(f"Python: {sys.version}\n")
-            _f.write(f"Platform: {sys.platform}\n")
-            _f.write(f"Frozen: {getattr(sys, 'frozen', False)}\n")
-            _f.write(f"Log location: {_p}\n")
-        _log_path = _p
-        break
-    except Exception:
-        continue
+
+try:
+    from utils.user_preferences import get_preferences_manager
+    _debug_enabled = get_preferences_manager().get('debug_logging_enabled', False)
+except Exception:
+    _debug_enabled = False
+
+if _debug_enabled:
+    _candidate_paths = [
+        Path.home() / "Desktop" / "StampZ_Debug_Log.txt",
+        Path.home() / "OneDrive" / "Desktop" / "StampZ_Debug_Log.txt",
+        Path.home() / "OneDrive - Personal" / "Desktop" / "StampZ_Debug_Log.txt",
+        Path(os.environ.get('APPDATA', Path.home())) / "StampZ-III" / "StampZ_Debug_Log.txt",
+    ]
+
+    for _p in _candidate_paths:
+        try:
+            _p.parent.mkdir(parents=True, exist_ok=True)
+            with open(_p, 'w', encoding='utf-8') as _f:
+                _f.write("StampZ-III starting...\n")
+                _f.write(f"Python: {sys.version}\n")
+                _f.write(f"Platform: {sys.platform}\n")
+                _f.write(f"Frozen: {getattr(sys, 'frozen', False)}\n")
+                _f.write(f"Log location: {_p}\n")
+            _log_path = _p
+            break
+        except Exception:
+            continue
+
 # === END EARLY CRASH LOGGING ===
 
 # For bundled PyInstaller apps, ensure current directory is in Python path
@@ -81,23 +91,31 @@ def launch_full_stampz():
     # Setup logging - both console and file
     import logging.handlers
     from pathlib import Path
+    from utils.user_preferences import get_preferences_manager
+    prefs_manager = get_preferences_manager()
+    debug_enabled = prefs_manager.get('debug_logging_enabled', False)
     
-    # Use the same log path established during early startup logging
+   # Use the same log path established during early startup logging
     log_file = _log_path if _log_path else Path.home() / "Desktop" / "StampZ_Debug_Log.txt"
-    
-    # Configure logging with both file and console handlers
-    file_handler = logging.FileHandler(log_file, mode='w', encoding='utf-8')
-    file_handler.setLevel(logging.INFO)
-    
+
+    # Configure logging
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setLevel(logging.INFO)
-    
+
+    handlers = [stream_handler]
+
+    if debug_enabled:
+        file_handler = logging.FileHandler(log_file, mode='w', encoding='utf-8')
+        file_handler.setLevel(logging.INFO)
+        handlers.append(file_handler)
+
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[stream_handler, file_handler],
+        handlers=handlers,
         force=True  # Force reconfiguration
     )
+    
     
     # Force immediate flush for file handler
     for handler in logging.root.handlers:
