@@ -252,6 +252,10 @@ a = Analysis(
     noarchive=False,
 )
 
+pure_names = [item[0] for item in a.pure]
+print("ANALYSIS HAS sample_results_manager:", 'gui.sample_results_manager' in pure_names)
+print("ANALYSIS HAS color_library_manager:", 'gui.color_library_manager' in pure_names)
+
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
 if onefile:
