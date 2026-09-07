@@ -108,6 +108,7 @@ class ReorganizedControlPanel(ttk.Frame):
         # Sample tool variables
         self.sample_set_name = tk.StringVar()
         self.analysis_name = tk.StringVar()
+        self.sample_name = tk.StringVar()
         self.print_type = tk.StringVar(value="solid")
         self.sample_mode = tk.StringVar(value="template")
         
@@ -441,17 +442,34 @@ class ReorganizedControlPanel(ttk.Frame):
         ttk.Button(template_frame, text="Export", command=self._export_current_template, width=6
         ).pack(side=tk.LEFT, padx=1)
         
-        # ΔE HUD toggle + auto-generated analysis name (hidden)
+        # Optional sample / DataID name
+        analysis_frame = ttk.Frame(self.sample_frame)
+        analysis_frame.pack(fill=tk.X, padx=5, pady=1)
+
+        ttk.Label(
+            analysis_frame,
+            text="Sample Name:",
+            font=("Arial", 10, "bold")
+        ).pack(side=tk.LEFT)
+
+        self.analysis_entry = ttk.Entry(
+            analysis_frame,
+            textvariable=self.sample_name,
+            width=15
+        )
+        self.analysis_entry.pack(side=tk.LEFT, padx=5)
+
+        # ΔE HUD toggle
         hud_frame = ttk.Frame(self.sample_frame)
         hud_frame.pack(fill=tk.X, padx=5, pady=1)
+
         self.show_delta_hud = tk.BooleanVar(value=True)
         ttk.Checkbutton(
-            hud_frame, text="Show ΔE on markers",
+            hud_frame,
+            text="Show ΔE on markers",
             variable=self.show_delta_hud,
             command=self._on_delta_hud_toggle
         ).pack(side=tk.LEFT)
-        # Keep analysis_name working behind the scenes (used by file_manager)
-        self.analysis_entry = None  # No visible entry
         
         # Create a canvas with scrollbar for sample controls
         canvas = tk.Canvas(self.sample_frame, height=600)  # Set desired height here

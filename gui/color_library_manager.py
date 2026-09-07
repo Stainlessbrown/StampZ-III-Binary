@@ -50,8 +50,9 @@ class ColorLibraryManager:
     # auto-close prior ones when re-sampling.
     _open_instances = []
     
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, app=None):
         self.parent = parent
+        self.app = app
         self.library = None
         
         # Store this instance as the current one
@@ -306,7 +307,7 @@ class ColorLibraryManager:
         """Create the Results tab using SampleResultsManager."""
         # Create SampleResultsManager for the Results tab
         from .sample_results_manager import SampleResultsManager
-        self.results_manager = SampleResultsManager(self.results_frame)
+        self.results_manager = SampleResultsManager(self.results_frame, app=self.app)
         
         # Set library if available
         if hasattr(self, 'library') and self.library:

@@ -131,9 +131,13 @@ class AnalysisManager:
             print(f"  - sample_set_name: {actual_sample_set}")
             print(f"  - number of markers: {len(self.app.canvas._coord_markers)}")
             
+            print(f"DEBUG: Passing sample_name: '{sample_name}'")
             measurements = analyzer.analyze_image_colors_from_canvas(
-                self.app.current_file, actual_sample_set, self.app.canvas._coord_markers
-            )
+            self.app.current_file,
+            actual_sample_set,
+            self.app.canvas._coord_markers,
+            sample_name=sample_name
+        )
             
             print(f"DEBUG: analyze_image_colors_from_canvas returned: {measurements is not None}")
             if measurements:
@@ -348,6 +352,8 @@ class AnalysisManager:
     def _analyze_rgb_cmy_colors(self):
         """Perform RGB-CMY channel analysis using existing sample markers."""
         sample_set_name = self.app.control_panel.sample_set_name.get().strip()
+        sample_name = self.app.control_panel.sample_name.get().strip()
+        print(f"DEBUG: Sample Name from control panel: '{sample_name}'")
         if not sample_set_name:
             messagebox.showwarning(
                 "No Sample Set Name", 
@@ -3362,7 +3368,7 @@ class AnalysisManager:
         try:
             from gui.color_library_manager import ColorLibraryManager
             self._maybe_close_previous_library_windows()
-            library_manager = ColorLibraryManager(parent=self.root)
+            library_manager = ColorLibraryManager(parent=self.root, app=self.app)
             library_manager.root.update()
         except ImportError as e:
             messagebox.showerror(
@@ -3458,7 +3464,7 @@ class AnalysisManager:
 
             try:
                 self._maybe_close_previous_library_windows()
-                library_manager = ColorLibraryManager(parent=self.root)
+                library_manager = ColorLibraryManager(parent=self.root, app=self.app)
                 if not library_manager.library:
                     # Use first available library on disk
                     from utils.path_utils import get_color_libraries_dir

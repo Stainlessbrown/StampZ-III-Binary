@@ -763,8 +763,9 @@ class ColorAnalyzer:
         return base_name
     
     def analyze_image_colors_from_canvas(self, image_path: str, coordinate_set_name: str, 
-                                        canvas_coordinates: List[dict], 
-                                        description: str = None) -> Optional[List[ColorMeasurement]]:
+                                    canvas_coordinates: List[dict], 
+                                    description: str = None,
+                                    sample_name: str = None) -> Optional[List[ColorMeasurement]]:
         """Analyze colors using current canvas coordinates (including fine adjustments).
         
         Args:
@@ -791,8 +792,11 @@ class ColorAnalyzer:
             measurements = self.extract_sample_colors_from_coordinates(image, canvas_coordinates)
             print(f"Extracted {len(measurements)} color measurements using canvas coordinates")
             
-            # Create new measurement set using sample identifier from filename
-            sample_identifier = self._extract_sample_identifier_from_filename(image_path)
+           # Use entered Sample Name when provided; otherwise use filename
+            sample_identifier = (sample_name or "").strip()
+
+            if not sample_identifier:
+                sample_identifier = self._extract_sample_identifier_from_filename(image_path)
             
             # Create a new measurement set with the sample identifier
             db = ColorAnalysisDB(coordinate_set_name)

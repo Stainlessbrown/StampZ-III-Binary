@@ -17,6 +17,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.color_library import ColorLibrary
 
+print(f"DEBUG LOADED sample_results_manager FROM: {__file__}")
+
 
 class SampleResultsManager(tk.Frame):
     """Manages sample results display interface and functionality."""
@@ -37,7 +39,7 @@ class SampleResultsManager(tk.Frame):
     # Minimum padding (will scale up with window size)
     MIN_PADDING = 10
     
-    def __init__(self, parent: tk.Widget):
+    def __init__(self, parent: tk.Widget, app=None):
         """Initialize the sample results manager.
         
         Args:
@@ -47,6 +49,7 @@ class SampleResultsManager(tk.Frame):
         
         # Initialize instance variables
         self.parent = parent
+        self.app = app
         self.library = None
         self.current_image = None
         self.sample_points = []
@@ -2239,8 +2242,19 @@ class SampleResultsManager(tk.Frame):
         from utils.color_analysis_db import ColorAnalysisDB
         
         analyzer = ColorAnalyzer()
-        
+
+        # Use optional Sample Name as DataID override
+        try:
+            sample_name = self.app.control_panel.sample_name.get().strip()            
+        except Exception:            
+            sample_name = ""
+
+        if sample_name:            
+            image_name = sample_name
+        else:                   
+
         sample_measurements = []
+        
         for i, sample in enumerate(samples, 1):
             sample_rgb = sample['rgb']
             sample_lab = (
