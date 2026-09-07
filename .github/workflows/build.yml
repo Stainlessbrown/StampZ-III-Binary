@@ -91,6 +91,15 @@ jobs:
         Write-Host "requirements.txt exists: $(Test-Path requirements.txt)"
         Write-Host "runtime_hook.py exists: $(Test-Path runtime_hook.py)"
         Get-ChildItem resources
+    - name: Verify macOS build source
+      if: startsWith(matrix.os, 'macos')
+      run: |
+        echo "=== COMMIT ==="
+        git rev-parse HEAD
+        echo "=== COLOR LIBRARY HIDDEN IMPORTS ==="
+        grep -n "sample_results_manager\|color_library_manager" stampz.spec
+        echo "=== DEBUG STARTUP CODE ==="
+        grep -n "debug_logging_enabled" main.py
     - name: Build macOS executable
       if: startsWith(matrix.os, 'macos')
       run: |
