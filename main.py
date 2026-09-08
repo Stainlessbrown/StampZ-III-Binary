@@ -119,13 +119,13 @@ def launch_full_stampz():
     
     # Setup custom stdout/stderr capture only when debug logging is enabled
     if debug_enabled:
-    try:
-        from utils.debug_capture import setup_debug_capture
-        setup_debug_capture(log_file)
-        print("DEBUG: Debug capture initialized successfully")
-    except Exception as e:
-        logger.warning(f"Could not setup debug capture: {e}")
-        print(f"Warning: Debug capture not available: {e}")
+        try:
+            from utils.debug_capture import setup_debug_capture
+            setup_debug_capture(log_file)
+            print("DEBUG: Debug capture initialized successfully")
+        except Exception as e:
+            logger.warning(f"Could not setup debug capture: {e}")
+            print(f"Warning: Debug capture not available: {e}")
     
     logger.info(f"StampZ-III Debug Log - Session started")
     logger.info(f"Log file: {log_file}")
@@ -134,20 +134,19 @@ def launch_full_stampz():
     
     # Log if running as bundled app
     if getattr(sys, 'frozen', False):
-        logger.info(f"Running as PyInstaller bundle")
+        logger.info("Running as PyInstaller bundle")
         logger.info(f"Bundle dir: {sys._MEIPASS}")
-        # In bundled apps, explicitly write to log file since stdout might not be captured
-        try:
-            with open(log_file, 'a', encoding='utf-8') as f:
-                f.write(f"\n=== StampZ-III Bundled App Session ===\n")
-                f.write(f"Bundle directory: {sys._MEIPASS}\n")
-                f.flush()
-        except Exception:
-            pass
-    else:
-        logger.info(f"Running from source")
-    
-    logger.info("Starting full StampZ-III application...")
+
+        if debug_enabled:
+            try:
+                with open(log_file, 'a', encoding='utf-8') as f:
+                    f.write("\n=== StampZ-III Bundled App Session ===\n")
+                    f.write(f"Bundle directory: {sys._MEIPASS}\n")
+                    f.flush()
+            except Exception:
+                pass
+        else:
+            logger.info("Running from source")
     
     # Create main window
     gui_start = time.time()
