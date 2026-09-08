@@ -27,15 +27,10 @@ if _debug_enabled:
         Path(os.environ.get('APPDATA', Path.home())) / "StampZ-III" / "StampZ_Debug_Log.txt",
     ]
 
+    # Establish a possible crash-log path without creating the file
     for _p in _candidate_paths:
         try:
             _p.parent.mkdir(parents=True, exist_ok=True)
-            with open(_p, 'w', encoding='utf-8') as _f:
-                _f.write("StampZ-III starting...\n")
-                _f.write(f"Python: {sys.version}\n")
-                _f.write(f"Platform: {sys.platform}\n")
-                _f.write(f"Frozen: {getattr(sys, 'frozen', False)}\n")
-                _f.write(f"Log location: {_p}\n")
             _log_path = _p
             break
         except Exception:
@@ -122,12 +117,12 @@ def launch_full_stampz():
         if isinstance(handler, logging.FileHandler):
             handler.flush()
     
-    # Setup custom stdout/stderr to capture DEBUG statements to log file
+    # Setup custom stdout/stderr capture only when debug logging is enabled
+    if debug_enabled:
     try:
         from utils.debug_capture import setup_debug_capture
         setup_debug_capture(log_file)
-        # Test that debug capture is working
-        print(f"DEBUG: Debug capture initialized successfully")
+        print("DEBUG: Debug capture initialized successfully")
     except Exception as e:
         logger.warning(f"Could not setup debug capture: {e}")
         print(f"Warning: Debug capture not available: {e}")
