@@ -2249,9 +2249,10 @@ class SampleResultsManager(tk.Frame):
         except Exception:            
             sample_name = ""
 
-        if sample_name:            
+        if sample_name:
             image_name = sample_name
-        else:                   
+        else:
+            image_name = os.path.basename(image_path)
 
         sample_measurements = []
         
