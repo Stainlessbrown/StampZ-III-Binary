@@ -346,6 +346,9 @@ class ColorAnalyzer:
                     avg_rgb = self._calculate_average_color(rgb_values)
                     lab_values = self.rgb_to_lab(avg_rgb)
                     
+                    print(f"DEBUG SAMPLE {i+1}: RGB={avg_rgb}")
+                    print(f"DEBUG SAMPLE {i+1}: LAB={lab_values}")
+                    
                     measurement = ColorMeasurement(
                         coordinate_id=marker.get('index', i),
                         coordinate_point=i + 1,  # 1-based point number

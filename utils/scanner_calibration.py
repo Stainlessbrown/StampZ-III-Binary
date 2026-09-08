@@ -239,6 +239,10 @@ def apply_calibration_to_rgb(
     The calibration itself is NOT performed in RGB space. This function exists
     so older StampZ paths that expect corrected RGB continue to operate.
     """
+    
+    print(f"DEBUG CAL: active={_active_calibration is not None}")
+    print(f"DEBUG CAL: valid={getattr(_active_calibration, 'is_valid', None)}")
+
     if _active_calibration and _active_calibration.is_valid:
         return _active_calibration.apply_correction(rgb)
     return rgb

@@ -2258,11 +2258,8 @@ class SampleResultsManager(tk.Frame):
         
         for i, sample in enumerate(samples, 1):
             sample_rgb = sample['rgb']
-            sample_lab = (
-                self.library.rgb_to_lab(sample_rgb)
-                if hasattr(self, 'library') and self.library
-                else analyzer.rgb_to_lab(sample_rgb)
-            )
+            sample_lab = analyzer.rgb_to_lab(sample_rgb)
+            
             rgb_stddev = sample.get('rgb_stddev', None)
             lab_stddev = sample.get('lab_stddev', None)
             sample_measurements.append({
