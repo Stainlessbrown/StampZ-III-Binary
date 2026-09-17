@@ -6,6 +6,7 @@ Handles basic image display, pan, zoom, and coordinate transformations.
 import tkinter as tk
 from typing import Optional, Tuple, Callable
 from PIL import Image, ImageTk
+from utils.raw_display_bridge import apply_raw_display_bridge
 import logging
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,36 @@ class CanvasCore:
         """Reset zoom and pan to default values."""
         self.image_scale = 1.0
         self.image_offset = (0, 0)
+        self.update_display()
+
+    def set_raw_display_bridge(self, enabled: bool) -> None:
+        """Enable or disable the RAW display bridge without altering source data."""
+        if self.original_image is None:
+            return
+
+        if enabled:
+            if self.original_image.mode == 'RGBA':
+                bg = Image.new('RGB', self.original_image.size, (255, 255, 255))
+                bg.paste(
+                    self.original_image,
+                    mask=self.original_image.split()[3]
+                )
+                self._display_source = apply_raw_display_bridge(bg)
+            else:
+                self._display_source = apply_raw_display_bridge(
+                    self.original_image
+                )
+        else:
+            if self.original_image.mode == 'RGBA':
+                bg = Image.new('RGB', self.original_image.size, (255, 255, 255))
+                bg.paste(
+                    self.original_image,
+                    mask=self.original_image.split()[3]
+                )
+                self._display_source = bg
+            else:
+                self._display_source = self.original_image
+
         self.update_display()
     
     def fit_to_window(self, ruler_size: int = 0) -> None:

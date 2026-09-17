@@ -58,9 +58,17 @@ class FileManager:
 
         if filename:
             try:
-                image, metadata = load_image(filename)
+                image, metadata = load_image(filename, display_only=True)
                 print(f"DEBUG open_image: loaded image has _stampz_16bit_data: {hasattr(image, '_stampz_16bit_data')}")
                 self.app.canvas.load_image(image)
+
+                # Apply the display bridge only to images identified as RAW.
+                from utils.user_preferences import get_preferences_manager
+                bridge_enabled = (
+                    metadata.get('is_raw', False)
+                    and get_preferences_manager().get_raw_display_bridge_enabled()
+                )
+                self.app.canvas.set_raw_display_bridge(bridge_enabled)
                 self.app.current_file = filename
                 self.app.current_image_metadata = metadata  # Store metadata for later use
                 
@@ -284,7 +292,7 @@ class FileManager:
 
                 if replace_response:
                     try:
-                        new_image, new_metadata = load_image(filepath)
+                        new_image, new_metadata = load_image(filepath, display_only=True)
                         self.app.canvas.load_image(new_image)
                         self.app.current_file = filepath
                         self.app.current_image_metadata = new_metadata

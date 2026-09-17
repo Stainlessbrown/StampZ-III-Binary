@@ -1325,6 +1325,7 @@ class PreferencesManager:
     _OPTIMIZE_RADIUS_KEY = "optimize_position_radius_px"
     _OPTIMIZE_STEP_KEY = "optimize_position_step_px"
     _EXPORT_INCLUDE_PAPER_KEY = "export_include_paper"
+    _RAW_DISPLAY_BRIDGE_KEY = "raw_display_bridge_enabled"
 
     def get_export_include_paper(self) -> bool:
         """Return True if paper-tagged samples (-p) should be included in exports.
@@ -1339,6 +1340,15 @@ class PreferencesManager:
         """
         val = self.get(self._EXPORT_INCLUDE_PAPER_KEY, False)
         return bool(val)
+
+    def get_raw_display_bridge_enabled(self) -> bool:
+        """Return whether the RAW display bridge is enabled."""
+        val = self.get(self._RAW_DISPLAY_BRIDGE_KEY, True)
+        return bool(val)
+
+    def set_raw_display_bridge_enabled(self, enabled: bool) -> bool:
+        """Persist whether the RAW display bridge is enabled."""
+        return self.set(self._RAW_DISPLAY_BRIDGE_KEY, bool(enabled))
 
     def set_export_include_paper(self, include: bool) -> bool:
         """Persist whether paper-tagged samples should be included in exports."""

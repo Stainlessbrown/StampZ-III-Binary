@@ -170,6 +170,10 @@ class CropCanvas(tk.Canvas):
         
         # Update full display
         self.update_display()
+
+    def set_raw_display_bridge(self, enabled: bool) -> None:
+        """Enable or disable the RAW display bridge."""
+        self.core.set_raw_display_bridge(enabled)
     
     def reset_view(self) -> None:
         """Reset zoom and pan to default values."""

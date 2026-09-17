@@ -142,12 +142,14 @@ class SaveManager:
         # Check if there's attached 16-bit data before copying
         has_16bit_data = hasattr(image, '_stampz_16bit_data')
         sixteen_bit_data = image._stampz_16bit_data if has_16bit_data else None
+        is_raw = getattr(image, '_stampz_is_raw', False)
         
         img = image.copy()
         
         # Re-attach 16-bit data after copy if it existed
         if has_16bit_data:
             img._stampz_16bit_data = sixteen_bit_data
+        img._stampz_is_raw = is_raw
         
         if options.format == SaveFormat.JPEG:
             # Convert to RGB for JPEG if needed
@@ -310,7 +312,12 @@ class SaveManager:
             # with sRGB stops macOS / browsers from re-interpreting them
             # under another assumed colour space.
             from .icc_profiles import get_save_icc_profile
-            icc_bytes = get_save_icc_profile(img_to_save)
+            if getattr(img_to_save, '_stampz_is_raw', False):
+                # Native-linear RAW data must not be tagged as sRGB.
+                icc_bytes = None
+                logger.info("RAW-derived image: preserving native linear data without sRGB ICC profile")
+            else:
+                icc_bytes = get_save_icc_profile(img_to_save)
             
             if is_16bit and options.format == SaveFormat.TIFF:
                 # Use tifffile to save 16-bit TIFF properly
@@ -318,6 +325,9 @@ class SaveManager:
                     import tifffile
                     logger.info("Saving as 16-bit TIFF using tifffile to preserve precision")
                     tifffile_kwargs = {"photometric": "rgb"}
+
+                    if getattr(img_to_save, '_stampz_is_raw', False):
+                        tifffile_kwargs["description"] = "StampZ Linear RAW"
                     # tifffile >= 2021.x accepts iccprofile=; older versions
                     # don't. Try with the kwarg first, fall back without.
                     if icc_bytes:

@@ -50,7 +50,7 @@ class SettingsManager:
         """Open the preferences dialog."""
         try:
             from gui.preferences_dialog import show_preferences_dialog
-            show_preferences_dialog(parent=self.root)
+            show_preferences_dialog(parent=self.root, app=self.app)
         except ImportError as e:
             messagebox.showerror(
                 "Missing Component",

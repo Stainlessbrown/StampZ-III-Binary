@@ -92,6 +92,19 @@ def _is_vuescan_linear_tiff(file_path) -> bool:
     except Exception:
         return False
 
+def _is_stampz_linear_raw_tiff(file_path) -> bool:
+    """Return True if this TIFF was saved by StampZ from linear RAW data."""
+    try:
+        import tifffile as _tf
+        with _tf.TiffFile(str(file_path)) as tif:
+            page = tif.pages[0]
+            desc_tag = page.tags.get(270)  # ImageDescription
+            description = str(desc_tag.value) if desc_tag is not None else ''
+
+            return 'stampz linear raw' in description.lower()
+    except Exception:
+        return False
+
 class ImageLoadError(Exception):
     """Exception raised when image loading fails."""
     pass
@@ -100,7 +113,7 @@ class ImageSaveError(Exception):
     """Exception raised when image saving fails."""
     pass
 
-def load_image(file_path: Union[str, Path]) -> Tuple[Image.Image, dict]:
+def load_image(file_path: Union[str, Path], display_only: bool = False) -> Tuple[Image.Image, dict]:
     """
     Load an image file and return a PIL Image object with proper color profile handling.
     For TIFF files, attempts to preserve 16-bit precision when possible.
@@ -157,6 +170,7 @@ def load_image(file_path: Union[str, Path]) -> Tuple[Image.Image, dict]:
                 image = Image.fromarray(img_array_8bit)
                 image._stampz_16bit_data = img_array
                 image._stampz_source_file = str(file_path)
+                image._stampz_is_raw = bool(metadata.get('is_raw', False))
                 metadata.update({
                     'format_info': f"Camera RAW ({suffix.upper()}) loaded via rawpy — 16-bit, sRGB",
                     'precision_preserved': True,
@@ -164,6 +178,7 @@ def load_image(file_path: Union[str, Path]) -> Tuple[Image.Image, dict]:
                     'samples_per_pixel': 3,
                     'photometric': 'RGB',
                     'color_profile': 'sRGB (rawpy postprocess)',
+                    'is_raw': True,
                 })
                 logger.info(f"Loaded camera RAW {suffix.upper()} via rawpy: {file_path}")
                 return image, metadata
@@ -191,15 +206,36 @@ def load_image(file_path: Union[str, Path]) -> Tuple[Image.Image, dict]:
                     # Detect VueScan linear RAW and apply sRGB gamma so the
                     # rest of the pipeline (Lab conversion, calibration) sees
                     # correctly gamma-encoded values.
-                    is_linear = _is_vuescan_linear_tiff(file_path)
+                    is_vuescan_linear = _is_vuescan_linear_tiff(file_path)
+                    is_stampz_linear = _is_stampz_linear_raw_tiff(file_path)
+                    is_linear = is_vuescan_linear or is_stampz_linear
+                    linear_source = "VueScan" if is_vuescan_linear else "StampZ-derived"
+
                     if is_linear:
-                        img_array = _apply_srgb_gamma_16bit(img_array)
-                        metadata['format_info'] = (
-                            "VueScan linear RAW TIFF — sRGB gamma applied "
-                            "(Uncalibrated → sRGB)"
-                        )
-                        metadata['linear_gamma_corrected'] = True
-                        logger.info(f"VueScan linear RAW detected, sRGB gamma applied: {file_path}")
+                        metadata['is_raw'] = True
+
+                        if display_only:
+                            # Preserve native linear VueScan RAW values for display.
+                            # The optional Display Bridge will handle perceptual rendering.
+                            metadata['format_info'] = (
+                                f"{linear_source} linear RAW TIFF — native linear display"
+                            )
+                            
+                            metadata['linear_gamma_corrected'] = False
+                            logger.info(
+                                f"{linear_source} linear RAW detected, native display preserved: {file_path}"
+                            )
+                        else:
+                            # Analysis path: retain existing sRGB gamma treatment.
+                            img_array = _apply_srgb_gamma_16bit(img_array)
+                            metadata['format_info'] = (
+                                f"{linear_source} linear RAW TIFF — sRGB gamma applied "
+                                "(Uncalibrated → sRGB)"
+                            )
+                            metadata['linear_gamma_corrected'] = True
+                            logger.info(
+                                f"{linear_source} linear RAW detected, sRGB gamma applied: {file_path}"
+                            )
                     else:
                         metadata['linear_gamma_corrected'] = False
 
@@ -208,6 +244,7 @@ def load_image(file_path: Union[str, Path]) -> Tuple[Image.Image, dict]:
                     image = Image.fromarray(img_array_8bit)
                     image._stampz_16bit_data = img_array
                     image._stampz_source_file = str(file_path)
+                    image._stampz_is_raw = bool(metadata.get('is_raw', False))
                     logger.info(f"Loaded 16-bit TIFF with full precision, attached _stampz_16bit_data: {file_path}")
                 else:
                     image = Image.fromarray(img_array)
@@ -319,7 +356,11 @@ def copy_image_preserve_16bit(image: Image.Image) -> Image.Image:
     # Preserve source file info if present
     if hasattr(image, '_stampz_source_file'):
         copied._stampz_source_file = image._stampz_source_file
-        
+
+    # Preserve RAW provenance if present
+    if hasattr(image, '_stampz_is_raw'):
+        copied._stampz_is_raw = image._stampz_is_raw
+
     return copied
 
 

@@ -14,8 +14,9 @@ from typing import Optional
 class PreferencesDialog:
     """Dialog for configuring user preferences."""
     
-    def __init__(self, parent: tk.Tk):
+    def __init__(self, parent: tk.Tk, app=None):
         self.parent = parent
+        self.app = app
         self.root = tk.Toplevel(parent)
         self.prefs_manager = None
         self.result = None
@@ -563,6 +564,35 @@ class PreferencesDialog:
             font=("TkDefaultFont", 9),
             foreground="gray"
         ).pack(anchor=tk.W)
+
+        # RAW display preferences section
+        raw_display_frame = ttk.LabelFrame(
+            sampling_frame,
+            text="RAW Image Display",
+            padding="10"
+        )
+        raw_display_frame.pack(fill=tk.X, pady=(10, 10))
+
+        self.raw_display_bridge_var = tk.BooleanVar(value=True)
+
+        ttk.Checkbutton(
+            raw_display_frame,
+            text="Use RAW Display Bridge",
+            variable=self.raw_display_bridge_var,
+            command=self._toggle_raw_display_bridge
+        ).pack(anchor=tk.W, pady=(0, 5))
+
+        ttk.Label(
+            raw_display_frame,
+            text=(
+                "Adjusts RAW image appearance for viewing only. "
+                "Does not affect sampling, calibration, or color analysis."
+            ),
+            wraplength=550,
+            justify=tk.LEFT,
+            font=("TkDefaultFont", 9),
+            foreground="gray"
+        ).pack(anchor=tk.W)
         
         # Template defaults section
         template_frame = ttk.LabelFrame(sampling_frame, text="Template Defaults", padding="10")
@@ -801,6 +831,16 @@ class PreferencesDialog:
             justify=tk.LEFT,
             font=("TkDefaultFont", 9)
         ).pack(anchor=tk.W)
+
+    def _toggle_raw_display_bridge(self):
+        """Toggle the RAW display bridge for the currently displayed RAW image."""
+        enabled = self.raw_display_bridge_var.get()
+
+        if self.app is not None and hasattr(self.app, 'canvas'):
+            metadata = getattr(self.app, 'current_image_metadata', {}) or {}
+            is_raw = metadata.get('is_raw', False)
+
+            self.app.canvas.set_raw_display_bridge(enabled and is_raw)
     
     def _create_compare_mode_tab(self, notebook):
         """Create the Compare mode preferences tab."""
@@ -1418,6 +1458,11 @@ class PreferencesDialog:
         
         # Color library preferences
         self._load_color_library_preferences()
+
+        # RAW display bridge preference
+        self.raw_display_bridge_var.set(
+            self.prefs_manager.get_raw_display_bridge_enabled()
+        )
         
         # Template preferences
         self._load_template_preferences()
@@ -1552,6 +1597,11 @@ class PreferencesDialog:
             # Paper-tagged sample inclusion in exports and Plot_3D
             self.prefs_manager.set_export_include_paper(
                 self.export_include_paper_var.get()
+            )
+
+            # RAW display bridge preference
+            self.prefs_manager.set_raw_display_bridge_enabled(
+                self.raw_display_bridge_var.get()
             )
             
             # File dialog preferences
@@ -2174,9 +2224,9 @@ class PreferencesDialog:
         return self.result
 
 
-def show_preferences_dialog(parent: tk.Tk) -> Optional[str]:
+def show_preferences_dialog(parent: tk.Tk, app=None) -> Optional[str]:
     """Convenience function to show preferences dialog."""
-    dialog = PreferencesDialog(parent)
+    dialog = PreferencesDialog(parent, app=app)
     return dialog.show()
 
 
@@ -2184,8 +2234,8 @@ if __name__ == "__main__":
     # Test the dialog
     root = tk.Tk()
     root.withdraw()  # Hide the root window
-    
+
     result = show_preferences_dialog(root)
     print(f"Dialog result: {result}")
-    
+
     root.destroy()
