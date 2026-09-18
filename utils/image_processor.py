@@ -92,6 +92,48 @@ def _is_vuescan_linear_tiff(file_path) -> bool:
     except Exception:
         return False
 
+def _is_vuescan_raw_uncertain(file_path) -> bool:
+    """Return True when a VueScan TIFF has ambiguous RAW metadata.
+
+    Some VueScan versions, including 9.7.99, may omit the EXIF
+    ColorSpace tag from a linear RAW TIFF. In that situation StampZ
+    should not assume either RAW or non-RAW.
+    """
+    try:
+        import tifffile as _tf
+
+        with _tf.TiffFile(str(file_path)) as tif:
+            page = tif.pages[0]
+            tags = page.tags
+
+            sw_tag = tags.get(305)
+            software = str(sw_tag.value) if sw_tag is not None else ''
+
+            # Only interested in VueScan-created TIFFs.
+            if 'vuescan' not in software.lower():
+                return False
+
+            # An embedded ICC profile removes this particular ambiguity.
+            if tags.get(34675) is not None:
+                return False
+
+            color_space = None
+            exif_tag = tags.get(34665)
+
+            if exif_tag is not None:
+                try:
+                    exif_dict = exif_tag.value or {}
+                    color_space = exif_dict.get('ColorSpace')
+                except Exception:
+                    pass
+
+            # Missing ColorSpace is the ambiguity encountered with
+            # VueScan 9.7.99.
+            return color_space is None
+
+    except Exception:
+        return False
+
 def _is_stampz_linear_raw_tiff(file_path) -> bool:
     """Return True if this TIFF was saved by StampZ from linear RAW data."""
     try:
@@ -209,6 +251,11 @@ def load_image(file_path: Union[str, Path], display_only: bool = False) -> Tuple
                     is_vuescan_linear = _is_vuescan_linear_tiff(file_path)
                     is_stampz_linear = _is_stampz_linear_raw_tiff(file_path)
                     is_linear = is_vuescan_linear or is_stampz_linear
+
+                    # Flag VueScan TIFFs whose RAW status cannot be determined reliably.
+                    vuescan_raw_uncertain = _is_vuescan_raw_uncertain(file_path)
+                    metadata['raw_detection_uncertain'] = vuescan_raw_uncertain
+
                     linear_source = "VueScan" if is_vuescan_linear else "StampZ-derived"
 
                     if is_linear:

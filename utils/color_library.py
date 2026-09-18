@@ -343,7 +343,6 @@ CREATE TABLE IF NOT EXISTS library_colors (
         delta_b = b1 - b2
         
         return math.sqrt(delta_l**2 + delta_a**2 + delta_b**2)
-    
     def add_color(self, name: str, rgb: Tuple[float, float, float] = None,
                   lab: Tuple[float, float, float] = None,
                   description: str = "", category: str = "General",
@@ -377,13 +376,20 @@ CREATE TABLE IF NOT EXISTS library_colors (
             print(f"\nDEBUG: add_color called with name='{name}', rgb={rgb}, lab={lab}")
             print(f"DEBUG: Database path: {self.db_path}")
             
-            # If Lab values provided, use them as authoritative
-            if lab is not None:
+            if lab is not None and rgb is not None:
+
+                # Both values supplied (e.g. StampZ analysis/import):
+                # preserve them exactly; do not derive one from the other.
                 lab_values = lab
-                # Convert to RGB for display
+                rgb_values = rgb
+
+            elif lab is not None:
+                # Lab-only input: Lab is authoritative; derive display RGB.
+                lab_values = lab
                 rgb_values = self.lab_to_rgb(lab)
+                
             else:
-                # Convert RGB to Lab as authoritative
+                # RGB-only input: RGB is authoritative; derive Lab.
                 lab_values = self.rgb_to_lab(rgb)
                 rgb_values = rgb
             
@@ -445,6 +451,7 @@ CREATE TABLE IF NOT EXISTS library_colors (
         except Exception as e:
             print(f"Error adding color: {e}")
             return False
+    
     
     def get_color_by_name(self, name: str) -> Optional[LibraryColor]:
         """Get a color by name from the library."""

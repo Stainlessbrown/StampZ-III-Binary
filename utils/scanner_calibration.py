@@ -297,12 +297,21 @@ class ScannerCalibration:
 
     def detect_patches(self, image_path: str) -> List[PatchResult]:
         """Sample the center 50% of each cell from a cropped 4x5 target scan."""
+        metadata = {}
+
         try:
             from utils.image_processor import load_image as _load_image
-            img, _ = _load_image(image_path)
+            img, metadata = _load_image(image_path)
         except Exception:
             img = Image.open(image_path)
 
+        print("CALIBRATION raw_detection_uncertain:",
+            metadata.get('raw_detection_uncertain'))
+
+        self.raw_detection_uncertain = bool(
+            metadata.get('raw_detection_uncertain', False)
+        )
+        
         img = img.convert("RGB")
         arr = np.asarray(img, dtype=np.float64)
 
@@ -588,6 +597,16 @@ class ScannerCalibration:
 
         correction = self._local_lab_correction(uncalibrated_lab)
         calibrated_lab = uncalibrated_lab + correction
+
+        return tuple(float(v) for v in calibrated_lab)
+
+        # Apply the scanner characterization fitted by compute_correction().
+        calibrated_xyz = self._rgb_to_calibrated_xyz(rgb)
+
+        # Convert calibrated XYZ to CIE Lab (D65).
+        calibrated_lab = xyz_to_lab(
+            np.asarray(calibrated_xyz, dtype=np.float64).reshape(1, 3)
+        )[0]
 
         return tuple(float(v) for v in calibrated_lab)
 

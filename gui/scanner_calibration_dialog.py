@@ -387,6 +387,29 @@ class ScannerCalibrationDialog:
             self.root.update()
             
             patches = self.calibration.detect_patches(self.target_path)
+
+            # Warn if StampZ cannot reliably determine whether this VueScan
+            # 16-bit TIFF is a linear RAW scan.
+            if getattr(self.calibration, 'raw_detection_uncertain', False):
+                self.root.config(cursor="")
+
+                proceed = messagebox.askyesno(
+                    "Unable to Verify RAW Scan",
+                    "This VueScan 16-bit TIFF does not contain the metadata "
+                    "StampZ uses to identify a linear RAW scan.\n\n"
+                    "Calibration results may be incorrect if this image was "
+                    "intended to be a VueScan RAW scan.\n\n"
+                    "Verify that the target was scanned as 48-bit RAW with a "
+                    "supported VueScan version.\n\n"
+                    "Continue with calibration anyway?",
+                    parent=self.root
+                )
+
+                if not proceed:
+                    return
+
+                self.root.config(cursor="watch")
+                self.root.update()
             
             # Compute correction
             self.quality = self.calibration.compute_correction()
