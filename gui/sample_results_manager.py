@@ -1978,6 +1978,15 @@ class SampleResultsManager(tk.Frame):
         if hasattr(self, 'current_file_path') and self.current_file_path:
             filename = os.path.basename(self.current_file_path)
             notes_text.insert("1.0", filename)
+
+        # RAW provenance for this saved library color
+        raw_derived_var = tk.BooleanVar(value=False)
+        raw_checkbox = ttk.Checkbutton(
+            notes_frame,
+            text="Derived from RAW image",
+            variable=raw_derived_var
+        )
+        raw_checkbox.pack(anchor="w", pady=(0, 5))        
         
         # Add scrollbar for notes
         notes_scrollbar = ttk.Scrollbar(notes_frame, orient=tk.VERTICAL, command=notes_text.yview)
@@ -2003,6 +2012,13 @@ class SampleResultsManager(tk.Frame):
             name = name_var.get().strip()
             library = lib_var.get()
             notes = notes_text.get("1.0", tk.END).strip()
+
+            # Append RAW provenance to the saved Notes
+            raw_status = "Yes" if raw_derived_var.get() else "No"
+            if notes:
+                notes += f"\nRAW-derived: {raw_status}"
+            else:
+                notes = f"RAW-derived: {raw_status}"          
             
             if not name:
                 messagebox.showerror("Error", "Please enter a color name")

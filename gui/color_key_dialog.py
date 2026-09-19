@@ -238,11 +238,43 @@ class ColorKeyDialog:
         self.COLS = max(1, self._cols_var.get())
 
         self._swatches = []
+
+        # RAW Display Bridge preference affects display only.
+        from utils.user_preferences import get_preferences_manager
+        from utils.raw_display_bridge import (
+            apply_raw_display_bridge,
+            analysis_rgb_to_native_raw,
+        )
+
+        bridge_enabled = (
+            get_preferences_manager().get_raw_display_bridge_enabled()
+        )
+
         for lc in self._all_colors:
+            is_raw_derived = bool(
+                lc.notes and "RAW-derived: Yes" in lc.notes
+            )
+            print(
+                f"COLOUR KEY: {lc.name} "
+                f"RAW-derived={is_raw_derived}, Bridge={bridge_enabled}"
+            )
+
             r = int(max(0, min(255, lc.rgb[0])))
             g = int(max(0, min(255, lc.rgb[1])))
             b = int(max(0, min(255, lc.rgb[2])))
-            self._swatches.append((lc.name, self._make_swatch((r, g, b))))
+
+            swatch = self._make_swatch((r, g, b))
+
+            if is_raw_derived:
+                # Stored RAW-derived RGB is from the gamma-encoded analysis path.
+                # Return it to native-linear form for display first.
+                swatch = analysis_rgb_to_native_raw(swatch)
+
+                # The optional bridge always operates on native-linear RAW display data.
+                if bridge_enabled:
+                    swatch = apply_raw_display_bridge(swatch)
+
+            self._swatches.append((lc.name, swatch)) 
 
         n = len(self._swatches)
         hint = ("Drag stamp image to compare"
@@ -305,8 +337,21 @@ class ColorKeyDialog:
             return
         try:
             from utils.image_processor import load_image
-            pil, _ = load_image(path)
+            pil, metadata = load_image(path, display_only=True)
             self._stamp_pil    = pil.convert("RGB")
+
+            # Apply the RAW Display Bridge to the display image only.
+            from utils.user_preferences import get_preferences_manager
+            from utils.raw_display_bridge import apply_raw_display_bridge
+
+            bridge_enabled = (
+                metadata.get('is_raw', False)
+                and get_preferences_manager().get_raw_display_bridge_enabled()
+            )
+
+            if bridge_enabled:
+                self._stamp_pil = apply_raw_display_bridge(self._stamp_pil)
+
             self._stamp_offset = [0, 0]
             self._rebuild_stamp_display()
             w, h = self._stamp_pil.size

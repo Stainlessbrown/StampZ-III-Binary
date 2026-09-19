@@ -28,6 +28,7 @@ class FileManager:
         self.root = app.root
         
     def open_image(self, filename=None):
+        print(f"DEBUG FILE_MANAGER open_image CALLED: filename={filename!r}")
         """Open an image file with format optimization for color analysis."""
         # Reorder file types to prioritize formats best for color analysis
         filetypes = [
@@ -68,7 +69,7 @@ class FileManager:
                     metadata.get('is_raw', False)
                     and get_preferences_manager().get_raw_display_bridge_enabled()
                 )
-                self.app.canvas.set_raw_display_bridge(bridge_enabled)
+                self.app.canvas.core.set_raw_display_bridge(bridge_enabled)
                 self.app.current_file = filename
                 self.app.current_image_metadata = metadata  # Store metadata for later use
                 
