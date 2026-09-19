@@ -129,6 +129,7 @@ CREATE TABLE IF NOT EXISTS library_colors (
                     rgb_b REAL NOT NULL,
                     category TEXT NOT NULL DEFAULT 'General',
                     source TEXT NOT NULL DEFAULT 'Custom',
+                    is_raw INTEGER NOT NULL DEFAULT 0,
                     date_added TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     notes TEXT,
                     shape_type TEXT,            -- rectangle or circle
@@ -137,6 +138,17 @@ CREATE TABLE IF NOT EXISTS library_colors (
                     anchor_position TEXT        -- center, top_left, etc.
                 )
             """)
+
+            # Add RAW provenance flag to existing color libraries
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    "ALTER TABLE library_colors "
+                    "ADD COLUMN is_raw INTEGER NOT NULL DEFAULT 0"
+                )
+                print("Added is_raw column to color library")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
             
             # Stamp references — links a library colour to one or more
             # catalog entries. Multiple rows per color_id are expected
@@ -343,10 +355,12 @@ CREATE TABLE IF NOT EXISTS library_colors (
         delta_b = b1 - b2
         
         return math.sqrt(delta_l**2 + delta_a**2 + delta_b**2)
+    
     def add_color(self, name: str, rgb: Tuple[float, float, float] = None,
                   lab: Tuple[float, float, float] = None,
                   description: str = "", category: str = "General",
-                  source: str = "Custom", notes: str = None) -> bool:
+                  source: str = "Custom", notes: str = None,
+                  is_raw: bool = False) -> bool:
         """Add a new color to the library. Preferred input is CIE L*a*b*.
         
         Args:
@@ -396,6 +410,13 @@ CREATE TABLE IF NOT EXISTS library_colors (
             print(f"DEBUG: Final values - Lab: {lab_values}, RGB: {rgb_values}")
             
             with sqlite3.connect(self.db_path) as conn:
+                print(f"DEBUG COLOR LIBRARY DB PATH: {self.db_path}")
+                print("DEBUG LIBRARY COLUMNS:", [row[1] for row in conn.execute("PRAGMA table_info(library_colors)")])
+                raw_check = conn.execute(
+                    "SELECT name, is_raw FROM library_colors WHERE name = ?",
+                    (name,)
+                ).fetchone()
+                print("DEBUG RAW VALUE:", raw_check)    
                 # Check if name exists and generate unique name if needed
                 base_name = name
                 counter = 0
@@ -405,13 +426,13 @@ CREATE TABLE IF NOT EXISTS library_colors (
                     try:
                         print(f"DEBUG: Attempting to insert color '{final_name}' into database")
                         conn.execute("""
-                            INSERT INTO library_colors (
-                                name, description, lab_l, lab_a, lab_b,
-                                rgb_r, rgb_g, rgb_b, category, source, notes
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (
+                        INSERT INTO library_colors (
+                            name, description, lab_l, lab_a, lab_b,
+                            rgb_r, rgb_g, rgb_b, category, source, notes, is_raw
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                """, (
                             final_name, description, lab_values[0], lab_values[1], lab_values[2],
-                            rgb_values[0], rgb_values[1], rgb_values[2], category, source, notes
+                            rgb_values[0], rgb_values[1], rgb_values[2], category, source, notes, int(is_raw)
                         ))
                         print(f"DEBUG: INSERT statement executed, now committing...")
                         
@@ -419,6 +440,11 @@ CREATE TABLE IF NOT EXISTS library_colors (
                         try:
                             conn.commit()
                             print(f"DEBUG: Commit successful for '{final_name}'")
+                            raw_check = conn.execute(
+                                "SELECT name, is_raw FROM library_colors WHERE name = ?",
+                                (final_name,)
+                            ).fetchone()
+                            print("DEBUG RAW VALUE:", raw_check)                 
                         except sqlite3.DatabaseError as commit_err:
                             print(f"DEBUG: Commit failed: {commit_err}")
                             raise

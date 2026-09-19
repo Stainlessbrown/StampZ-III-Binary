@@ -2033,8 +2033,13 @@ class SampleResultsManager(tk.Frame):
                 color_lib = ColorLibrary(library)
                 
                 # Add the new color with notes
-                success = color_lib.add_color(name=name, rgb=rgb_values, lab=lab_values, notes=notes if notes else None)
-                
+                success = color_lib.add_color(
+                    name=name,
+                    rgb=rgb_values,
+                    lab=lab_values,
+                    notes=notes if notes else None,
+                    is_raw=raw_derived_var.get()
+                )
                 if success:
                     messagebox.showinfo("Success", f"Color '{name}' added to library '{library}'")
                     dialog.destroy()
