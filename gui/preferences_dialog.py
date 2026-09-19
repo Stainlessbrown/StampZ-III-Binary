@@ -840,7 +840,7 @@ class PreferencesDialog:
             metadata = getattr(self.app, 'current_image_metadata', {}) or {}
             is_raw = metadata.get('is_raw', False)
 
-            self.app.canvas.set_raw_display_bridge(enabled and is_raw)
+            self.app.canvas.core.set_raw_display_bridge(enabled and is_raw)
     
     def _create_compare_mode_tab(self, notebook):
         """Create the Compare mode preferences tab."""
