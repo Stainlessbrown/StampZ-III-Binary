@@ -322,6 +322,11 @@ class CanvasCore:
             )
             
             # Convert to PhotoImage
+            logger.info(
+                f"DISPLAY TO TK: mode={resized_image.mode}, size={resized_image.size}, "
+                f"info={resized_image.info}"
+            )
+
             self.display_image = ImageTk.PhotoImage(resized_image)
             
             # Clear previous image
