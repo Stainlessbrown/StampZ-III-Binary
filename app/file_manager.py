@@ -70,7 +70,11 @@ class FileManager:
                     and get_preferences_manager().get_raw_display_bridge_enabled()
                 )
 
-                print(f"DEBUG OPEN BRIDGE: is_raw={metadata.get('is_raw', False)}, bridge_pref={get_preferences_manager().get_raw_display_bridge_enabled()}, bridge_enabled={bridge_enabled}")
+                logger.info(
+                    f"DEBUG OPEN BRIDGE: is_raw={metadata.get('is_raw', False)}, "
+                    f"bridge_pref={get_preferences_manager().get_raw_display_bridge_enabled()}, "
+                    f"bridge_enabled={bridge_enabled}"
+                )
 
                 self.app.canvas.core.set_raw_display_bridge(bridge_enabled)
                 self.app.current_file = filename
