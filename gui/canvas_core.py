@@ -315,6 +315,12 @@ class CanvasCore:
                 return
             
             # Use pre-composited RGB source for fast display
+
+            logger.info(
+                f"DISPLAY SOURCE IDS: original={id(self.original_image)}, "
+                f"source={id(getattr(self, '_display_source', self.original_image))}"
+            )
+
             source = getattr(self, '_display_source', self.original_image)
             resized_image = source.resize(
                 (display_width, display_height),
