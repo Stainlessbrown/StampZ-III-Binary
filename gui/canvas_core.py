@@ -319,12 +319,22 @@ class CanvasCore:
             resized_image = source.resize(
                 (display_width, display_height),
                 Image.Resampling.LANCZOS
-            )
+            )      
             
             # Convert to PhotoImage
             logger.info(
                 f"DISPLAY TO TK: mode={resized_image.mode}, size={resized_image.size}, "
                 f"info={resized_image.info}"
+            )
+
+            import numpy as np
+            display_array = np.array(resized_image)
+
+            logger.info(
+                f"DISPLAY PIXELS: min={display_array.min()}, "
+                f"max={display_array.max()}, "
+                f"mean={display_array.mean():.6f}, "
+                f"sample={display_array[display_array.shape[0]//2, display_array.shape[1]//2].tolist()}"
             )
 
             self.display_image = ImageTk.PhotoImage(resized_image)
