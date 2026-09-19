@@ -315,8 +315,8 @@ def load_image(file_path: Union[str, Path], display_only: bool = False) -> Tuple
             elif file_path.suffix.lower() in ['.tif', '.tiff']:
                 metadata['format_info'] = "TIFF loaded with PIL (install 'tifffile' for 16-bit support)"
 
-        print(f"DEBUG DISPLAY: is_raw={metadata.get('is_raw')}, display_only={display_only}")
-        print(f"DEBUG DISPLAY: image.info={image.info}")
+        logger.info(f"DEBUG DISPLAY: is_raw={metadata.get('is_raw')}, display_only={display_only}")
+        logger.info(f"DEBUG DISPLAY: image.info={image.info}")
 
         # Handle color profile conversion to ensure consistent sRGB color space
         if hasattr(image, 'info') and 'icc_profile' in image.info:
