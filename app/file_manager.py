@@ -69,6 +69,9 @@ class FileManager:
                     metadata.get('is_raw', False)
                     and get_preferences_manager().get_raw_display_bridge_enabled()
                 )
+
+                print(f"DEBUG OPEN BRIDGE: is_raw={metadata.get('is_raw', False)}, bridge_pref={get_preferences_manager().get_raw_display_bridge_enabled()}, bridge_enabled={bridge_enabled}")
+
                 self.app.canvas.core.set_raw_display_bridge(bridge_enabled)
                 self.app.current_file = filename
                 self.app.current_image_metadata = metadata  # Store metadata for later use
