@@ -348,7 +348,7 @@ class ShapeManager:
             # Crop the 16-bit array
             left, top, right, bottom = bbox
             cropped_16bit = result_16bit[top:bottom, left:right]
-            
+                        
             # Create 8-bit display version
             cropped_8bit = (cropped_16bit / 256).astype(np.uint8)
             cropped = Image.fromarray(cropped_8bit)
