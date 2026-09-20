@@ -34,6 +34,7 @@ class LibraryColor:
     source: str                       # e.g., "Pantone", "Custom", "Stamp Catalog"
     date_added: str
     notes: Optional[str] = None
+    is_raw: bool = False
 
 @dataclass
 class ColorMatch:
@@ -486,6 +487,7 @@ CREATE TABLE IF NOT EXISTS library_colors (
                 cursor = conn.execute("""
                     SELECT id, name, description, lab_l, lab_a, lab_b,
                            rgb_r, rgb_g, rgb_b, category, source, date_added, notes
+                           , is_raw
                     FROM library_colors WHERE name = ?
                 """, (name,))
                 
@@ -500,7 +502,8 @@ CREATE TABLE IF NOT EXISTS library_colors (
                         category=row[9],
                         source=row[10],
                         date_added=row[11],
-                        notes=row[12]
+                        notes=row[12],
+                        is_raw=bool(row[13])
                     )
                     
         except Exception as e:
@@ -518,6 +521,7 @@ CREATE TABLE IF NOT EXISTS library_colors (
                     cursor = conn.execute("""
                         SELECT id, name, description, lab_l, lab_a, lab_b,
                                rgb_r, rgb_g, rgb_b, category, source, date_added, notes
+                               , is_raw
                         FROM library_colors WHERE category = ?
                         ORDER BY name
                     """, (category,))
@@ -525,6 +529,7 @@ CREATE TABLE IF NOT EXISTS library_colors (
                     cursor = conn.execute("""
                         SELECT id, name, description, lab_l, lab_a, lab_b,
                                rgb_r, rgb_g, rgb_b, category, source, date_added, notes
+                               , is_raw
                         FROM library_colors
                         ORDER BY category, name
                     """)
@@ -535,7 +540,8 @@ CREATE TABLE IF NOT EXISTS library_colors (
                         lab=(row[3], row[4], row[5]),  # Lab is primary
                         rgb=(row[6], row[7], row[8]),  # RGB for display
                         category=row[9], source=row[10],
-                        date_added=row[11], notes=row[12]
+                        date_added=row[11], notes=row[12],
+                        is_raw=bool(row[13])
                     ))
                     
         except Exception as e:

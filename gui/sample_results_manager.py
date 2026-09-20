@@ -452,6 +452,7 @@ class SampleResultsManager(tk.Frame):
             )
             canvas.pack(side=tk.RIGHT, padx=5, pady=2)
 
+
             # Create rectangle for color display
             canvas.create_rectangle(
                 0, 0, 450, 100,

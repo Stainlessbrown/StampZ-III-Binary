@@ -656,12 +656,39 @@ class ColorLibraryManager:
             
             # Show color information based on user preferences
             from utils.color_display_utils import get_conditional_color_info
-            color_info = get_conditional_color_info(color.rgb, color.lab)
 
-            # Color display on left - simplified
+            # Display values start with the stored analytical values.
+            # RAW-derived colors may be converted for display only.
+            display_rgb = color.rgb
+            display_lab = color.lab
+
+            if getattr(color, 'is_raw', False):
+                try:
+                    from utils.raw_display_bridge import (
+                        analysis_rgb_to_raw_display_rgb,
+                        display_rgb_to_lab,
+                    )
+                    from utils.user_preferences import get_preferences_manager
+
+                    prefs = get_preferences_manager()
+                    bridge_enabled = prefs.get_raw_display_bridge_enabled()
+
+                    display_rgb = analysis_rgb_to_raw_display_rgb(
+                        color.rgb,
+                        bridge_enabled=bridge_enabled,
+                    )
+                    display_lab = display_rgb_to_lab(display_rgb)
+
+                except Exception as e:
+                    print(f"DEBUG LIBRARY DISPLAY: display conversion failed: {e}")
+                    display_rgb = color.rgb
+                    display_lab = color.lab
+
+            color_info = get_conditional_color_info(display_rgb, display_lab)
+
             color_display = ColorDisplay(
                 display_frame,
-                color.rgb,
+                display_rgb,
                 color.name,
                 color_info,
                 width=min(frame_width - 450, 1150),  # Adjusted for checkbox
@@ -906,8 +933,10 @@ class ColorLibraryManager:
                         rgb=color.rgb,
                         lab=color.lab,
                         category=color.category if hasattr(color, 'category') else 'General',
-                        notes=color.notes if hasattr(color, 'notes') else None
+                        notes=color.notes if hasattr(color, 'notes') else None,
+                        is_raw=getattr(color, 'is_raw', False)
                     )
+                
                     copied += 1
                 
                 dialog.destroy()
@@ -1460,7 +1489,8 @@ class ColorLibraryManager:
                     lab=color.lab,
                     source=color.source or "Copied",
                     notes=color.notes,
-                    category=color.category
+                    category=color.category,
+                    is_raw=getattr(color, 'is_raw', False)
                 )
                 
                 if success:
