@@ -1326,6 +1326,7 @@ class PreferencesManager:
     _OPTIMIZE_STEP_KEY = "optimize_position_step_px"
     _EXPORT_INCLUDE_PAPER_KEY = "export_include_paper"
     _RAW_DISPLAY_BRIDGE_KEY = "raw_display_bridge_enabled"
+    _TREAT_ALL_IMAGES_AS_RAW_KEY = "treat_all_images_as_raw"
 
     def get_export_include_paper(self) -> bool:
         """Return True if paper-tagged samples (-p) should be included in exports.
@@ -1349,6 +1350,15 @@ class PreferencesManager:
     def set_raw_display_bridge_enabled(self, enabled: bool) -> bool:
         """Persist whether the RAW display bridge is enabled."""
         return self.set(self._RAW_DISPLAY_BRIDGE_KEY, bool(enabled))
+
+    def get_treat_all_images_as_raw(self) -> bool:
+        """Return whether all opened images should be treated as RAW."""
+        val = self.get(self._TREAT_ALL_IMAGES_AS_RAW_KEY, False)
+        return bool(val)
+
+    def set_treat_all_images_as_raw(self, enabled: bool) -> bool:
+        """Persist whether all opened images should be treated as RAW."""
+        return self.set(self._TREAT_ALL_IMAGES_AS_RAW_KEY, bool(enabled))
 
     def set_export_include_paper(self, include: bool) -> bool:
         """Persist whether paper-tagged samples should be included in exports."""

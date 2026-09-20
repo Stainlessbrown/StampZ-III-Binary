@@ -1979,14 +1979,29 @@ class SampleResultsManager(tk.Frame):
             filename = os.path.basename(self.current_file_path)
             notes_text.insert("1.0", filename)
 
-        # RAW provenance for this saved library color
-        raw_derived_var = tk.BooleanVar(value=False)
-        raw_checkbox = ttk.Checkbutton(
+        # Source image provenance — user must explicitly choose one
+        raw_derived_var = tk.StringVar(value="")
+
+        source_type_frame = ttk.LabelFrame(
             notes_frame,
-            text="Derived from RAW image",
-            variable=raw_derived_var
+            text="Source image type",
+            padding="5"
         )
-        raw_checkbox.pack(anchor="w", pady=(0, 5))        
+        source_type_frame.pack(fill=tk.X, pady=(0, 5))
+
+        ttk.Radiobutton(
+            source_type_frame,
+            text="RAW / linear source",
+            variable=raw_derived_var,
+            value="raw"
+        ).pack(anchor="w")
+
+        ttk.Radiobutton(
+            source_type_frame,
+            text="Standard image / non-RAW",
+            variable=raw_derived_var,
+            value="standard"
+        ).pack(anchor="w")      
         
         # Add scrollbar for notes
         notes_scrollbar = ttk.Scrollbar(notes_frame, orient=tk.VERTICAL, command=notes_text.yview)
@@ -2013,8 +2028,18 @@ class SampleResultsManager(tk.Frame):
             library = lib_var.get()
             notes = notes_text.get("1.0", tk.END).strip()
 
+            # Require an explicit source image type
+            if raw_derived_var.get() == "":
+                messagebox.showerror(
+                    "Source Image Type Required",
+                    "Please select RAW / linear source or Standard image / non-RAW."
+                )
+                return
+
+            is_raw = raw_derived_var.get() == "raw"
+
             # Append RAW provenance to the saved Notes
-            raw_status = "Yes" if raw_derived_var.get() else "No"
+            raw_status = "Yes" if is_raw else "No"
             if notes:
                 notes += f"\nRAW-derived: {raw_status}"
             else:
@@ -2038,7 +2063,7 @@ class SampleResultsManager(tk.Frame):
                     rgb=rgb_values,
                     lab=lab_values,
                     notes=notes if notes else None,
-                    is_raw=raw_derived_var.get()
+                    is_raw=is_raw
                 )
                 if success:
                     messagebox.showinfo("Success", f"Color '{name}' added to library '{library}'")

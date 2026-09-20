@@ -453,6 +453,36 @@ class PreferencesDialog:
             font=("TkDefaultFont", 9),
             foreground="gray"
         ).pack(anchor=tk.W)
+
+        # RAW source preference
+        raw_source_frame = ttk.LabelFrame(
+            dialog_frame,
+            text="RAW Image Source",
+            padding="10"
+        )
+        raw_source_frame.pack(fill=tk.X, pady=(0, 10))
+
+        self.treat_all_images_as_raw_var = tk.BooleanVar(value=False)
+
+        ttk.Checkbutton(
+            raw_source_frame,
+            text="Treat all opened images as RAW / linear sources",
+            variable=self.treat_all_images_as_raw_var
+        ).pack(anchor=tk.W, pady=(0, 5))
+
+        ttk.Label(
+            raw_source_frame,
+            text=(
+                "Use only when all images in your normal StampZ workflow are RAW / linear sources. "
+                "When enabled, StampZ treats every opened image as RAW regardless of its metadata. "
+                "Standard TIFF, PNG, or other non-RAW images may display incorrectly when the "
+                "RAW Display Bridge is enabled."
+            ),
+            wraplength=550,
+            justify=tk.LEFT,
+            font=("TkDefaultFont", 12, "bold"),
+            foreground="red"
+        ).pack(anchor=tk.W)
         
         # Current directories section
         current_frame = ttk.LabelFrame(dialog_frame, text="Current Remembered Directory", padding="10")
@@ -1463,6 +1493,11 @@ class PreferencesDialog:
         self.raw_display_bridge_var.set(
             self.prefs_manager.get_raw_display_bridge_enabled()
         )
+
+        # Treat all images as RAW preference
+        self.treat_all_images_as_raw_var.set(
+            self.prefs_manager.get_treat_all_images_as_raw()
+        )
         
         # Template preferences
         self._load_template_preferences()
@@ -1602,6 +1637,11 @@ class PreferencesDialog:
             # RAW display bridge preference
             self.prefs_manager.set_raw_display_bridge_enabled(
                 self.raw_display_bridge_var.get()
+            )
+
+            # Treat all images as RAW preference
+            self.prefs_manager.set_treat_all_images_as_raw(
+                self.treat_all_images_as_raw_var.get()
             )
             
             # File dialog preferences

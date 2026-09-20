@@ -60,22 +60,28 @@ class FileManager:
         if filename:
             try:
                 image, metadata = load_image(filename, display_only=True)
+                # Global RAW-source override
+                from utils.user_preferences import get_preferences_manager
+                prefs_manager = get_preferences_manager()
+
+                if prefs_manager.get_treat_all_images_as_raw():
+                    metadata['is_raw'] = True
+                    image._stampz_is_raw = True
+                    logger.info("Treat-all-images-as-RAW preference applied")               
                 print(f"DEBUG open_image: loaded image has _stampz_16bit_data: {hasattr(image, '_stampz_16bit_data')}")
                 self.app.canvas.load_image(image)
 
                 # Apply the display bridge only to images identified as RAW.
-                from utils.user_preferences import get_preferences_manager
                 bridge_enabled = (
                     metadata.get('is_raw', False)
-                    and get_preferences_manager().get_raw_display_bridge_enabled()
+                    and prefs_manager.get_raw_display_bridge_enabled()
                 )
 
                 logger.info(
                     f"DEBUG OPEN BRIDGE: is_raw={metadata.get('is_raw', False)}, "
-                    f"bridge_pref={get_preferences_manager().get_raw_display_bridge_enabled()}, "
+                    f"bridge_pref={prefs_manager.get_raw_display_bridge_enabled()}, "
                     f"bridge_enabled={bridge_enabled}"
                 )
-
                 self.app.canvas.core.set_raw_display_bridge(bridge_enabled)
                 self.app.current_file = filename
                 self.app.current_image_metadata = metadata  # Store metadata for later use
