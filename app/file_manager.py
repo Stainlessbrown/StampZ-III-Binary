@@ -64,10 +64,44 @@ class FileManager:
                 from utils.user_preferences import get_preferences_manager
                 prefs_manager = get_preferences_manager()
 
+                # Preserve what StampZ actually detected before applying the user's
+                # "Treat all images as RAW" override.
+                detected_as_raw = metadata.get('is_raw', False)
+
                 if prefs_manager.get_treat_all_images_as_raw():
-                    metadata['is_raw'] = True
-                    image._stampz_is_raw = True
-                    logger.info("Treat-all-images-as-RAW preference applied")               
+                    # If this image was not independently identified as RAW, warn before
+                    # allowing the RAW Display Bridge to affect its appearance.
+                    if (
+                        not detected_as_raw
+                        and prefs_manager.get_raw_display_bridge_enabled()
+                    ):
+                        from tkinter import messagebox
+
+                        apply_bridge = messagebox.askyesno(
+                            "RAW Display Bridge Warning",
+                            "This image was not identified by StampZ as a RAW / linear source.\n\n"
+                            "\"Treat all opened images as RAW / linear sources\" is enabled, "
+                            "and the RAW Display Bridge is also enabled.\n\n"
+                            "Applying the RAW Display Bridge may produce incorrect color.\n\n"
+                            "Apply the RAW Display Bridge to this image anyway?"
+                        )
+
+                        if not apply_bridge:
+                            metadata['is_raw'] = False
+                            image._stampz_is_raw = False
+                            logger.info(
+                                "Treat-all-images-as-RAW override declined for this image"
+                            )
+                        else:
+                            metadata['is_raw'] = True
+                            image._stampz_is_raw = True
+                            logger.info(
+                                "Treat-all-images-as-RAW override accepted for this image"
+                            )
+                    else:
+                        metadata['is_raw'] = True
+                        image._stampz_is_raw = True
+                        logger.info("Treat-all-images-as-RAW preference applied")               
                 print(f"DEBUG open_image: loaded image has _stampz_16bit_data: {hasattr(image, '_stampz_16bit_data')}")
                 self.app.canvas.load_image(image)
 

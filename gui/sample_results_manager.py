@@ -422,10 +422,32 @@ class SampleResultsManager(tk.Frame):
             )
             canvas.pack(side=tk.RIGHT, padx=5, pady=2)
             
+            # Display-only RGB for this sample swatch.
+            # Analytical rgb / lab / Delta E remain completely unchanged.
+            display_rgb = rgb
+
+            metadata = getattr(self, 'current_image_metadata', {}) or {}
+            if metadata.get('is_raw', False):
+                try:
+                    from utils.raw_display_bridge import analysis_rgb_to_raw_display_rgb
+                    from utils.user_preferences import get_preferences_manager
+
+                    prefs = get_preferences_manager()
+                    bridge_enabled = prefs.get_raw_display_bridge_enabled()
+
+                    display_rgb = analysis_rgb_to_raw_display_rgb(
+                        rgb,
+                        bridge_enabled=bridge_enabled,
+                    )
+
+                except Exception as e:
+                    print(f"DEBUG SAMPLE SWATCH: display conversion failed: {e}")
+                    display_rgb = rgb
+
             # Create rectangle for color display
             canvas.create_rectangle(
                 0, 0, 450, 100,
-                fill=f"#{int(rgb[0]):02x}{int(rgb[1]):02x}{int(rgb[2]):02x}",
+                fill=f"#{int(display_rgb[0]):02x}{int(display_rgb[1]):02x}{int(display_rgb[2]):02x}",
                 outline=''
             )
     
@@ -545,7 +567,7 @@ class SampleResultsManager(tk.Frame):
                     avg_rgb,
                     bridge_enabled=bridge_enabled,
                 )
-                
+
                 print(
                     f"DEBUG RESULTS SWATCH: RAW=True "
                     f"bridge={bridge_enabled} "
