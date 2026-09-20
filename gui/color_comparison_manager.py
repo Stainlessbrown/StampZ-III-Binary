@@ -252,6 +252,7 @@ class ColorComparisonManager(tk.Frame):
             try:
                 from utils.image_processor import load_image as _load_image
                 self.current_image, _meta = _load_image(image_path)
+                self.current_image_metadata = _meta
                 print(f"DEBUG: set_analyzed_data (compare) gamma_corrected={_meta.get('linear_gamma_corrected')}")
             except Exception as _le:
                 print(f"DEBUG: set_analyzed_data (compare) load_image failed ({_le}), using Image.open")
@@ -604,6 +605,35 @@ class ColorComparisonManager(tk.Frame):
         # Clear existing content
         for widget in self.matches_frame.winfo_children():
             widget.destroy()
+
+        # Display values start with the analytical average.
+        # RAW-derived samples may be converted for display only.
+        display_rgb = sample_rgb
+        display_lab = sample_lab
+
+        metadata = getattr(self, 'current_image_metadata', {}) or {}
+
+        if metadata.get('is_raw', False):
+            try:
+                from utils.raw_display_bridge import (
+                    analysis_rgb_to_raw_display_rgb,
+                    display_rgb_to_lab,
+                )
+                from utils.user_preferences import get_preferences_manager
+
+                prefs = get_preferences_manager()
+                bridge_enabled = prefs.get_raw_display_bridge_enabled()
+
+                display_rgb = analysis_rgb_to_raw_display_rgb(
+                    sample_rgb,
+                    bridge_enabled=bridge_enabled,
+                )
+                display_lab = display_rgb_to_lab(display_rgb)
+
+            except Exception as e:
+                print(f"DEBUG COMPARE DISPLAY: display conversion failed: {e}")
+                display_rgb = sample_rgb
+                display_lab = sample_lab   
         
         # Create main layout frame
         main_layout = ttk.Frame(self.matches_frame)
@@ -628,9 +658,9 @@ class ColorComparisonManager(tk.Frame):
         
         sample_label = ttk.Label(
             header_frame,
-            text=f"Comparing: RGB({int(sample_rgb[0])}, {int(sample_rgb[1])}, {int(sample_rgb[2])}) | "
-                 f"L*a*b*({sample_lab[0]:.1f}, {sample_lab[1]:.1f}, {sample_lab[2]:.1f})",
-            font=("Arial", 12, "bold")
+            text=f"Comparing: RGB({int(display_rgb[0])}, {int(display_rgb[1])}, {int(display_rgb[2])}) | "
+                f"L*a*b*({display_lab[0]:.1f}, {display_lab[1]:.1f}, {display_lab[2]:.1f})",
+                font=("Arial", 12, "bold")
         )
         sample_label.pack()
         
@@ -651,7 +681,7 @@ class ColorComparisonManager(tk.Frame):
         # Draw sample color
         sample_canvas.create_rectangle(
             0, 0, 450, 600,
-            fill=f"#{int(sample_rgb[0]):02x}{int(sample_rgb[1]):02x}{int(sample_rgb[2]):02x}",
+            fill=f"#{int(display_rgb[0]):02x}{int(display_rgb[1]):02x}{int(display_rgb[2]):02x}",
             outline=''
         )
         
@@ -660,8 +690,8 @@ class ColorComparisonManager(tk.Frame):
         sample_info_frame.pack(fill=tk.X, padx=(0, 10), pady=(0, 10), anchor='w')
         
         sample_info_text = (
-            f"RGB: ({int(sample_rgb[0])}, {int(sample_rgb[1])}, {int(sample_rgb[2])})\n"
-            f"L*a*b*: ({sample_lab[0]:.1f}, {sample_lab[1]:.1f}, {sample_lab[2]:.1f})"
+            f"RGB: ({int(display_rgb[0])}, {int(display_rgb[1])}, {int(display_rgb[2])})\n"
+            f"L*a*b*: ({display_lab[0]:.1f}, {display_lab[1]:.1f}, {display_lab[2]:.1f})"
         )
         
         sample_info_label = ttk.Label(
@@ -687,6 +717,25 @@ class ColorComparisonManager(tk.Frame):
         
         # Color name and library
         color_rgb = match.library_color.rgb
+        display_rgb = color_rgb
+        display_lab = match.library_color.lab
+
+        if getattr(match.library_color, 'is_raw', False):
+            from utils.raw_display_bridge import (
+                analysis_rgb_to_raw_display_rgb,
+                display_rgb_to_lab,
+            )
+            from utils.user_preferences import get_preferences_manager
+
+            prefs = get_preferences_manager()
+            bridge_enabled = prefs.get_raw_display_bridge_enabled()
+
+            display_rgb = analysis_rgb_to_raw_display_rgb(
+                color_rgb,
+                bridge_enabled=bridge_enabled,
+            )
+            display_lab = display_rgb_to_lab(display_rgb)        
+
         name_text = match.library_color.name
         if hasattr(match, 'library_name'):
             name_text += f" ({match.library_name})"
@@ -702,8 +751,8 @@ class ColorComparisonManager(tk.Frame):
         # Display very small ΔE values (< 0.1) as 0.0 to account for floating-point rounding
         display_delta_e = 0.0 if match.delta_e_2000 < 0.1 else match.delta_e_2000
         values_text = (
-            f"RGB: ({int(color_rgb[0])}, {int(color_rgb[1])}, {int(color_rgb[2])}) | "
-            f"L*a*b*: ({match.library_color.lab[0]:.1f}, {match.library_color.lab[1]:.1f}, {match.library_color.lab[2]:.1f}) | "
+            f"RGB: ({int(display_rgb[0])}, {int(display_rgb[1])}, {int(display_rgb[2])}) | "
+            f"L*a*b*: ({display_lab[0]:.1f}, {display_lab[1]:.1f}, {display_lab[2]:.1f}) | "
             f"ΔE: {display_delta_e:.2f}"
         )
         
@@ -726,7 +775,7 @@ class ColorComparisonManager(tk.Frame):
         
         swatch_canvas.create_rectangle(
             0, 0, 600, 100,
-            fill=f"#{int(color_rgb[0]):02x}{int(color_rgb[1]):02x}{int(color_rgb[2]):02x}",
+            fill=f"#{int(display_rgb[0]):02x}{int(display_rgb[1]):02x}{int(display_rgb[2]):02x}",
             outline=''
         )
     

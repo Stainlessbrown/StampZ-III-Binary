@@ -151,6 +151,7 @@ class LiveSampleModel:
         Existing ``enabled`` and ``is_paper`` flags are preserved across
         updates so dragging / nudging a marker doesn't reset its role.
         """
+        
         prev = self._samples.get(index)
         enabled = prev.get("enabled", True) if prev else True
         is_paper = bool(prev.get("is_paper", False)) if prev else False
@@ -360,6 +361,7 @@ class LiveSampleModel:
             s["lab"] = None
             return
         s["rgb"], s["lab"] = rgb_lab
+
 
     def _recompute_average_and_delta_e(self) -> None:
         """Recompute per-role QC means and per-sample ΔE.

@@ -105,6 +105,17 @@ class FileManager:
                 print(f"DEBUG open_image: loaded image has _stampz_16bit_data: {hasattr(image, '_stampz_16bit_data')}")
                 self.app.canvas.load_image(image)
 
+                 # Live ΔE must sample the analytical image, not the display-only RAW image.
+                try:
+                    analytical_image, _analytical_metadata = load_image(filename)
+                    self.app.canvas.live_model.set_image(analytical_image)
+                    
+                except Exception as e:
+                    print(f"DEBUG: Failed to load analytical image for live ΔE: {e}")
+                                
+                except Exception as e:
+                    print(f"DEBUG: Failed to load analytical image for live ΔE: {e}")                
+
                 # Apply the display bridge only to images identified as RAW.
                 bridge_enabled = (
                     metadata.get('is_raw', False)
