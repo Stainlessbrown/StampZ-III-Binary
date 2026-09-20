@@ -134,3 +134,26 @@ def analysis_rgb_to_raw_display_rgb(rgb, bridge_enabled: bool = True):
         display_image = apply_raw_display_bridge(display_image)
 
     return display_image.getpixel((0, 0))
+
+def display_rgb_to_lab(rgb):
+    """Convert display RGB to CIE L*a*b* without scanner calibration.
+
+    This is for display-only RAW/Bridge values. It must never apply the
+    StampZ scanner calibration or modify analytical measurements.
+
+    Args:
+        rgb: Display RGB triplet in the 0..255 range.
+
+    Returns:
+        Tuple of three floats: (L*, a*, b*).
+    """
+    from colorspacious import cspace_convert
+
+    rgb_float = [
+        max(0.0, min(255.0, float(c))) / 255.0
+        for c in rgb[:3]
+    ]
+
+    lab = cspace_convert(rgb_float, "sRGB1", "CIELab")
+
+    return tuple(float(v) for v in lab)

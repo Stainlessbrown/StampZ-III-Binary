@@ -347,7 +347,37 @@ class SampleResultsManager(tk.Frame):
             lab_stddev = sample.get('lab_stddev', None)
             lab = analyzer.rgb_to_lab(rgb)  # always use calibrated converter
             
-            top_text = get_conditional_color_values_text(rgb, lab, compact=True)
+            # Display-only values for RAW-derived samples.
+            # Analytical rgb / lab remain unchanged for averaging, Delta E, and saving.
+            display_rgb = rgb
+            display_lab = lab
+
+            metadata = getattr(self, 'current_image_metadata', {}) or {}
+            if metadata.get('is_raw', False):
+                try:
+                    from utils.raw_display_bridge import (
+                        analysis_rgb_to_raw_display_rgb,
+                        display_rgb_to_lab,
+                    )
+                    from utils.user_preferences import get_preferences_manager
+
+                    prefs = get_preferences_manager()
+                    bridge_enabled = prefs.get_raw_display_bridge_enabled()
+
+                    display_rgb = analysis_rgb_to_raw_display_rgb(
+                        rgb,
+                        bridge_enabled=bridge_enabled,
+                    )
+                    display_lab = display_rgb_to_lab(display_rgb)
+
+                except Exception as e:
+                    print(f"DEBUG SAMPLE DISPLAY: display conversion failed: {e}")
+                    display_rgb = rgb
+                    display_lab = lab
+
+            top_text = get_conditional_color_values_text(
+                display_rgb, display_lab, compact=True
+            )
 
             # Compute ΔE + breakdown so we can render the ΔE line in its own
             # widget with a threshold-driven foreground colour. The colour
@@ -421,28 +451,6 @@ class SampleResultsManager(tk.Frame):
                 highlightbackground='gray'
             )
             canvas.pack(side=tk.RIGHT, padx=5, pady=2)
-            
-            # Display-only RGB for this sample swatch.
-            # Analytical rgb / lab / Delta E remain completely unchanged.
-            display_rgb = rgb
-
-            metadata = getattr(self, 'current_image_metadata', {}) or {}
-            if metadata.get('is_raw', False):
-                try:
-                    from utils.raw_display_bridge import analysis_rgb_to_raw_display_rgb
-                    from utils.user_preferences import get_preferences_manager
-
-                    prefs = get_preferences_manager()
-                    bridge_enabled = prefs.get_raw_display_bridge_enabled()
-
-                    display_rgb = analysis_rgb_to_raw_display_rgb(
-                        rgb,
-                        bridge_enabled=bridge_enabled,
-                    )
-
-                except Exception as e:
-                    print(f"DEBUG SAMPLE SWATCH: display conversion failed: {e}")
-                    display_rgb = rgb
 
             # Create rectangle for color display
             canvas.create_rectangle(
@@ -553,11 +561,15 @@ class SampleResultsManager(tk.Frame):
         # Display-only RGB for the swatch.
         # Analytical avg_rgb / avg_lab remain completely unchanged.
         display_rgb = avg_rgb
+        display_lab = avg_lab
 
         metadata = getattr(self, 'current_image_metadata', {}) or {}
         if metadata.get('is_raw', False):
             try:
-                from utils.raw_display_bridge import analysis_rgb_to_raw_display_rgb
+                from utils.raw_display_bridge import (
+                    analysis_rgb_to_raw_display_rgb,
+                    display_rgb_to_lab,
+                )
                 from utils.user_preferences import get_preferences_manager
 
                 prefs = get_preferences_manager()
@@ -567,6 +579,7 @@ class SampleResultsManager(tk.Frame):
                     avg_rgb,
                     bridge_enabled=bridge_enabled,
                 )
+                display_lab = display_rgb_to_lab(display_rgb)                
 
                 print(
                     f"DEBUG RESULTS SWATCH: RAW=True "
@@ -585,7 +598,7 @@ class SampleResultsManager(tk.Frame):
         )
         
         value_text = get_conditional_color_values_text(
-            avg_rgb, avg_lab, compact=True,
+            display_rgb, display_lab, compact=True,
         )
         
         values_frame = ttk.Frame(frame)
