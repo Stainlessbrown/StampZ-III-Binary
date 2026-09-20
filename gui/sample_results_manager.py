@@ -187,10 +187,20 @@ class SampleResultsManager(tk.Frame):
             try:
                 from utils.image_processor import load_image as _load_image
                 self.current_image, _meta = _load_image(image_path)
-                print(f"DEBUG: set_analyzed_data load_image gamma_corrected={_meta.get('linear_gamma_corrected')}")
+
+                # Preserve source metadata so Results swatches can make the same
+                # RAW/non-RAW display decision as the main image display pipeline.
+                self.current_image_metadata = _meta
+
+                print(
+                    f"DEBUG: set_analyzed_data "
+                    f"is_raw={_meta.get('is_raw')} "
+                    f"gamma_corrected={_meta.get('linear_gamma_corrected')}"
+                )
             except Exception as _le:
                 print(f"DEBUG: set_analyzed_data load_image failed ({_le}), using Image.open")
                 self.current_image = Image.open(image_path)
+                self.current_image_metadata = {}
             
             # Create color analyzer
             from utils.color_analyzer import ColorAnalyzer
@@ -517,9 +527,38 @@ class SampleResultsManager(tk.Frame):
             highlightthickness=1, highlightbackground='gray',
         )
         canvas.pack(side=tk.LEFT, padx=5, pady=5)
+
+        # Display-only RGB for the swatch.
+        # Analytical avg_rgb / avg_lab remain completely unchanged.
+        display_rgb = avg_rgb
+
+        metadata = getattr(self, 'current_image_metadata', {}) or {}
+        if metadata.get('is_raw', False):
+            try:
+                from utils.raw_display_bridge import analysis_rgb_to_raw_display_rgb
+                from utils.user_preferences import get_preferences_manager
+
+                prefs = get_preferences_manager()
+                bridge_enabled = prefs.get_raw_display_bridge_enabled()
+
+                display_rgb = analysis_rgb_to_raw_display_rgb(
+                    avg_rgb,
+                    bridge_enabled=bridge_enabled,
+                )
+                
+                print(
+                    f"DEBUG RESULTS SWATCH: RAW=True "
+                    f"bridge={bridge_enabled} "
+                    f"analysis_rgb={avg_rgb} "
+                    f"display_rgb={display_rgb}"
+                )
+            except Exception as e:
+                print(f"DEBUG RESULTS SWATCH: display conversion failed: {e}")
+                display_rgb = avg_rgb
+
         canvas.create_rectangle(
             0, 0, sw_w, sw_h,
-            fill=f"#{int(avg_rgb[0]):02x}{int(avg_rgb[1]):02x}{int(avg_rgb[2]):02x}",
+            fill=f"#{int(display_rgb[0]):02x}{int(display_rgb[1]):02x}{int(display_rgb[2]):02x}",
             outline='',
         )
         

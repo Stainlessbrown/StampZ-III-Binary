@@ -102,3 +102,35 @@ def apply_raw_display_bridge(image: Image.Image) -> Image.Image:
     output[..., :3] = bridged_rgb
 
     return Image.fromarray(output)
+
+def analysis_rgb_to_raw_display_rgb(rgb, bridge_enabled: bool = True):
+    """Convert one RAW-derived analytical RGB value to display RGB.
+
+    This is for display-only swatches. It does not modify the analytical
+    RGB value or perform calibration.
+
+    Args:
+        rgb: Analytical RGB triplet in the 0..255 range.
+        bridge_enabled: If True, apply the RAW Display Bridge after
+            converting the analytical sRGB value back to native RAW display.
+
+    Returns:
+        Tuple of three integer RGB display values.
+    """
+    # Build a 1x1 RGB image so the swatch uses exactly the same conversion
+    # functions as the full RAW image display pipeline.
+    pixel = tuple(
+        max(0, min(255, int(round(v))))
+        for v in rgb[:3]
+    )
+    image = Image.new('RGB', (1, 1), pixel)
+
+    # Analytical RAW RGB has had StampZ's sRGB gamma applied.
+    # Reverse that first to recover the native RAW display state.
+    display_image = analysis_rgb_to_native_raw(image)
+
+    # Match the normal RAW image display when the Bridge is enabled.
+    if bridge_enabled:
+        display_image = apply_raw_display_bridge(display_image)
+
+    return display_image.getpixel((0, 0))
