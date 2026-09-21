@@ -2408,9 +2408,18 @@ class SampleResultsManager(tk.Frame):
         saved_files = []
         
         if save_individual:
+            metadata = getattr(self, 'current_image_metadata', {}) or {}
+            is_raw = bool(metadata.get('is_raw', False))
+
+            print(
+                f"DEBUG DB SAVE PROVENANCE: "
+                f"image_name={image_name}, is_raw={is_raw}"
+            )
             individual_db = ColorAnalysisDB(db_name)
             set_id = individual_db.create_measurement_set(
-                image_name, f"Individual samples from {image_name}",
+                image_name,
+                f"Individual samples from {image_name}",
+                is_raw=is_raw,
             )
             success_individual = False
             if set_id:
@@ -2446,6 +2455,7 @@ class SampleResultsManager(tk.Frame):
                 sample_set_name=avg_db_name,
                 image_name=image_name,
                 notes=f"Average from {len(samples)} samples via {notes_label}",
+                is_raw=is_raw,
             )
             success_average = bool(ok)
             if success_average and use_averages_suffix:

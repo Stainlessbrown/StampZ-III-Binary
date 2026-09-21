@@ -157,7 +157,7 @@ class ColorAnalysisDB:
             
             # Add essential columns to existing databases
             cursor = conn.cursor()
-            
+
             # Add RAW source provenance to existing measurement sets
             try:
                 cursor.execute(
@@ -300,7 +300,12 @@ class ColorAnalysisDB:
                 ON color_measurements(set_id, coordinate_point)
             """)
     
-    def create_measurement_set(self, image_name: str, description: str = None) -> int:
+    def create_measurement_set(
+        self,
+        image_name: str,
+        description: str = None,
+        is_raw: bool = False
+    ) -> int:
         """Create a new measurement set and return its ID."""
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -309,18 +314,26 @@ class ColorAnalysisDB:
                     SELECT set_id FROM measurement_sets WHERE image_name = ?
                 """, (image_name,))
                 existing = cursor.fetchone()
-                
+
                 if existing:
-                    print(f"Using existing measurement set {existing[0]} for image '{image_name}'")
+                    print(
+                        f"Using existing measurement set {existing[0]} "
+                        f"for image '{image_name}'"
+                    )
                     return existing[0]
-                
+
                 # Create new measurement set
                 cursor = conn.execute("""
-                    INSERT INTO measurement_sets (image_name, description)
-                    VALUES (?, ?)
-                """, (image_name, description))
-                print(f"Created new measurement set {cursor.lastrowid} for image '{image_name}'")
+                    INSERT INTO measurement_sets (image_name, description, is_raw)
+                    VALUES (?, ?, ?)
+                """, (image_name, description, int(bool(is_raw))))
+
+                print(
+                    f"Created new measurement set {cursor.lastrowid} "
+                    f"for image '{image_name}' (is_raw={bool(is_raw)})"
+                )
                 return cursor.lastrowid
+
         except sqlite3.Error as e:
             print(f"Error creating measurement set: {e}")
             return None

@@ -949,7 +949,8 @@ class ColorAnalyzer:
         sample_measurements: List[dict],
         sample_set_name: str,
         image_name: str,
-        notes: Optional[str] = None
+        notes: Optional[str] = None,
+        is_raw: bool = False
     ) -> bool:
         """Save an averaged measurement from a list of individual sample measurements.
         
@@ -1016,7 +1017,12 @@ class ColorAnalyzer:
             print(f"DEBUG: Saving averaged measurement to database: {db.db_path}")
             
             # Create or get measurement set
-            set_id = db.create_measurement_set(image_name, "Averaged measurement analysis")
+            set_id = db.create_measurement_set(
+                image_name,
+                "Averaged measurement analysis",
+                is_raw=is_raw,
+            )
+            
             if set_id is None:
                 print("Failed to create measurement set for averaged data")
                 return False
