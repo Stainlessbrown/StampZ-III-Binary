@@ -121,12 +121,14 @@ class ColorAnalysisDB:
         """Initialize color analysis database tables."""
         with sqlite3.connect(self.db_path) as conn:
             # Table for measurement sets
+            # Table for measurement sets
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS measurement_sets (
                     set_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     image_name TEXT NOT NULL,
                     measurement_date TIMESTAMP DEFAULT (datetime('now', 'localtime')),
-                    description TEXT
+                    description TEXT,
+                    is_raw BOOLEAN DEFAULT 0
                 )
             """)
             
@@ -155,6 +157,16 @@ class ColorAnalysisDB:
             
             # Add essential columns to existing databases
             cursor = conn.cursor()
+            
+            # Add RAW source provenance to existing measurement sets
+            try:
+                cursor.execute(
+                    "ALTER TABLE measurement_sets ADD COLUMN is_raw BOOLEAN DEFAULT 0"
+                )
+                print("Added is_raw column to measurement_sets")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+            
             try:
                 cursor.execute("ALTER TABLE color_measurements ADD COLUMN sample_type TEXT")
                 print("Added sample_type column")
@@ -1091,13 +1103,14 @@ class AveragedColorAnalysisDB(ColorAnalysisDB):
     def _init_db(self):
         """Initialize averaged color analysis database tables with averaged measurement support."""
         with sqlite3.connect(self.db_path) as conn:
-            # Table for measurement sets
+           # Table for measurement sets
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS measurement_sets (
                     set_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     image_name TEXT NOT NULL,
                     measurement_date TIMESTAMP DEFAULT (datetime('now', 'localtime')),
-                    description TEXT
+                    description TEXT,
+                    is_raw BOOLEAN DEFAULT 0
                 )
             """)
             
@@ -1127,8 +1140,17 @@ class AveragedColorAnalysisDB(ColorAnalysisDB):
                 )
             """)
             
-            # Add averaged measurement columns to existing databases if needed
+            # Add RAW source provenance to existing measurement sets
             cursor = conn.cursor()
+
+            try:
+                cursor.execute(
+                    "ALTER TABLE measurement_sets ADD COLUMN is_raw BOOLEAN DEFAULT 0"
+                )
+                print("Added is_raw column to averaged measurement_sets")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+
             try:
                 cursor.execute("ALTER TABLE color_measurements ADD COLUMN is_averaged BOOLEAN DEFAULT 1")
                 print("Added is_averaged column to averaged database")
