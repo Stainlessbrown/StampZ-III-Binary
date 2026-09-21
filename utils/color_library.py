@@ -736,7 +736,13 @@ CREATE TABLE IF NOT EXISTS library_colors (
             print(f"Error getting color count: {e}")
             return 0
 
-    def export_library(self, filename: str, format_type: str = 'lab') -> bool:
+    def export_library(
+        self,
+        filename: str,
+        format_type: str = 'lab',
+        bridge_enabled: bool = False
+    ) -> bool:
+        
         """Export library to CSV format with selected color space.
         
         CSV Format varies based on format_type:
@@ -785,12 +791,52 @@ CREATE TABLE IF NOT EXISTS library_colors (
                 
                 # Write color data
                 for color in colors:
+                    # Start with the original stored analytical values.
+                    export_rgb = color.rgb
+                    export_lab = color.lab
+
+                    # RAW-derived colors are exported in the same effective
+                    # representation currently selected for RAW display.
+                    # The original stored RGB/Lab values are never modified.
+                    if getattr(color, 'is_raw', False):
+                        try:
+                            from utils.raw_display_bridge import (
+                                analysis_rgb_to_raw_display_rgb,
+                                display_rgb_to_lab,
+                            )
+
+                            export_rgb = analysis_rgb_to_raw_display_rgb(
+                                color.rgb,
+                                bridge_enabled=bridge_enabled,
+                            )
+                            export_lab = display_rgb_to_lab(export_rgb)
+
+                        except Exception as e:
+                            print(
+                                f"Warning: RAW export conversion failed for "
+                                f"{color.name}: {e}"
+                            )
+                            export_rgb = color.rgb
+                            export_lab = color.lab
+
                     if format_type == 'lab':
-                        color_values = [color.lab[0], color.lab[1], color.lab[2]]
+                        color_values = [
+                            export_lab[0],
+                            export_lab[1],
+                            export_lab[2]
+                        ]
                     elif format_type == 'rgb':
-                        color_values = [color.rgb[0], color.rgb[1], color.rgb[2]]
+                        color_values = [
+                            export_rgb[0],
+                            export_rgb[1],
+                            export_rgb[2]
+                        ]
                     else:  # cmy
-                        cmy = (255 - color.rgb[0], 255 - color.rgb[1], 255 - color.rgb[2])
+                        cmy = (
+                            255 - export_rgb[0],
+                            255 - export_rgb[1],
+                            255 - export_rgb[2]
+                        )
                         color_values = [cmy[0], cmy[1], cmy[2]]
                     
                     writer.writerow([

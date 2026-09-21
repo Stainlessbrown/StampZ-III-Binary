@@ -1,8 +1,13 @@
-"""Display-only bridge for RAW images in StampZ.
+"""RAW representation bridge for StampZ.
 
-This module transforms a copy of RAW RGB image data for human viewing.
-It must never be used for sampling, calibration, color analysis, database
-values, or saved analytical image data.
+Transforms RAW-derived analytical RGB into its native or bridged
+representation without modifying the original analytical measurement.
+
+Used for RAW image/swatch display and, when explicitly requested, for
+mixed-source comparative exports and downstream analysis.
+
+It must never overwrite original analytical RGB/Lab values, alter
+scanner calibration, or modify saved source measurements.
 """
 
 import numpy as np

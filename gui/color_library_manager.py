@@ -1751,10 +1751,26 @@ class ColorLibraryManager:
             if filename:
                 try:
                     format_type = selected_format.get()
-                    if self.library.export_library(filename, format_type=format_type):
-                        messagebox.showinfo("Success", f"Library exported to {filename} in {format_type.upper()} format")
+
+                    from utils.user_preferences import get_preferences_manager
+                    prefs = get_preferences_manager()
+                    bridge_enabled = prefs.get_raw_display_bridge_enabled()
+
+                    if self.library.export_library(
+                        filename,
+                        format_type=format_type,
+                        bridge_enabled=bridge_enabled
+                    ):
+                        messagebox.showinfo(
+                            "Success",
+                            f"Library exported to {filename} in {format_type.upper()} format"
+                        )
+
                 except Exception as e:
-                    messagebox.showerror("Error", f"Export failed: {str(e)}")
+                    messagebox.showerror(
+                        "Error",
+                        f"Export failed: {str(e)}"
+                    ) 
         
         # Buttons
         btn_frame = ttk.Frame(format_dialog)
