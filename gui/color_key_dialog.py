@@ -241,38 +241,33 @@ class ColorKeyDialog:
 
         # RAW Display Bridge preference affects display only.
         from utils.user_preferences import get_preferences_manager
-        from utils.raw_display_bridge import (
-            apply_raw_display_bridge,
-            analysis_rgb_to_native_raw,
-        )
+        from utils.raw_display_bridge import analysis_rgb_to_raw_display_rgb
 
         bridge_enabled = (
             get_preferences_manager().get_raw_display_bridge_enabled()
         )
 
         for lc in self._all_colors:
-            is_raw_derived = bool(
-                lc.notes and "RAW-derived: Yes" in lc.notes
-            )
+            is_raw_derived = bool(getattr(lc, 'is_raw', False))
+
             print(
                 f"COLOUR KEY: {lc.name} "
                 f"RAW-derived={is_raw_derived}, Bridge={bridge_enabled}"
             )
 
-            r = int(max(0, min(255, lc.rgb[0])))
-            g = int(max(0, min(255, lc.rgb[1])))
-            b = int(max(0, min(255, lc.rgb[2])))
-
-            swatch = self._make_swatch((r, g, b))
+            display_rgb = lc.rgb
 
             if is_raw_derived:
-                # Stored RAW-derived RGB is from the gamma-encoded analysis path.
-                # Return it to native-linear form for display first.
-                swatch = analysis_rgb_to_native_raw(swatch)
+                display_rgb = analysis_rgb_to_raw_display_rgb(
+                    lc.rgb,
+                    bridge_enabled=bridge_enabled,
+                )
 
-                # The optional bridge always operates on native-linear RAW display data.
-                if bridge_enabled:
-                    swatch = apply_raw_display_bridge(swatch)
+            r = int(max(0, min(255, display_rgb[0])))
+            g = int(max(0, min(255, display_rgb[1])))
+            b = int(max(0, min(255, display_rgb[2])))
+
+            swatch = self._make_swatch((r, g, b))
 
             self._swatches.append((lc.name, swatch)) 
 
