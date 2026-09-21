@@ -491,7 +491,8 @@ class ColorAnalysisDB:
                             m.notes, m.is_averaged, m.source_samples_count, m.source_sample_ids,
                             m.marker_preference, m.color_preference,
                             m.cluster_id, m.delta_e, m.centroid_x, m.centroid_y, m.centroid_z,
-                            m.sphere_color, m.sphere_radius, m.trendline_valid, m.data_source
+                            m.sphere_color, m.sphere_radius, m.trendline_valid, m.data_source,
+                            s.is_raw
                         FROM color_measurements m
                         JOIN measurement_sets s ON m.set_id = s.set_id
                         ORDER BY m.id
@@ -530,7 +531,8 @@ class ColorAnalysisDB:
                             'sphere_color': row[27] if len(row) > 27 and row[27] else '',
                             'sphere_radius': row[28] if len(row) > 28 and row[28] is not None else None,
                             'trendline_valid': bool(row[29]) if len(row) > 29 and row[29] is not None else True,
-                            'data_source': row[30] if len(row) > 30 and row[30] else 'stampz'
+                            'data_source': row[30] if len(row) > 30 and row[30] else 'stampz',
+                            'is_raw': bool(row[31]) if len(row) > 31 and row[31] is not None else False
                         })
                 else:
                     # Query without averaged columns (for main databases) - include all Plot_3D columns
@@ -543,7 +545,8 @@ class ColorAnalysisDB:
                             m.sample_type, m.sample_size, m.sample_anchor,
                             m.notes, m.marker_preference, m.color_preference,
                             m.cluster_id, m.delta_e, m.centroid_x, m.centroid_y, m.centroid_z,
-                            m.sphere_color, m.sphere_radius, m.trendline_valid, m.data_source
+                            m.sphere_color, m.sphere_radius, m.trendline_valid, m.data_source, 
+                            s.is_raw
                         FROM color_measurements m
                         JOIN measurement_sets s ON m.set_id = s.set_id
                         ORDER BY m.id
@@ -580,6 +583,7 @@ class ColorAnalysisDB:
                             'sphere_radius': row[25] if len(row) > 25 and row[25] is not None else None,
                             'trendline_valid': bool(row[26]) if len(row) > 26 and row[26] is not None else True,
                             'data_source': row[27] if len(row) > 27 and row[27] else 'stampz',
+                            'is_raw': bool(row[28]) if len(row) > 28 and row[28] is not None else False,
                             'is_averaged': False,  # Main DB only contains individual measurements
                             'source_samples_count': None,
                             'source_sample_ids': None
