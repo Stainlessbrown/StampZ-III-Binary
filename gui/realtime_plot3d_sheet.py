@@ -564,6 +564,60 @@ class RealtimePlot3DSheet:
             except ValueError:
                 return None
         return None
+
+    def _get_effective_color_values(self, measurement):
+        """
+        Return temporary RGB and Lab values for Plot_3D/export.
+
+        Original database measurement values are never modified.
+        Ordinary measurements pass through unchanged.
+        RAW measurements use the current RAW Display Bridge preference.
+        """
+        r_val = measurement.get('rgb_r', 0.0)
+        g_val = measurement.get('rgb_g', 0.0)
+        b_val = measurement.get('rgb_b', 0.0)
+
+        l_val = measurement.get('l_value', 0.0)
+        a_val = measurement.get('a_value', 0.0)
+        lab_b_val = measurement.get('b_value', 0.0)
+
+        # Ordinary measurements use their original stored values.
+        if not measurement.get('is_raw', False):
+            return r_val, g_val, b_val, l_val, a_val, lab_b_val
+
+        try:
+            from utils.raw_display_bridge import (
+                analysis_rgb_to_raw_display_rgb,
+                display_rgb_to_lab,
+            )
+            from utils.user_preferences import get_preferences_manager
+
+            bridge_enabled = (
+                get_preferences_manager().get_raw_display_bridge_enabled()
+            )
+
+            effective_rgb = analysis_rgb_to_raw_display_rgb(
+                (r_val, g_val, b_val),
+                bridge_enabled=bridge_enabled,
+            )
+
+            effective_lab = display_rgb_to_lab(effective_rgb)
+
+            return (
+                effective_rgb[0],
+                effective_rgb[1],
+                effective_rgb[2],
+                effective_lab[0],
+                effective_lab[1],
+                effective_lab[2],
+            )
+
+        except Exception as e:
+            logger.warning(
+                f"RAW effective color conversion failed; "
+                f"using original values: {e}"
+            )
+            return r_val, g_val, b_val, l_val, a_val, lab_b_val
     
     def _on_data_type_toggle(self):
         """Handle toggle between L*a*b* and RGB data for color analysis databases."""
@@ -749,9 +803,21 @@ class RealtimePlot3DSheet:
                 try:
                     # Debug the measurement structure
                     logger.debug(f"Processing measurement {i}: keys={list(measurement.keys())}")
+
+                    # Get temporary effective color values for Plot_3D/export.
+                    # Ordinary measurements pass through unchanged.
+                    # RAW measurements follow the current Bridge setting.
+                    (
+                        effective_r,
+                        effective_g,
+                        effective_b,
+                        effective_l,
+                        effective_a,
+                        effective_lab_b,
+                    ) = self._get_effective_color_values(measurement)
                     
                     # Check if this is channel data (RGB/CMY) or L*a*b* color data
-                    l_val = measurement.get('l_value', 0.0)
+                    l_val = effective_l
                     sample_type = measurement.get('sample_type', '')
                     is_channel = (l_val == 0 or 'channel' in sample_type.lower())
                     
@@ -767,17 +833,17 @@ class RealtimePlot3DSheet:
                         z_norm = max(0.0, min(1.0, b_val / 255.0))
                     elif self.use_rgb_data.get() and self.data_source_type == 'color_analysis':
                         # Color analysis with RGB toggle ON - use RGB values
-                        r_val = measurement.get('rgb_r', 0.0)
-                        g_val = measurement.get('rgb_g', 0.0)
-                        b_val = measurement.get('rgb_b', 0.0)
+                        r_val = effective_r
+                        g_val = effective_g
+                        b_val = effective_b
                         
                         x_norm = max(0.0, min(1.0, r_val / 255.0))
                         y_norm = max(0.0, min(1.0, g_val / 255.0))
                         z_norm = max(0.0, min(1.0, b_val / 255.0))
                     else:
                         # L*a*b* color data (default)
-                        a_val = measurement.get('a_value', 0.0)
-                        b_val = measurement.get('b_value', 0.0)
+                        a_val = effective_a
+                        b_val = effective_lab_b
                         
                         # CRITICAL: Check if data is ALREADY normalized (0-1 range)
                         # If so, use as-is. If not, apply normalization.
