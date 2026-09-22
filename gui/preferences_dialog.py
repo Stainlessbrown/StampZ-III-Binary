@@ -18,6 +18,7 @@ class PreferencesDialog:
         self.parent = parent
         self.app = app
         self.root = tk.Toplevel(parent)
+        self.root.withdraw()
         self.prefs_manager = None
         self.result = None
         
@@ -28,6 +29,9 @@ class PreferencesDialog:
         self._setup_dialog()
         self._create_widgets()
         self._load_current_settings()
+
+        self.root.update_idletasks()
+        self.root.deiconify()
         
     def _setup_dialog(self):
         """Set up the dialog window."""
@@ -113,14 +117,10 @@ class PreferencesDialog:
         # This means the dialog won't automatically minimize when parent minimizes,
         # but it will stay visible when moved between screens
         
-        # Set modal behavior - this blocks interaction with parent window
         self.root.grab_set()
-        
-        # Make the dialog appear on top and focus on it
         self.root.lift()
         self.root.focus_force()
-        
-        # Brief topmost to ensure visibility, then allow normal behavior
+
         self.root.attributes('-topmost', True)
         self.root.after(100, lambda: self.root.attributes('-topmost', False))
         
@@ -2258,9 +2258,8 @@ class PreferencesDialog:
             pass
     
     def show(self) -> Optional[str]:
-        """Show the dialog and return result."""
+        """Show the dialog without blocking the Tk event loop."""
         self.root.focus_force()
-        self.root.wait_window()
         return self.result
 
 
