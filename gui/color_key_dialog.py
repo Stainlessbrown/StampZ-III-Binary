@@ -187,17 +187,43 @@ class ColorKeyDialog:
         try:
             from utils.path_utils import get_color_libraries_dir
             lib_dir = get_color_libraries_dir()
+
             if not os.path.isdir(lib_dir):
                 return
-            names = sorted(
+
+            names = [
                 f[:-11]
                 for f in os.listdir(lib_dir)
                 if f.endswith("_library.db")
-            )
+            ]
+
+            # Put libraries selected in the active Workspace first,
+            # followed by all remaining libraries.
+            from utils.user_preferences import get_preferences_manager
+
+            prefs_manager = get_preferences_manager()
+            active_files = set(prefs_manager.get_active_libraries())
+
+            workspace_names = [
+                name for name in names
+                if f"{name}_library.db" in active_files
+            ]
+
+            other_names = [
+                name for name in names
+                if f"{name}_library.db" not in active_files
+            ]
+
+            workspace_names.sort()
+            other_names.sort()
+            names = workspace_names + other_names
+
             self._lib_combo["values"] = names
+
             if names:
                 self._lib_combo.current(0)
                 self._on_library_changed()
+
         except Exception as exc:
             self._status.configure(text=f"Library load error: {exc}")
 

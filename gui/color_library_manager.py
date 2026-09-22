@@ -476,8 +476,33 @@ class ColorLibraryManager:
                 library_names.append(display_name)
                 file_to_display[display_name] = base_name
             
-            # Sort alphabetically
-            library_names.sort()
+            # Put libraries selected in the active Workspace first,
+            # followed by all remaining libraries.
+            try:
+                from utils.user_preferences import get_preferences_manager
+
+                prefs_manager = get_preferences_manager()
+                active_files = set(prefs_manager.get_active_libraries())
+
+                workspace_names = []
+                other_names = []
+
+                for display_name in library_names:
+                    base_name = file_to_display[display_name]
+                    filename = f"{base_name}_library.db"
+
+                    if filename in active_files:
+                        workspace_names.append(display_name)
+                    else:
+                        other_names.append(display_name)
+
+                workspace_names.sort()
+                other_names.sort()
+                library_names = workspace_names + other_names
+
+            except Exception as e:
+                print(f"Warning: Could not apply Workspace library ordering: {e}")
+                library_names.sort()
             
             # Store the mapping
             self.display_to_file_map = file_to_display
