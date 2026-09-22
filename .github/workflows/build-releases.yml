@@ -10,6 +10,9 @@ on:
         description: 'Release version (e.g., v3.1.7)'
         required: true
         default: 'v3.1.7'
+  
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   setup-release:
@@ -90,6 +93,7 @@ jobs:
         $installer = (Get-Item "dist\StampZ-III-*-Setup.exe").FullName
         gh release upload "${{ needs.setup-release.outputs.tag }}" "$installer" --repo ${{ github.repository }}
         Write-Host "Uploaded: $installer"
+        
 
   build-linux:
     needs: setup-release
