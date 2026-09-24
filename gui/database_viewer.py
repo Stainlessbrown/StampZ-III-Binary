@@ -750,17 +750,25 @@ class DatabaseViewer:
                 messagebox.showerror("Error", f"Failed to clear measurements: {str(e)}")
         
         else:  # color_libraries
+            # Preserve the selected library name before refreshing the list
+            library_to_delete = self.current_sample_set
+
             if not messagebox.askyesno("Confirm Delete Library",
-                                      f"Delete color library '{self.current_sample_set}'?\n\n"
+                                      f"Delete color library '{library_to_delete}'?\n\n"
                                       "This action cannot be undone."):
                 return
             
             try:
-                db_path = os.path.join(current_dir, "data", "color_libraries", self.current_sample_set)
+                db_path = os.path.join(current_dir, "data", "color_libraries", library_to_delete)
                 if os.path.exists(db_path):
                     os.remove(db_path)
+
                 self._load_sample_sets()  # Refresh the database list
-                messagebox.showinfo("Success", f"Color library '{self.current_sample_set}' has been deleted")
+
+                messagebox.showinfo(
+                    "Success",
+                    f"Color library '{library_to_delete}' has been deleted"
+                )
             
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to delete color library: {str(e)}")
@@ -818,9 +826,11 @@ class DatabaseViewer:
                 messagebox.showerror("Error", f"Failed to delete sample set: {str(e)}")
         
         else:  # color_libraries
+            library_to_delete = self.current_sample_set
+
             if not messagebox.askyesno("⚠️ WARNING: PERMANENT LIBRARY DELETION",
                                       f"You are about to PERMANENTLY DELETE the entire library:\n"
-                                      f"'{self.current_sample_set}'\n\n"
+                                      f"'{library_to_delete}'\n\n"
                                       "This will permanently delete the entire library file.\n\n"
                                       "⚠️ THIS ACTION IS PERMANENT AND CANNOT BE UNDONE!\n\n"
                                       "Are you absolutely sure you want to proceed?",
@@ -833,10 +843,10 @@ class DatabaseViewer:
                 
                 # Try different naming conventions for color libraries
                 db_path = None
-                if os.path.exists(os.path.join(data_dir, f"{self.current_sample_set}_library.db")):
-                    db_path = os.path.join(data_dir, f"{self.current_sample_set}_library.db")
-                elif os.path.exists(os.path.join(data_dir, f"{self.current_sample_set}.db")):
-                    db_path = os.path.join(data_dir, f"{self.current_sample_set}.db")
+                if os.path.exists(os.path.join(data_dir, f"{library_to_delete}_library.db")):
+                    db_path = os.path.join(data_dir, f"{library_to_delete}_library.db")
+                elif os.path.exists(os.path.join(data_dir, f"{library_to_delete}.db")):
+                    db_path = os.path.join(data_dir, f"{library_to_delete}.db")
                 
                 if db_path and os.path.exists(db_path):
                     os.remove(db_path)
@@ -844,7 +854,11 @@ class DatabaseViewer:
                 
                 # Refresh the sample set list
                 self._load_sample_sets()
-                messagebox.showinfo("Success", f"Color library '{self.current_sample_set}' has been deleted")
+
+                messagebox.showinfo(
+                    "Success",
+                    f"Color library '{library_to_delete}' has been deleted"
+                )
                 
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to delete color library: {str(e)}")

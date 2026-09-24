@@ -8,6 +8,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, colorchooser, filedialog
 from typing import List, Dict, Any
 import os
+import math
 from PIL import Image, ImageTk
 # Add project root to path
 import sys
@@ -180,6 +181,15 @@ class ColorLibraryManager:
         
         self.add_color_btn = ttk.Button(library_row, text="Add Color", command=self._add_color_dialog)
         self.add_color_btn.pack(side=tk.RIGHT, padx=(5, 0))
+
+        # Compare selected colors with another library
+        self.compare_selected_btn = ttk.Button(
+            library_row,
+            text="Compare Selected to Library...",
+            command=self._compare_selected_to_library,
+            state='disabled'
+        )
+        self.compare_selected_btn.pack(side=tk.RIGHT, padx=(5, 0))        
         
         # Search and sorting row
         search_row = ttk.Frame(controls_frame)
@@ -843,11 +853,13 @@ class ColorLibraryManager:
         else:
             self.selected_colors.discard(color_id)
         
-        # Enable/disable Copy Selected button based on selection
+        # Enable/disable selection buttons based on selection
         if self.selected_colors:
             self.copy_selected_btn.configure(state='normal')
+            self.compare_selected_btn.configure(state='normal')
         else:
             self.copy_selected_btn.configure(state='disabled')
+            self.compare_selected_btn.configure(state='disabled')
     
     def _position_dialog_over_root(self, dialog: 'tk.Toplevel', width: int, height: int) -> None:
         """Center ``dialog`` over the Color Library Manager's current window.
@@ -989,6 +1001,233 @@ class ColorLibraryManager:
         button_frame.pack(pady=20)
         ttk.Button(button_frame, text="Copy", command=do_copy).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+
+    def _calculate_delta_e_2000(self, lab1, lab2):
+        """Calculate CIEDE2000 color difference between two Lab colors."""
+        L1, a1, b1 = lab1
+        L2, a2, b2 = lab2
+
+        kL = 1.0
+        kC = 1.0
+        kH = 1.0
+
+        C1 = math.sqrt(a1**2 + b1**2)
+        C2 = math.sqrt(a2**2 + b2**2)
+        Cab = (C1 + C2) / 2
+
+        G = 0.5 * (1 - math.sqrt(Cab**7 / (Cab**7 + 25**7)))
+
+        a1p = (1 + G) * a1
+        a2p = (1 + G) * a2
+
+        C1p = math.sqrt(a1p**2 + b1**2)
+        C2p = math.sqrt(a2p**2 + b2**2)
+
+        def calculate_h_prime(ap, b):
+            if ap == 0 and b == 0:
+                return 0
+            h = math.degrees(math.atan2(b, ap))
+            return h + 360 if h < 0 else h
+
+        h1p = calculate_h_prime(a1p, b1)
+        h2p = calculate_h_prime(a2p, b2)
+
+        deltaLp = L2 - L1
+        deltaCp = C2p - C1p
+
+        deltahp = h2p - h1p
+        if C1p * C2p == 0:
+            deltaHp = 0
+        elif abs(deltahp) <= 180:
+            deltaHp = deltahp
+        elif deltahp > 180:
+            deltaHp = deltahp - 360
+        else:
+            deltaHp = deltahp + 360
+
+        deltaHp = (
+            2 * math.sqrt(C1p * C2p) *
+            math.sin(math.radians(deltaHp / 2))
+        )
+
+        Lp = (L1 + L2) / 2
+        Cp = (C1p + C2p) / 2
+
+        if C1p * C2p == 0:
+            hp = h1p + h2p
+        elif abs(h1p - h2p) <= 180:
+            hp = (h1p + h2p) / 2
+        elif h1p + h2p < 360:
+            hp = (h1p + h2p + 360) / 2
+        else:
+            hp = (h1p + h2p - 360) / 2
+
+        T = (
+            1
+            - 0.17 * math.cos(math.radians(hp - 30))
+            + 0.24 * math.cos(math.radians(2 * hp))
+            + 0.32 * math.cos(math.radians(3 * hp + 6))
+            - 0.20 * math.cos(math.radians(4 * hp - 63))
+        )
+
+        deltaTheta = 30 * math.exp(-((hp - 275) / 25)**2)
+        RC = 2 * math.sqrt(Cp**7 / (Cp**7 + 25**7))
+        RT = -math.sin(math.radians(2 * deltaTheta)) * RC
+
+        SL = 1 + (
+            (0.015 * (Lp - 50)**2) /
+            math.sqrt(20 + (Lp - 50)**2)
+        )
+        SC = 1 + 0.045 * Cp
+        SH = 1 + 0.015 * Cp * T
+
+        deltaE = math.sqrt(
+            (deltaLp / (kL * SL))**2
+            + (deltaCp / (kC * SC))**2
+            + (deltaHp / (kH * SH))**2
+            + RT
+            * (deltaCp / (kC * SC))
+            * (deltaHp / (kH * SH))
+        )
+
+        return deltaE
+
+    def _compare_selected_to_library(self):
+        """Compare selected colors with matching colors in another library."""
+        if not self.selected_colors:
+            messagebox.showinfo(
+                "No Selection",
+                "Please select colors to compare first."
+            )
+            return
+
+        # Get available libraries
+        from utils.path_utils import get_color_libraries_dir
+        library_dir = get_color_libraries_dir()
+        library_files = [
+            f for f in os.listdir(library_dir)
+            if f.endswith("_library.db")
+        ]
+        library_names = [f[:-11] for f in library_files]
+
+        # Do not compare the current library with itself
+        if self.current_library_name in library_names:
+            library_names.remove(self.current_library_name)
+
+        if not library_names:
+            messagebox.showinfo(
+                "No Libraries",
+                "No other libraries are available for comparison."
+            )
+            return
+
+        # Create comparison-library selection dialog
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Compare Selected Colors")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        self._position_dialog_over_root(dialog, 400, 180)
+
+        ttk.Label(
+            dialog,
+            text="Compare selected colors with:",
+            font=("Arial", 11, "bold")
+        ).pack(pady=(15, 10))
+
+        library_var = tk.StringVar(value=library_names[0])
+
+        library_combo = ttk.Combobox(
+            dialog,
+            textvariable=library_var,
+            values=library_names,
+            state="readonly",
+            width=30
+        )
+        library_combo.pack(pady=5)
+
+        def do_compare():
+            comparison_library_name = library_var.get()
+            comparison_library = ColorLibrary(comparison_library_name)
+
+            # Get the currently selected color objects
+            selected_color_objects = [
+                color for color in self.filtered_colors
+                if id(color) in self.selected_colors
+            ]
+
+            # Get all colors from the comparison library
+            comparison_colors = comparison_library.get_all_colors()
+
+            # Match comparison colors by name
+            comparison_by_name = {
+                color.name: color for color in comparison_colors
+            }
+
+            results = []
+            unmatched = []
+
+            for source_color in selected_color_objects:
+                comparison_color = comparison_by_name.get(source_color.name)
+
+                if comparison_color is None:
+                    unmatched.append(source_color.name)
+                    continue
+
+                lab1 = source_color.lab
+                lab2 = comparison_color.lab
+
+                delta_l = lab2[0] - lab1[0]
+                delta_a = lab2[1] - lab1[1]
+                delta_b = lab2[2] - lab1[2]
+                delta_e = self._calculate_delta_e_2000(lab1, lab2)
+
+                results.append(
+                    (
+                        source_color.name,
+                        delta_l,
+                        delta_a,
+                        delta_b,
+                        delta_e
+                    )
+                )
+
+            # Temporary validation output
+            lines = []
+
+            for name, delta_l, delta_a, delta_b, delta_e in results:
+                lines.append(
+                    f"{name}: "
+                    f"ΔL*={delta_l:.3f}, "
+                    f"Δa*={delta_a:.3f}, "
+                    f"Δb*={delta_b:.3f}, "
+                    f"ΔE00={delta_e:.3f}"
+                )
+
+            if unmatched:
+                lines.append("")
+                lines.append("Unmatched: " + ", ".join(unmatched))
+
+            dialog.destroy()
+
+            messagebox.showinfo(
+                "Library Comparison Test",
+                "\n".join(lines) if lines else "No matching colors found."
+            )
+
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(pady=20)
+
+        ttk.Button(
+            button_frame,
+            text="Compare",
+            command=do_compare
+        ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(
+            button_frame,
+            text="Cancel",
+            command=dialog.destroy
+        ).pack(side=tk.LEFT, padx=5)     
     
     def _on_sort_changed(self, event=None):
         """Handle sort method change."""
