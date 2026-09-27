@@ -273,8 +273,8 @@ def load_image(file_path: Union[str, Path], display_only: bool = False) -> Tuple
                                 f"{linear_source} linear RAW detected, native display preserved: {file_path}"
                             )
                         else:
-                            # Analysis path: retain existing sRGB gamma treatment.
-                            img_array = _apply_srgb_gamma_16bit(img_array)
+                            # Analysis path: TEST — preserve native linear RAW values.
+                            # img_array = _apply_srgb_gamma_16bit(img_array)    
                             metadata['format_info'] = (
                                 f"{linear_source} linear RAW TIFF — sRGB gamma applied "
                                 "(Uncalibrated → sRGB)"

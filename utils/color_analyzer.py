@@ -945,13 +945,15 @@ class ColorAnalyzer:
         return measurements
     
     def save_averaged_measurement_from_samples(
-        self,
-        sample_measurements: List[dict],
-        sample_set_name: str,
-        image_name: str,
-        notes: Optional[str] = None,
-        is_raw: bool = False
-    ) -> bool:
+            self,
+            sample_measurements: List[dict],
+            sample_set_name: str,
+            image_name: str,
+            notes: Optional[str] = None,
+            is_raw: bool = False,
+            authoritative_avg_rgb=None,
+            authoritative_avg_lab=None
+        ) -> bool:
         """Save an averaged measurement from a list of individual sample measurements.
         
         Args:
@@ -994,8 +996,18 @@ class ColorAnalyzer:
             # Perform ΔE-based outlier detection and quality-controlled averaging
             averaging_result = self._calculate_quality_controlled_average(lab_values, rgb_values)
             
-            avg_lab = averaging_result['avg_lab']
-            avg_rgb = averaging_result['avg_rgb']
+            avg_lab = (
+                authoritative_avg_lab
+                if authoritative_avg_lab is not None
+                else averaging_result['avg_lab']
+            )
+
+            avg_rgb = (
+                authoritative_avg_rgb
+                if authoritative_avg_rgb is not None
+                else averaging_result['avg_rgb']
+            )
+            
             max_delta_e = averaging_result['max_delta_e']
             samples_used = averaging_result['samples_used']
             outliers_excluded = averaging_result['outliers_excluded']

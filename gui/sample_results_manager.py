@@ -576,11 +576,17 @@ class SampleResultsManager(tk.Frame):
                 prefs = get_preferences_manager()
                 bridge_enabled = prefs.get_raw_display_bridge_enabled()
 
-                display_rgb = analysis_rgb_to_raw_display_rgb(
-                    avg_rgb,
-                    bridge_enabled=bridge_enabled,
-                )
-                display_lab = display_rgb_to_lab(display_rgb)                
+                if bridge_enabled:
+                    # Bridge ON: show the derived display representation.
+                    display_rgb = analysis_rgb_to_raw_display_rgb(
+                        avg_rgb,
+                        bridge_enabled=True,
+                    )
+                    display_lab = display_rgb_to_lab(display_rgb)
+                else:
+                    # Bridge OFF: show the authoritative calibrated RAW measurement.
+                    display_rgb = avg_rgb
+                    display_lab = avg_lab                
 
                 print(
                     f"DEBUG RESULTS SWATCH: RAW=True "
@@ -2343,10 +2349,12 @@ class SampleResultsManager(tk.Frame):
             return []
     
     def _save_one_group_to_db(
-        self, samples, db_name, image_name,
-        save_individual, save_average, use_averages_suffix,
-        notes_label="Results Manager",
-    ):
+            self, samples, db_name, image_name,
+            save_individual, save_average, use_averages_suffix,
+            notes_label="Results Manager",
+            authoritative_avg_rgb=None,
+            authoritative_avg_lab=None,
+        ):
         """Save one sample group (ink or paper) into ``db_name`` as ``image_name``.
         
         Mirrors the per-set save logic that previously lived inline in
@@ -2456,6 +2464,8 @@ class SampleResultsManager(tk.Frame):
                 image_name=image_name,
                 notes=f"Average from {len(samples)} samples via {notes_label}",
                 is_raw=is_raw,
+                authoritative_avg_rgb=authoritative_avg_rgb,
+                authoritative_avg_lab=authoritative_avg_lab,   
             )
             success_average = bool(ok)
             if success_average and use_averages_suffix:
@@ -2532,6 +2542,8 @@ class SampleResultsManager(tk.Frame):
                 save_average=save_average,
                 use_averages_suffix=use_averages_suffix,
                 notes_label="Results Manager (Quick Save)",
+                authoritative_avg_rgb=avg_rgb,
+                authoritative_avg_lab=avg_lab,
             )
             
             # --- paper (optional) save -------------------------------------- #
@@ -2813,6 +2825,11 @@ class SampleResultsManager(tk.Frame):
                         use_averages_suffix = True
                     
                     # --- ink save (existing behaviour) ---------------------- #
+                    print(
+                        f"DEBUG AUTHORITATIVE INTO DB: "
+                        f"avg_rgb={avg_rgb}, avg_lab={avg_lab}"
+                    )
+
                     ink_result = self._save_one_group_to_db(
                         samples=enabled_samples,
                         db_name=final_db_name,
@@ -2820,6 +2837,8 @@ class SampleResultsManager(tk.Frame):
                         save_individual=save_individual.get(),
                         save_average=save_average.get(),
                         use_averages_suffix=use_averages_suffix,
+                        authoritative_avg_rgb=avg_rgb,
+                        authoritative_avg_lab=avg_lab,    
                     )
                     
                     # --- paper save (if any paper samples are enabled) ------ #

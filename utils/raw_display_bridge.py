@@ -130,11 +130,10 @@ def analysis_rgb_to_raw_display_rgb(rgb, bridge_enabled: bool = True):
     )
     image = Image.new('RGB', (1, 1), pixel)
 
-    # Analytical RAW RGB has had StampZ's sRGB gamma applied.
-    # Reverse that first to recover the native RAW display state.
-    display_image = analysis_rgb_to_native_raw(image)
+    # Analytical RAW RGB is already in the native RAW state.
+    display_image = image
 
-    # Match the normal RAW image display when the Bridge is enabled.
+    # Apply the display bridge only when requested.
     if bridge_enabled:
         display_image = apply_raw_display_bridge(display_image)
 
