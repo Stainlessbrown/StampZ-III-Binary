@@ -2358,8 +2358,6 @@ class SampleResultsManager(tk.Frame):
 
         if sample_name:
             image_name = sample_name
-        else:
-            image_name = os.path.basename(image_path)
 
         sample_measurements = []
         

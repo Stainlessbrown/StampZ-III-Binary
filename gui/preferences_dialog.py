@@ -2257,10 +2257,9 @@ class PreferencesDialog:
         except Exception:
             pass
     
-    def show(self) -> Optional[str]:
-        """Show the dialog and return result."""
+    def show(self):
+        """Show the preferences dialog."""
         self.root.focus_force()
-        self.root.wait_window()
         return self.result
 
 
