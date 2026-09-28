@@ -252,10 +252,12 @@ class ColorComparisonManager(tk.Frame):
             try:
                 from utils.image_processor import load_image as _load_image
                 self.current_image, _meta = _load_image(image_path)
+                self.current_image_metadata = _meta or {}
                 print(f"DEBUG: set_analyzed_data (compare) gamma_corrected={_meta.get('linear_gamma_corrected')}")
             except Exception as _le:
                 print(f"DEBUG: set_analyzed_data (compare) load_image failed ({_le}), using Image.open")
                 self.current_image = Image.open(image_path)
+                self.current_image_metadata = {}               
             
             # Create color analyzer
             from utils.color_analyzer import ColorAnalyzer
@@ -647,11 +649,44 @@ class ColorComparisonManager(tk.Frame):
             highlightbackground='gray'
         )
         sample_canvas.pack(pady=10, padx=(0, 10), anchor='w')
-        
+
+        # Display-only RGB for Compare sample swatch.
+        # Analytical sample_rgb / sample_lab remain unchanged.
+        sample_display_rgb = sample_rgb
+
+        metadata = getattr(self, 'current_image_metadata', {}) or {}
+        if metadata.get('is_raw', False):
+            try:
+                from utils.raw_display_bridge import analysis_rgb_to_raw_display_rgb
+                from utils.user_preferences import get_preferences_manager
+
+                bridge_enabled = (
+                    get_preferences_manager().get_raw_display_bridge_enabled()
+                )
+
+                sample_display_rgb = analysis_rgb_to_raw_display_rgb(
+                    sample_rgb,
+                    bridge_enabled=bridge_enabled,
+                )
+
+                print(
+                    f"DEBUG COMPARE SAMPLE SWATCH: RAW=True "
+                    f"Bridge={bridge_enabled} "
+                    f"analysis_rgb={sample_rgb} "
+                    f"display_rgb={sample_display_rgb}"
+                )
+
+            except Exception as e:
+                print(
+                    f"DEBUG COMPARE SAMPLE SWATCH: "
+                    f"display conversion failed: {e}"
+                )
+                sample_display_rgb = sample_rgb
+
         # Draw sample color
         sample_canvas.create_rectangle(
             0, 0, 450, 600,
-            fill=f"#{int(sample_rgb[0]):02x}{int(sample_rgb[1]):02x}{int(sample_rgb[2]):02x}",
+            fill=f"#{int(sample_display_rgb[0]):02x}{int(sample_display_rgb[1]):02x}{int(sample_display_rgb[2]):02x}",
             outline=''
         )
         
@@ -687,6 +722,52 @@ class ColorComparisonManager(tk.Frame):
         
         # Color name and library
         color_rgb = match.library_color.rgb
+        
+        print(
+            f"DEBUG COMPARE MATCH: {match.library_color.name} "
+            f"notes={match.library_color.notes!r} "
+            f"rgb={color_rgb} "
+            f"deltaE={match.delta_e_2000}"
+        )
+
+        # Display-only RGB for the matched Library swatch.
+        # Stored analytical RGB / Lab / Delta E remain unchanged.
+        match_display_rgb = color_rgb
+
+        is_raw_derived = bool(
+            match.library_color.notes
+            and "RAW-derived: Yes" in match.library_color.notes
+        )
+
+        if is_raw_derived:
+            try:
+                from utils.raw_display_bridge import analysis_rgb_to_raw_display_rgb
+                from utils.user_preferences import get_preferences_manager
+
+                bridge_enabled = (
+                    get_preferences_manager().get_raw_display_bridge_enabled()
+                )
+
+                match_display_rgb = analysis_rgb_to_raw_display_rgb(
+                    color_rgb,
+                    bridge_enabled=bridge_enabled,
+                )
+
+                print(
+                    f"DEBUG COMPARE MATCH SWATCH: "
+                    f"{match.library_color.name} "
+                    f"RAW-derived=True Bridge={bridge_enabled} "
+                    f"analysis_rgb={color_rgb} "
+                    f"display_rgb={match_display_rgb}"
+                )
+
+            except Exception as e:
+                print(
+                    f"DEBUG COMPARE MATCH SWATCH: "
+                    f"display conversion failed: {e}"
+                )
+                match_display_rgb = color_rgb
+
         name_text = match.library_color.name
         if hasattr(match, 'library_name'):
             name_text += f" ({match.library_name})"
@@ -726,7 +807,7 @@ class ColorComparisonManager(tk.Frame):
         
         swatch_canvas.create_rectangle(
             0, 0, 600, 100,
-            fill=f"#{int(color_rgb[0]):02x}{int(color_rgb[1]):02x}{int(color_rgb[2]):02x}",
+            fill=f"#{int(match_display_rgb[0]):02x}{int(match_display_rgb[1]):02x}{int(match_display_rgb[2]):02x}",
             outline=''
         )
     
