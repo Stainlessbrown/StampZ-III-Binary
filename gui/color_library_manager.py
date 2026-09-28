@@ -658,10 +658,45 @@ class ColorLibraryManager:
             from utils.color_display_utils import get_conditional_color_info
             color_info = get_conditional_color_info(color.rgb, color.lab)
 
+            # Display-only RGB for Library swatch.
+            # Stored analytical RGB / Lab remain completely unchanged.
+            display_rgb = color.rgb
+
+            is_raw_derived = bool(
+                color.notes and "RAW-derived: Yes" in color.notes
+            )
+
+            if is_raw_derived:
+                try:
+                    from utils.raw_display_bridge import analysis_rgb_to_raw_display_rgb
+                    from utils.user_preferences import get_preferences_manager
+
+                    bridge_enabled = (
+                        get_preferences_manager().get_raw_display_bridge_enabled()
+                    )
+
+                    display_rgb = analysis_rgb_to_raw_display_rgb(
+                        color.rgb,
+                        bridge_enabled=bridge_enabled,
+                    )
+
+                    print(
+                        f"DEBUG LIBRARY SWATCH: {color.name} "
+                        f"RAW-derived=True Bridge={bridge_enabled} "
+                        f"analysis_rgb={color.rgb} "
+                        f"display_rgb={display_rgb}"
+                    )
+
+                except Exception as e:
+                    print(
+                        f"DEBUG LIBRARY SWATCH: display conversion failed: {e}"
+                    )
+                    display_rgb = color.rgb
+
             # Color display on left - simplified
             color_display = ColorDisplay(
                 display_frame,
-                color.rgb,
+                display_rgb,
                 color.name,
                 color_info,
                 width=min(frame_width - 450, 1150),  # Adjusted for checkbox
