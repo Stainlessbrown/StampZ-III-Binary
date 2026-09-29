@@ -134,3 +134,24 @@ def analysis_rgb_to_raw_display_rgb(rgb, bridge_enabled: bool = True):
         display_image = apply_raw_display_bridge(display_image)
 
     return display_image.getpixel((0, 0))
+
+def display_rgb_to_lab(rgb):
+    """Convert display-only RGB to uncalibrated CIE L*a*b*.
+
+    This is strictly for temporary display values. It deliberately does
+    not apply scanner calibration, TPS correction, or modify analytical
+    RGB/Lab values.
+    """
+    try:
+        from colorspacious import cspace_convert
+
+        rgb_float = [
+            max(0.0, min(255.0, float(c))) / 255.0
+            for c in rgb[:3]
+        ]
+        return tuple(cspace_convert(rgb_float, "sRGB1", "CIELab"))
+
+    except ImportError:
+        raise RuntimeError(
+            "colorspacious is required for RAW display Lab conversion"
+        )

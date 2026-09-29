@@ -158,14 +158,14 @@ class PreferencesDialog:
         
         apply_btn = ttk.Button(
             right_buttons, 
-            text="Apply", 
+            text="Apply/Continue", 
             command=self._on_apply
         )
         apply_btn.pack(side=tk.RIGHT, padx=5)
         
         ok_btn = ttk.Button(
             right_buttons, 
-            text="OK", 
+            text="OK/Close", 
             command=self._on_ok
         )
         ok_btn.pack(side=tk.RIGHT, padx=5)

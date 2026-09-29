@@ -654,13 +654,14 @@ class ColorLibraryManager:
             checkbox.pack(side=tk.LEFT, padx=5)
             self.color_checkboxes[id(color)] = checkbox_var
             
-            # Show color information based on user preferences
+            # Show color information based on user preferences.
+            # Actual display values are determined below.
             from utils.color_display_utils import get_conditional_color_info
-            color_info = get_conditional_color_info(color.rgb, color.lab)
 
-            # Display-only RGB for Library swatch.
+            # Display-only values for the Library.
             # Stored analytical RGB / Lab remain completely unchanged.
             display_rgb = color.rgb
+            display_lab = color.lab
 
             is_raw_derived = bool(
                 color.notes and "RAW-derived: Yes" in color.notes
@@ -668,7 +669,10 @@ class ColorLibraryManager:
 
             if is_raw_derived:
                 try:
-                    from utils.raw_display_bridge import analysis_rgb_to_raw_display_rgb
+                    from utils.raw_display_bridge import (
+                        analysis_rgb_to_raw_display_rgb,
+                        display_rgb_to_lab,
+                    )
                     from utils.user_preferences import get_preferences_manager
 
                     bridge_enabled = (
@@ -679,12 +683,14 @@ class ColorLibraryManager:
                         color.rgb,
                         bridge_enabled=bridge_enabled,
                     )
+                    display_lab = display_rgb_to_lab(display_rgb)
 
                     print(
                         f"DEBUG LIBRARY SWATCH: {color.name} "
                         f"RAW-derived=True Bridge={bridge_enabled} "
                         f"analysis_rgb={color.rgb} "
-                        f"display_rgb={display_rgb}"
+                        f"display_rgb={display_rgb} "
+                        f"display_lab={display_lab}"
                     )
 
                 except Exception as e:
@@ -692,6 +698,13 @@ class ColorLibraryManager:
                         f"DEBUG LIBRARY SWATCH: display conversion failed: {e}"
                     )
                     display_rgb = color.rgb
+                    display_lab = color.lab
+
+            # Format the same temporary values used by the displayed swatch.
+            color_info = get_conditional_color_info(
+                display_rgb,
+                display_lab,
+            )
 
             # Color display on left - simplified
             color_display = ColorDisplay(
