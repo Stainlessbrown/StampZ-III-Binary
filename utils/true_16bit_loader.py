@@ -38,7 +38,12 @@ def load_16bit_tiff(filepath: str, preserve_16bit: bool = True) -> Tuple[np.ndar
                 metadata['compression'] = img.tag_v2.get(259)
                 metadata['samples_per_pixel'] = img.tag_v2.get(277)
         
-        if preserve_16bit and metadata.get('bits_per_sample') == (16, 16, 16):
+        bits_per_sample = metadata.get('bits_per_sample')
+
+        if preserve_16bit and bits_per_sample in (
+            (16, 16, 16),
+            (16, 16, 16, 16),
+        ):
             # Use tifffile to load true 16-bit data
             try:
                 import tifffile
@@ -46,7 +51,10 @@ def load_16bit_tiff(filepath: str, preserve_16bit: bool = True) -> Tuple[np.ndar
                 img_array = tifffile.imread(filepath)
                 
                 # Ensure correct shape (height, width, channels)
-                if len(img_array.shape) == 3 and img_array.shape[2] == 3:
+                if (
+                    len(img_array.shape) == 3
+                    and img_array.shape[2] in (3, 4)
+                ):
                     metadata['true_16bit'] = True
                     metadata['data_type'] = str(img_array.dtype)
                     metadata['value_range'] = (img_array.min(), img_array.max())

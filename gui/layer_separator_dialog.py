@@ -28,8 +28,23 @@ class LayerSeparatorDialog:
         self._app = app  # StampZApp reference for "Open in StampZ"
         # Preserve 16-bit source data before RGB conversion discards the
         # _stampz_16bit_data attribute.  Shape: (H, W, 3) uint16, or None.
+        print(
+            "DEBUG LAYER INPUT RAW:",
+            getattr(pil_image, '_stampz_is_raw', False)
+        )        
         self._16bit_source = getattr(pil_image, '_stampz_16bit_data', None)
-        self.original_image = pil_image.convert('RGB')
+        self.original_image = pil_image.convert('RGB'
+                                                )
+        # Preserve RAW provenance across PIL RGB conversion.
+        self.original_image._stampz_is_raw = getattr(
+            pil_image, '_stampz_is_raw', False
+        )
+
+        print(
+            "DEBUG LAYER ORIGINAL RAW:",
+            getattr(self.original_image, '_stampz_is_raw', False)
+        )
+
         self._source_filename = image_filename  # original image path/name
         self._arr = np.array(self.original_image, dtype=np.float32)
         self._photo_ref = None
@@ -713,7 +728,14 @@ class LayerSeparatorDialog:
                     path = os.path.join(src_dir, f"{base}_{layer}{ext}")
                 else:
                     path = os.path.join(tempfile.gettempdir(), f"{base}_{layer}{ext}")
-                tifffile.imwrite(path, rgba16)
+                if getattr(self.original_image, '_stampz_is_raw', False):
+                    tifffile.imwrite(
+                        path,
+                        rgba16,
+                        description="StampZ linear RAW"
+                    )
+                else:
+                    tifffile.imwrite(path, rgba16)
             except Exception as e:
                 print(f"DEBUG: 16-bit open-in-stampz failed ({e}), falling back to 8-bit")
                 self._16bit_source = None  # retry as 8-bit below

@@ -2357,7 +2357,30 @@ class SampleResultsManager(tk.Frame):
             sample_name = ""
 
         if sample_name:
-            image_name = sample_name
+            # Preserve the paper designation when Sample Name overrides
+            # the filename-derived DataID.
+            if image_name.endswith("-p"):
+                image_name = f"{sample_name}-p"
+            else:
+                image_name = sample_name
+
+        # Mark RAW-derived analytical records in the DataID.
+        # Provenance only; analytical RGB/Lab values are unchanged.
+        metadata = getattr(self, 'current_image_metadata', {}) or {}
+
+        print(
+            f"DEBUG DB RAW NAME: "
+            f"sample_name={sample_name!r}, "
+            f"image_name_before_raw={image_name!r}, "
+            f"is_raw={metadata.get('is_raw', False)}, "
+            f"metadata={metadata}"
+        )
+
+        if metadata.get('is_raw', False):
+            if image_name.endswith("-p"):
+                image_name = f"{image_name[:-2]}-r-p"
+            else:
+                image_name = f"{image_name}-r"
 
         sample_measurements = []
         
