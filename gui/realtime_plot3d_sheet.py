@@ -2183,7 +2183,95 @@ class RealtimePlot3DSheet:
             # This includes centroid summary rows (1-6) and data rows (7+)
             sheet_data = self.sheet.get_sheet_data(get_header=False)
             df = pd.DataFrame(sheet_data, columns=self.PLOT3D_COLUMNS)
-            
+
+            # Export-only RAW Display Bridge.
+            # The live Realtime sheet and analytical database remain unchanged.
+            try:
+                from utils.user_preferences import get_preferences_manager
+
+                bridge_enabled = (
+                    get_preferences_manager().get_raw_display_bridge_enabled()
+                )
+
+                print(
+                    f"DEBUG REALTIME EXPORT BRIDGE: "
+                    f"Bridge={bridge_enabled}"
+                )
+
+            except Exception as bridge_pref_error:
+                bridge_enabled = False
+                logger.warning(
+                    f"Could not read RAW Display Bridge preference for export: "
+                    f"{bridge_pref_error}"
+                )            
+
+            if bridge_enabled:
+                print("DEBUG REALTIME EXPORT BRIDGE: conversion requested")
+
+                from utils.raw_display_bridge import (
+                    analysis_rgb_to_raw_display_rgb,
+                    display_rgb_to_lab,
+                )
+
+                measurements_by_data_id = {}
+
+                for measurement in self.database_measurements:
+                    image_name = measurement.get('image_name', '')
+                    coordinate_point = measurement.get('coordinate_point', 1)
+
+                    if coordinate_point > 1 or ('_pt' in image_name):
+                        data_id = f"{image_name}_pt{coordinate_point}"
+                    else:
+                        data_id = image_name
+
+                    measurements_by_data_id[data_id] = measurement
+
+                for idx, row in df.iterrows():
+                    data_id = str(row.get('DataID', '') or '').strip()
+                    measurement = measurements_by_data_id.get(data_id)
+
+                    if not measurement:
+                        continue
+
+                    image_name = measurement.get('image_name', '') or ''
+                    is_raw_derived = (
+                        image_name.endswith("-r")
+                        or image_name.endswith("-r-p")
+                    )
+
+                    if is_raw_derived:
+                        analysis_rgb = (
+                            measurement.get('rgb_r', 0.0),
+                            measurement.get('rgb_g', 0.0),
+                            measurement.get('rgb_b', 0.0),
+                        )
+
+                        display_rgb = analysis_rgb_to_raw_display_rgb(
+                            analysis_rgb,
+                            bridge_enabled=True,
+                        )
+                        display_lab = display_rgb_to_lab(display_rgb)
+                            
+                        l_val, a_val, b_val = display_lab
+
+                        df.at[idx, 'Xnorm'] = round(
+                            max(0.0, min(1.0, l_val / 100.0)), 4
+                        )
+                        df.at[idx, 'Ynorm'] = round(
+                            max(0.0, min(1.0, (a_val + 128.0) / 255.0)), 4
+                        )
+                        df.at[idx, 'Znorm'] = round(
+                             max(0.0, min(1.0, (b_val + 128.0) / 255.0)), 4
+                        )
+
+                        print(
+                            f"DEBUG REALTIME EXPORT RAW MATCH: "
+                            f"{data_id} "
+                            f"analysis_rgb={analysis_rgb} "
+                            f"display_rgb={display_rgb} "
+                            f"display_lab={display_lab}"
+                        )         
+
             # IMPORTANT: Skip row 0 (tksheet internal row 0 is typically empty/unused)
             # This maintains correct alignment: tksheet row 1 (centroid 0) -> ODS row 2
             # After skipping: df row 0 = tksheet row 1 = centroid cluster 0
