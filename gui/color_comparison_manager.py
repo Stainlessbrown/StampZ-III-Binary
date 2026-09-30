@@ -630,8 +630,7 @@ class ColorComparisonManager(tk.Frame):
         
         sample_label = ttk.Label(
             header_frame,
-            text=f"Comparing: RGB({int(sample_rgb[0])}, {int(sample_rgb[1])}, {int(sample_rgb[2])}) | "
-                 f"L*a*b*({sample_lab[0]:.1f}, {sample_lab[1]:.1f}, {sample_lab[2]:.1f})",
+            text="Comparing:",
             font=("Arial", 12, "bold")
         )
         sample_label.pack()
@@ -683,6 +682,51 @@ class ColorComparisonManager(tk.Frame):
                 )
                 sample_display_rgb = sample_rgb
 
+            # Displayed sample numerical values follow the same rule as the swatch:
+            # Bridge OFF -> gospel analytical values.
+            # Bridge ON  -> temporary bridged display values.
+            sample_display_lab = sample_lab
+
+        if metadata.get('is_raw', False):
+            try:
+                from utils.user_preferences import get_preferences_manager
+
+                bridge_enabled = (
+                    get_preferences_manager().get_raw_display_bridge_enabled()
+                )
+
+                if bridge_enabled:
+                    from utils.raw_display_bridge import display_rgb_to_lab
+                    sample_display_lab = display_rgb_to_lab(sample_display_rgb)
+
+                print(
+                    f"DEBUG COMPARE SAMPLE VALUES: "
+                    f"Bridge={bridge_enabled} "
+                    f"analysis_rgb={sample_rgb} "
+                    f"display_rgb={sample_display_rgb} "
+                    f"analysis_lab={sample_lab} "
+                    f"display_lab={sample_display_lab}"
+                )
+
+            except Exception as e:
+                print(
+                    f"DEBUG COMPARE SAMPLE VALUES: "
+                    f"display conversion failed: {e}"
+                )
+                sample_display_rgb = sample_rgb
+                sample_display_lab = sample_lab
+
+        sample_label.config(
+            text=(
+                f"Comparing: RGB({int(sample_display_rgb[0])}, "
+                f"{int(sample_display_rgb[1])}, "
+                f"{int(sample_display_rgb[2])}) | "
+                f"L*a*b*({sample_display_lab[0]:.1f}, "
+                f"{sample_display_lab[1]:.1f}, "
+                f"{sample_display_lab[2]:.1f})"
+            )
+        )               
+
         # Draw sample color
         sample_canvas.create_rectangle(
             0, 0, 450, 600,
@@ -695,8 +739,8 @@ class ColorComparisonManager(tk.Frame):
         sample_info_frame.pack(fill=tk.X, padx=(0, 10), pady=(0, 10), anchor='w')
         
         sample_info_text = (
-            f"RGB: ({int(sample_rgb[0])}, {int(sample_rgb[1])}, {int(sample_rgb[2])})\n"
-            f"L*a*b*: ({sample_lab[0]:.1f}, {sample_lab[1]:.1f}, {sample_lab[2]:.1f})"
+            f"RGB: ({int(sample_display_rgb[0])}, {int(sample_display_rgb[1])}, {int(sample_display_rgb[2])})\n"
+            f"L*a*b*: ({sample_display_lab[0]:.1f}, {sample_display_lab[1]:.1f}, {sample_display_lab[2]:.1f})"
         )
         
         sample_info_label = ttk.Label(
@@ -768,6 +812,31 @@ class ColorComparisonManager(tk.Frame):
                 )
                 match_display_rgb = color_rgb
 
+            # Displayed numerical values follow the same rule as the swatch:
+            # Bridge OFF -> gospel analytical values.
+            # Bridge ON  -> temporary bridged display values.
+            match_display_lab = match.library_color.lab
+
+            if is_raw_derived:
+                try:
+                    from utils.user_preferences import get_preferences_manager
+
+                    bridge_enabled = (
+                        get_preferences_manager().get_raw_display_bridge_enabled()
+                    )
+
+                    if bridge_enabled:
+                        from utils.raw_display_bridge import display_rgb_to_lab
+                        match_display_lab = display_rgb_to_lab(match_display_rgb)
+
+                except Exception as e:
+                    print(
+                        f"DEBUG COMPARE MATCH VALUES: "
+                        f"display conversion failed: {e}"
+                    )
+                    match_display_rgb = color_rgb
+                    match_display_lab = match.library_color.lab  
+
         name_text = match.library_color.name
         if hasattr(match, 'library_name'):
             name_text += f" ({match.library_name})"
@@ -783,8 +852,8 @@ class ColorComparisonManager(tk.Frame):
         # Display very small ΔE values (< 0.1) as 0.0 to account for floating-point rounding
         display_delta_e = 0.0 if match.delta_e_2000 < 0.1 else match.delta_e_2000
         values_text = (
-            f"RGB: ({int(color_rgb[0])}, {int(color_rgb[1])}, {int(color_rgb[2])}) | "
-            f"L*a*b*: ({match.library_color.lab[0]:.1f}, {match.library_color.lab[1]:.1f}, {match.library_color.lab[2]:.1f}) | "
+            f"RGB: ({int(match_display_rgb[0])}, {int(match_display_rgb[1])}, {int(match_display_rgb[2])}) | "
+            f"L*a*b*: ({match_display_lab[0]:.1f}, {match_display_lab[1]:.1f}, {match_display_lab[2]:.1f}) | "
             f"ΔE: {display_delta_e:.2f}"
         )
         
