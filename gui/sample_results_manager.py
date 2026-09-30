@@ -435,21 +435,31 @@ class SampleResultsManager(tk.Frame):
                     prefs = get_preferences_manager()
                     bridge_enabled = prefs.get_raw_display_bridge_enabled()
 
+                    # Convert analytical RAW RGB back to the native RAW display
+                    # representation so the swatch matches the loaded image.
+                    # If Bridge is ON, apply the display bridge as well.
                     display_rgb = analysis_rgb_to_raw_display_rgb(
                         rgb,
                         bridge_enabled=bridge_enabled,
+                    )
+
+                    print(
+                        f"DEBUG SAMPLE SWATCH: RAW=True "
+                        f"bridge={bridge_enabled} "
+                        f"analysis_rgb={rgb} "
+                        f"display_rgb={display_rgb}"
                     )
 
                 except Exception as e:
                     print(f"DEBUG SAMPLE SWATCH: display conversion failed: {e}")
                     display_rgb = rgb
 
-            # Create rectangle for color display
-            canvas.create_rectangle(
-                0, 0, 450, 100,
-                fill=f"#{int(display_rgb[0]):02x}{int(display_rgb[1]):02x}{int(display_rgb[2]):02x}",
-                outline=''
-            )
+                # Create rectangle for color display
+                canvas.create_rectangle(
+                    0, 0, 450, 100,
+                    fill=f"#{int(display_rgb[0]):02x}{int(display_rgb[1]):02x}{int(display_rgb[2]):02x}",
+                    outline=''
+                )
     
     def _update_average_display(self):
         """Render ink and (optionally) paper average sections.
@@ -550,33 +560,54 @@ class SampleResultsManager(tk.Frame):
         )
         canvas.pack(side=tk.LEFT, padx=5, pady=5)
 
-        # Display-only RGB for the swatch.
-        # Analytical avg_rgb / avg_lab remain completely unchanged.
+        # Display-only swatch and readout values.
+        # Analytical avg_rgb / avg_lab remain untouched and are used for
+        # Library/DB/File saves.
         display_rgb = avg_rgb
+        display_lab = avg_lab
 
         metadata = getattr(self, 'current_image_metadata', {}) or {}
         if metadata.get('is_raw', False):
             try:
-                from utils.raw_display_bridge import analysis_rgb_to_raw_display_rgb
+                from utils.raw_display_bridge import (
+                    analysis_rgb_to_raw_display_rgb,
+                    display_rgb_to_lab,
+                )
                 from utils.user_preferences import get_preferences_manager
 
                 prefs = get_preferences_manager()
                 bridge_enabled = prefs.get_raw_display_bridge_enabled()
 
+                # The swatch always follows the same visual path as the
+                # loaded RAW image:
+                #   Bridge OFF -> native RAW appearance
+                #   Bridge ON  -> native RAW appearance + display bridge
                 display_rgb = analysis_rgb_to_raw_display_rgb(
                     avg_rgb,
                     bridge_enabled=bridge_enabled,
                 )
 
+                # Numerical readout:
+                #   Bridge OFF -> gospel analytical values
+                #   Bridge ON  -> temporary bridged display values
+                if bridge_enabled:
+                    display_lab = display_rgb_to_lab(display_rgb)
+                else:
+                    display_lab = avg_lab
+
                 print(
-                    f"DEBUG RESULTS SWATCH: RAW=True "
+                    f"DEBUG RESULTS DISPLAY: RAW=True "
                     f"bridge={bridge_enabled} "
                     f"analysis_rgb={avg_rgb} "
-                    f"display_rgb={display_rgb}"
+                    f"analysis_lab={avg_lab} "
+                    f"swatch_rgb={display_rgb} "
+                    f"display_lab={display_lab}"
                 )
+
             except Exception as e:
-                print(f"DEBUG RESULTS SWATCH: display conversion failed: {e}")
+                print(f"DEBUG RESULTS DISPLAY: display conversion failed: {e}")
                 display_rgb = avg_rgb
+                display_lab = avg_lab
 
         canvas.create_rectangle(
             0, 0, sw_w, sw_h,
@@ -585,7 +616,7 @@ class SampleResultsManager(tk.Frame):
         )
         
         value_text = get_conditional_color_values_text(
-            avg_rgb, avg_lab, compact=True,
+            display_rgb, display_lab, compact=True,
         )
         
         values_frame = ttk.Frame(frame)
