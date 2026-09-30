@@ -20,7 +20,7 @@ class ColorDisplay(tk.Frame):
         text_width = 300
         
         # Convert RGB to hex for display (needed for Tkinter color display)
-        hex_color = self._rgb_to_hex(color_rgb)
+        hex_color = self._rgb_to_hex(color_rgb)    
         
         # Main container frame to hold everything
         container = ttk.Frame(self)

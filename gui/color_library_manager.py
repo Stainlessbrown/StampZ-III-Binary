@@ -679,10 +679,19 @@ class ColorLibraryManager:
                         get_preferences_manager().get_raw_display_bridge_enabled()
                     )
 
-                    display_rgb = analysis_rgb_to_raw_display_rgb(
-                        color.rgb,
-                        bridge_enabled=bridge_enabled,
-                    )
+                    # Bridge OFF: display gospel analytical values exactly.
+                    # Bridge ON: display temporary bridged values only.
+                    if bridge_enabled:
+                        display_rgb = analysis_rgb_to_raw_display_rgb(
+                            color.rgb,
+                            bridge_enabled=True,
+                        )
+                    else:
+                        display_rgb = analysis_rgb_to_raw_display_rgb(
+                            color.rgb,
+                            bridge_enabled=False,
+                        )
+
                     display_lab = display_rgb_to_lab(display_rgb)
 
                     print(
