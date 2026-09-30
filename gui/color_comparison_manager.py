@@ -777,6 +777,7 @@ class ColorComparisonManager(tk.Frame):
         # Display-only RGB for the matched Library swatch.
         # Stored analytical RGB / Lab / Delta E remain unchanged.
         match_display_rgb = color_rgb
+        match_display_lab = match.library_color.lab
 
         is_raw_derived = bool(
             match.library_color.notes
@@ -812,22 +813,10 @@ class ColorComparisonManager(tk.Frame):
                 )
                 match_display_rgb = color_rgb
 
-            # Displayed numerical values follow the same rule as the swatch:
-            # Bridge OFF -> gospel analytical values.
-            # Bridge ON  -> temporary bridged display values.
-            match_display_lab = match.library_color.lab
-
             if is_raw_derived:
                 try:
-                    from utils.user_preferences import get_preferences_manager
-
-                    bridge_enabled = (
-                        get_preferences_manager().get_raw_display_bridge_enabled()
-                    )
-
-                    if bridge_enabled:
-                        from utils.raw_display_bridge import display_rgb_to_lab
-                        match_display_lab = display_rgb_to_lab(match_display_rgb)
+                    from utils.raw_display_bridge import display_rgb_to_lab
+                    match_display_lab = display_rgb_to_lab(match_display_rgb)
 
                 except Exception as e:
                     print(
