@@ -750,17 +750,52 @@ class DatabaseViewer:
                 messagebox.showerror("Error", f"Failed to clear measurements: {str(e)}")
         
         else:  # color_libraries
-            if not messagebox.askyesno("Confirm Delete Library",
-                                      f"Delete color library '{self.current_sample_set}'?\n\n"
-                                      "This action cannot be undone."):
+            if not messagebox.askyesno(
+                "Confirm Clear All",
+                f"Clear ALL colors from '{self.current_sample_set}'?\n\n"
+                "The library itself will remain.\n"
+                "This action cannot be undone."
+            ):
                 return
             
             try:
-                db_path = os.path.join(current_dir, "data", "color_libraries", self.current_sample_set)
-                if os.path.exists(db_path):
-                    os.remove(db_path)
-                self._load_sample_sets()  # Refresh the database list
-                messagebox.showinfo("Success", f"Color library '{self.current_sample_set}' has been deleted")
+                from utils.path_utils import get_color_libraries_dir
+
+                data_dir = get_color_libraries_dir()
+
+                # Resolve the library exactly the same way _refresh_data() does.
+                db_path = None
+
+                candidate = os.path.join(
+                    data_dir,
+                    f"{self.current_sample_set}_library.db"
+                )
+                if os.path.exists(candidate):
+                    db_path = candidate
+                else:
+                    candidate = os.path.join(
+                        data_dir,
+                        f"{self.current_sample_set}.db"
+                    )
+                    if os.path.exists(candidate):
+                        db_path = candidate
+
+                if not db_path:
+                    raise FileNotFoundError(
+                        f"Color library file not found: {self.current_sample_set}"
+                    )
+
+                print(f"DEBUG: Clearing color library: {db_path}")
+
+                with sqlite3.connect(db_path) as conn:
+                    conn.execute("DELETE FROM library_colors")
+                    conn.commit()
+
+                self._refresh_data()
+                messagebox.showinfo(
+                    "Success",
+                    f"All colors cleared from library '{self.current_sample_set}'"
+                )
             
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to delete color library: {str(e)}")

@@ -4,7 +4,7 @@ import os
 from PyInstaller.utils.hooks import collect_all
 
 # Version for PyInstaller spec - keep this in sync with __init__.py
-VERSION = '3.3.0c'
+VERSION = '3.3.0d'
 
 # Safely collect odfpy data files and imports
 try:

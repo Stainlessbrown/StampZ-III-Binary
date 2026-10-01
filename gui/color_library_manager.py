@@ -686,13 +686,11 @@ class ColorLibraryManager:
                             color.rgb,
                             bridge_enabled=True,
                         )
+                        display_lab = display_rgb_to_lab(display_rgb)
                     else:
-                        display_rgb = analysis_rgb_to_raw_display_rgb(
-                            color.rgb,
-                            bridge_enabled=False,
-                        )
-
-                    display_lab = display_rgb_to_lab(display_rgb)
+                        # Bridge OFF: show the stored analytical values exactly.
+                        display_rgb = color.rgb
+                        display_lab = color.lab
 
                     print(
                         f"DEBUG LIBRARY SWATCH: {color.name} "
