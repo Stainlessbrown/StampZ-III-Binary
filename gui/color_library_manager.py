@@ -1238,8 +1238,8 @@ class ColorLibraryManager:
             name_var = tk.StringVar()
             notes_var = tk.StringVar()
             source_var = tk.StringVar()
-            rgb_vars = [tk.StringVar(value="0.00") for _ in range(3)]
-            lab_vars = [tk.StringVar(value="0.00") for _ in range(3)]
+            rgb_vars = [tk.StringVar() for _ in range(3)]
+            lab_vars = [tk.StringVar() for _ in range(3)]
             
             # Form fields
             ttk.Label(content_frame, text="Color Name:").pack(anchor="w", pady=(0, 2))
