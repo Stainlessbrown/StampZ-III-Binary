@@ -90,8 +90,8 @@ class ScannerCalibrationDialog:
         self.profile_info_label = ttk.Label(
             self.status_frame,
             text="",
-            font=("Arial", 9),
-            foreground='gray'
+            font=("Arial", 12, "bold"),
+            foreground='#333333'
         )
         self.profile_info_label.pack(anchor='w')
         

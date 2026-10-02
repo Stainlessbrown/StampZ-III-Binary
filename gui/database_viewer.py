@@ -818,6 +818,8 @@ class DatabaseViewer:
                                       "Are you absolutely sure you want to proceed?",
                                       icon='warning'):
                 return
+
+            deleted_sample_set = self.current_sample_set
             
             try:
                 from utils.color_analysis_db import ColorAnalysisDB
@@ -846,7 +848,7 @@ class DatabaseViewer:
                 # Refresh the sample set list
                 self._load_sample_sets()
                 messagebox.showinfo("Success", 
-                                   f"Sample set '{self.current_sample_set}' has been completely deleted.\n\n"
+                                   f"Sample set '{deleted_sample_set}' has been completely deleted.\n\n"
                                    "This included the color measurements database and coordinate template.")
                 
             except Exception as e:
@@ -861,6 +863,8 @@ class DatabaseViewer:
                                       "Are you absolutely sure you want to proceed?",
                                       icon='warning'):
                 return
+
+            deleted_library = self.current_sample_set
             
             try:
                 from utils.path_utils import get_color_libraries_dir
@@ -879,7 +883,7 @@ class DatabaseViewer:
                 
                 # Refresh the sample set list
                 self._load_sample_sets()
-                messagebox.showinfo("Success", f"Color library '{self.current_sample_set}' has been deleted")
+                messagebox.showinfo("Success", f"Color library '{deleted_library}' has been deleted")
                 
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to delete color library: {str(e)}")
