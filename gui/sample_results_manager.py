@@ -469,12 +469,12 @@ class SampleResultsManager(tk.Frame):
                     print(f"DEBUG SAMPLE SWATCH: display conversion failed: {e}")
                     display_rgb = rgb
 
-                # Create rectangle for color display
-                canvas.create_rectangle(
-                    0, 0, 450, 100,
-                    fill=f"#{int(display_rgb[0]):02x}{int(display_rgb[1]):02x}{int(display_rgb[2]):02x}",
-                    outline=''
-                )
+            # Create rectangle for color display
+            canvas.create_rectangle(
+                0, 0, 450, 100,
+                fill=f"#{int(display_rgb[0]):02x}{int(display_rgb[1]):02x}{int(display_rgb[2]):02x}",
+                outline=''
+            )
     
     def _update_average_display(self):
         """Render ink and (optionally) paper average sections.

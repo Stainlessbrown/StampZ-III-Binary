@@ -339,6 +339,7 @@ class ColorComparisonManager(tk.Frame):
 
         self.sample_points = [{
             'rgb': (float(rgb[0]), float(rgb[1]), float(rgb[2])),
+            'lab': tuple(float(v) for v in lab) if lab is not None else None,
             'position': (0, 0),
             'enabled': tk.BooleanVar(value=True),
             'index': 1,
@@ -538,16 +539,22 @@ class ColorComparisonManager(tk.Frame):
             messagebox.showinfo("No Data", "No samples available for comparison.")
             return
         
-        # Calculate average RGB for comparison
+        # Calculate comparison reference.
+        # Precomputed sources (e.g. Library color / Layer Separator) may carry
+        # an authoritative Lab value that must not be reconstructed from RGB.
         total_r = sum(s['rgb'][0] for s in enabled_samples)
         total_g = sum(s['rgb'][1] for s in enabled_samples)
         total_b = sum(s['rgb'][2] for s in enabled_samples)
         count = len(enabled_samples)
-        
+
         avg_rgb = (total_r/count, total_g/count, total_b/count)
-        # Use calibrated converter so the active scanner calibration matrix is applied
-        from utils.color_analyzer import ColorAnalyzer as _CA
-        avg_lab = _CA().rgb_to_lab(avg_rgb)
+
+        if count == 1 and enabled_samples[0].get('lab') is not None:
+            avg_lab = enabled_samples[0]['lab']
+        else:
+            # Normal sampled-image path: derive Lab from the averaged RGB.
+            from utils.color_analyzer import ColorAnalyzer as _CA
+            avg_lab = _CA().rgb_to_lab(avg_rgb)
         
         # Clear previous matches
         for widget in self.matches_frame.winfo_children():
@@ -652,6 +659,7 @@ class ColorComparisonManager(tk.Frame):
         # Display-only RGB for Compare sample swatch.
         # Analytical sample_rgb / sample_lab remain unchanged.
         sample_display_rgb = sample_rgb
+        sample_display_lab = sample_lab
 
         metadata = getattr(self, 'current_image_metadata', {}) or {}
         if metadata.get('is_raw', False):
