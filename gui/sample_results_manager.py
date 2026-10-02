@@ -362,7 +362,22 @@ class SampleResultsManager(tk.Frame):
                 is_paper = sample['is_paper'].get()
                 group_avg = paper_avg_lab if is_paper else ink_avg_lab
                 if group_avg:
-                    delta_e = analyzer.calculate_delta_e(lab, group_avg)
+                                        # Use the exact same cached ΔE as the on-image marker HUD.
+                    # Fall back to the local calculation when no live model is
+                    # available (e.g. non-standard/synthetic Results sources).
+                    live_model = getattr(self, '_live_model_ref', None)
+                    live_delta_e = None
+                    if live_model is not None:
+                        try:
+                            live_delta_e = live_model.get_delta_e(sample['index'])
+                        except Exception as e:
+                            print(f"DEBUG: could not read live ΔE: {e}")
+
+                    delta_e = (
+                        live_delta_e
+                        if live_delta_e is not None
+                        else analyzer.calculate_delta_e(lab, group_avg)
+                    )
                     role_label = "paper" if is_paper else "ink"
                     # ΔL/ΔC/ΔH breakdown shows *which axis* the disagreement
                     # is on — essential for low-chroma blues where a scalar
@@ -1296,12 +1311,22 @@ class SampleResultsManager(tk.Frame):
         )
     
     def _on_sample_toggle(self):
-        """Handle sample toggle events (enable/disable, ink/paper).
-        
-        Refreshes both panes because toggling 'P' changes which group a
-        sample belongs to, which changes the per-sample ΔE label and the
-        composition of both the ink and paper averages.
-        """
+        """Handle sample enable/disable events and keep the live model in sync."""
+        live_model = getattr(self, '_live_model_ref', None)
+
+        if live_model is not None:
+            for sample in self.sample_points:
+                try:
+                    live_model.set_enabled(
+                        sample['index'],
+                        bool(sample['enabled'].get()),
+                    )
+                except Exception as e:
+                    print(
+                        f"DEBUG: could not push enabled state for "
+                        f"sample {sample['index']} to live model: {e}"
+                    )
+
         self._display_sample_points()
         self._update_average_display()
     
