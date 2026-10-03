@@ -671,11 +671,10 @@ class ColorComparisonManager(tk.Frame):
                     get_preferences_manager().get_raw_display_bridge_enabled()
                 )
 
-                if bridge_enabled:
-                    sample_display_rgb = analysis_rgb_to_raw_display_rgb(
-                        sample_rgb,
-                        bridge_enabled=True,
-                    )
+                sample_display_rgb = analysis_rgb_to_raw_display_rgb(
+                    sample_rgb,
+                    bridge_enabled=bridge_enabled,
+                )
 
                 print(
                     f"DEBUG COMPARE SAMPLE SWATCH: RAW=True "
@@ -801,16 +800,17 @@ class ColorComparisonManager(tk.Frame):
                     get_preferences_manager().get_raw_display_bridge_enabled()
                 )
 
-                if bridge_enabled:
-                    from utils.raw_display_bridge import (
-                        analysis_rgb_to_raw_display_rgb,
-                        display_rgb_to_lab,
-                    )
+                from utils.raw_display_bridge import (
+                    analysis_rgb_to_raw_display_rgb,
+                    display_rgb_to_lab,
+                )
 
-                    match_display_rgb = analysis_rgb_to_raw_display_rgb(
-                        color_rgb,
-                        bridge_enabled=True,
-                    )
+                match_display_rgb = analysis_rgb_to_raw_display_rgb(
+                    color_rgb,
+                    bridge_enabled=bridge_enabled,
+                )
+
+                if bridge_enabled:
                     match_display_lab = display_rgb_to_lab(match_display_rgb)
 
                 print(

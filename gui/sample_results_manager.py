@@ -592,6 +592,7 @@ class SampleResultsManager(tk.Frame):
         # Library/DB/File saves.
         display_rgb = avg_rgb
         display_lab = avg_lab
+        swatch_rgb = avg_rgb        
 
         metadata = getattr(self, 'current_image_metadata', {}) or {}
         if metadata.get('is_raw', False):
@@ -609,7 +610,7 @@ class SampleResultsManager(tk.Frame):
                 # loaded RAW image:
                 #   Bridge OFF -> native RAW appearance
                 #   Bridge ON  -> native RAW appearance + display bridge
-                display_rgb = analysis_rgb_to_raw_display_rgb(
+                swatch_rgb = analysis_rgb_to_raw_display_rgb(
                     avg_rgb,
                     bridge_enabled=bridge_enabled,
                 )
@@ -618,6 +619,7 @@ class SampleResultsManager(tk.Frame):
                 #   Bridge OFF -> gospel analytical values
                 #   Bridge ON  -> temporary bridged display values
                 if bridge_enabled:
+                    display_rgb = swatch_rgb
                     display_lab = display_rgb_to_lab(display_rgb)
                 else:
                     display_lab = avg_lab
@@ -638,7 +640,7 @@ class SampleResultsManager(tk.Frame):
 
         canvas.create_rectangle(
             0, 0, sw_w, sw_h,
-            fill=f"#{int(display_rgb[0]):02x}{int(display_rgb[1]):02x}{int(display_rgb[2]):02x}",
+            fill=f"#{int(swatch_rgb[0]):02x}{int(swatch_rgb[1]):02x}{int(swatch_rgb[2]):02x}",
             outline='',
         )
         
@@ -2143,12 +2145,38 @@ class SampleResultsManager(tk.Frame):
         ttk.Label(preview_frame, text="Color preview:").pack(side=tk.LEFT)
         
         # Color preview swatch
+        preview_rgb = rgb_values
+        metadata = getattr(self, 'current_image_metadata', {}) or {}
+        if metadata.get('is_raw', False):
+            try:
+                from utils.raw_display_bridge import analysis_rgb_to_raw_display_rgb
+                from utils.user_preferences import get_preferences_manager
+
+                bridge_enabled = (
+                    get_preferences_manager().get_raw_display_bridge_enabled()
+                )
+
+                preview_rgb = analysis_rgb_to_raw_display_rgb(
+                    rgb_values,
+                    bridge_enabled=bridge_enabled,                   
+                )
+
+                print(
+                    f"DEBUG ADD LIBRARY PREVIEW: "
+                    f"RAW=True Bridge={bridge_enabled} "
+                    f"analysis_rgb={rgb_values} "
+                    f"preview_rgb={preview_rgb}"
+                )
+
+            except Exception as e:
+                print(f"DEBUG ADD LIBRARY PREVIEW: display conversion failed: {e}")
+                preview_rgb = rgb_values              
         preview_canvas = tk.Canvas(preview_frame, width=100, height=30,
                                 highlightthickness=1, highlightbackground='gray')
         preview_canvas.pack(side=tk.LEFT, padx=5)
         preview_canvas.create_rectangle(
             0, 0, 100, 30,
-            fill=f"#{int(rgb_values[0]):02x}{int(rgb_values[1]):02x}{int(rgb_values[2]):02x}",
+            fill=f"#{int(preview_rgb[0]):02x}{int(preview_rgb[1]):02x}{int(preview_rgb[2]):02x}",
             outline=''
         )
         
