@@ -3514,10 +3514,11 @@ class AnalysisManager:
                 f"Color Library Manager not available:\\n\\n{str(e)}\\n\\n"
                 "Please ensure all color library components are properly installed."
             )
+
         except Exception as e:
             messagebox.showerror(
                 "Error",
-                f"Failed to open Color Library Manager:\\n\\n{str(e)}"
+                f"Failed to open Color Library Manager:\n\n{str(e)}"
             )
 
     def create_standard_libraries(self):

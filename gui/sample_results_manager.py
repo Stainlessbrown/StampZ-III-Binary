@@ -341,13 +341,57 @@ class SampleResultsManager(tk.Frame):
                           command=lambda s=sample: self._on_paper_toggle(s)).pack(
                               side=tk.LEFT, padx=(2, 8))
             
-            # Color values with ΔE from this sample's group average
+        # Color values with ΔE from this sample's group average
             rgb = sample['rgb']
             rgb_stddev = sample.get('rgb_stddev', None)
             lab_stddev = sample.get('lab_stddev', None)
             lab = analyzer.rgb_to_lab(rgb)  # always use calibrated converter
             
-            top_text = get_conditional_color_values_text(rgb, lab, compact=True)
+            # Display-only values for this sample.
+            # Analytical rgb / lab remain untouched for Delta E, QC, averaging, and saves.
+            display_rgb = rgb
+            display_lab = lab
+            swatch_rgb = rgb
+
+            metadata = getattr(self, 'current_image_metadata', {}) or {}
+            if metadata.get('is_raw', False):
+                try:
+                    from utils.user_preferences import get_preferences_manager
+
+                    prefs = get_preferences_manager()
+                    bridge_enabled = prefs.get_raw_display_bridge_enabled()
+                    from utils.raw_display_bridge import analysis_rgb_to_raw_display_rgb
+
+                    swatch_rgb = analysis_rgb_to_raw_display_rgb(
+                        rgb,
+                        bridge_enabled=bridge_enabled,
+                    )
+
+                    if bridge_enabled:
+                        from utils.raw_display_bridge import display_rgb_to_lab
+
+                        display_rgb = swatch_rgb
+                        display_lab = display_rgb_to_lab(display_rgb)
+
+                    print(
+                        f"DEBUG SAMPLE DISPLAY: RAW=True "
+                        f"bridge={bridge_enabled} "
+                        f"analysis_rgb={rgb} "
+                        f"analysis_lab={lab} "
+                        f"display_rgb={display_rgb} "
+                        f"swatch_rgb={swatch_rgb} "                        
+                        f"display_lab={display_lab}"
+                    )
+
+                except Exception as e:
+                    print(f"DEBUG SAMPLE DISPLAY: display conversion failed: {e}")
+                    display_rgb = rgb
+                    display_lab = lab
+                    swatch_rgb = rgb            
+
+            top_text = get_conditional_color_values_text(
+                display_rgb, display_lab, compact=True
+            )
 
             # Compute ΔE + breakdown so we can render the ΔE line in its own
             # widget with a threshold-driven foreground colour. The colour
@@ -436,49 +480,17 @@ class SampleResultsManager(tk.Frame):
                 highlightbackground='gray'
             )
             canvas.pack(side=tk.RIGHT, padx=5, pady=2)
-            
-            # Display-only RGB for this sample swatch.
-            # Analytical rgb / lab / Delta E remain completely unchanged.
-            display_rgb = rgb
-
-            metadata = getattr(self, 'current_image_metadata', {}) or {}
-            if metadata.get('is_raw', False):
-                try:
-                    from utils.raw_display_bridge import analysis_rgb_to_raw_display_rgb
-                    from utils.user_preferences import get_preferences_manager
-
-                    prefs = get_preferences_manager()
-                    bridge_enabled = prefs.get_raw_display_bridge_enabled()
-
-                    # Convert analytical RAW RGB back to the native RAW display
-                    # representation so the swatch matches the loaded image.
-                    # If Bridge is ON, apply the display bridge as well.
-                    display_rgb = analysis_rgb_to_raw_display_rgb(
-                        rgb,
-                        bridge_enabled=bridge_enabled,
-                    )
-
-                    print(
-                        f"DEBUG SAMPLE SWATCH: RAW=True "
-                        f"bridge={bridge_enabled} "
-                        f"analysis_rgb={rgb} "
-                        f"display_rgb={display_rgb}"
-                    )
-
-                except Exception as e:
-                    print(f"DEBUG SAMPLE SWATCH: display conversion failed: {e}")
-                    display_rgb = rgb
 
             # Create rectangle for color display
+            
             canvas.create_rectangle(
                 0, 0, 450, 100,
-                fill=f"#{int(display_rgb[0]):02x}{int(display_rgb[1]):02x}{int(display_rgb[2]):02x}",
+                fill=f"#{int(swatch_rgb[0]):02x}{int(swatch_rgb[1]):02x}{int(swatch_rgb[2]):02x}",
                 outline=''
             )
     
     def _update_average_display(self):
-        """Render ink and (optionally) paper average sections.
-        
+        """Render ink and (optionally) paper average sections.       
         Ink samples produce the primary, full-size swatch with the existing
         action buttons (Add to library, Save to DB, Save to File, Save
         comparison image). Paper samples, if any are enabled, get their

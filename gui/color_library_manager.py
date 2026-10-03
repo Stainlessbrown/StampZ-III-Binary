@@ -662,6 +662,7 @@ class ColorLibraryManager:
             # Stored analytical RGB / Lab remain completely unchanged.
             display_rgb = color.rgb
             display_lab = color.lab
+            swatch_rgb = color.rgb
 
             is_raw_derived = bool(
                 color.notes and "RAW-derived: Yes" in color.notes
@@ -679,13 +680,15 @@ class ColorLibraryManager:
                         get_preferences_manager().get_raw_display_bridge_enabled()
                     )
 
+                    swatch_rgb = analysis_rgb_to_raw_display_rgb(
+                        color.rgb,
+                        bridge_enabled=bridge_enabled,
+                    )                   
+
                     # Bridge OFF: display gospel analytical values exactly.
                     # Bridge ON: display temporary bridged values only.
                     if bridge_enabled:
-                        display_rgb = analysis_rgb_to_raw_display_rgb(
-                            color.rgb,
-                            bridge_enabled=True,
-                        )
+                        display_rgb = swatch_rgb
                         display_lab = display_rgb_to_lab(display_rgb)
                     else:
                         # Bridge OFF: show the stored analytical values exactly.
@@ -716,7 +719,7 @@ class ColorLibraryManager:
             # Color display on left - simplified
             color_display = ColorDisplay(
                 display_frame,
-                display_rgb,
+                swatch_rgb,
                 color.name,
                 color_info,
                 width=min(frame_width - 450, 1150),  # Adjusted for checkbox

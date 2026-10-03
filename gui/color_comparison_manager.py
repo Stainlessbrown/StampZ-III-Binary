@@ -671,10 +671,11 @@ class ColorComparisonManager(tk.Frame):
                     get_preferences_manager().get_raw_display_bridge_enabled()
                 )
 
-                sample_display_rgb = analysis_rgb_to_raw_display_rgb(
-                    sample_rgb,
-                    bridge_enabled=bridge_enabled,
-                )
+                if bridge_enabled:
+                    sample_display_rgb = analysis_rgb_to_raw_display_rgb(
+                        sample_rgb,
+                        bridge_enabled=True,
+                    )
 
                 print(
                     f"DEBUG COMPARE SAMPLE SWATCH: RAW=True "
@@ -794,45 +795,41 @@ class ColorComparisonManager(tk.Frame):
 
         if is_raw_derived:
             try:
-                from utils.raw_display_bridge import analysis_rgb_to_raw_display_rgb
                 from utils.user_preferences import get_preferences_manager
 
                 bridge_enabled = (
                     get_preferences_manager().get_raw_display_bridge_enabled()
                 )
 
-                match_display_rgb = analysis_rgb_to_raw_display_rgb(
-                    color_rgb,
-                    bridge_enabled=bridge_enabled,
-                )
+                if bridge_enabled:
+                    from utils.raw_display_bridge import (
+                        analysis_rgb_to_raw_display_rgb,
+                        display_rgb_to_lab,
+                    )
+
+                    match_display_rgb = analysis_rgb_to_raw_display_rgb(
+                        color_rgb,
+                        bridge_enabled=True,
+                    )
+                    match_display_lab = display_rgb_to_lab(match_display_rgb)
 
                 print(
-                    f"DEBUG COMPARE MATCH SWATCH: "
+                    f"DEBUG COMPARE MATCH DISPLAY: "
                     f"{match.library_color.name} "
                     f"RAW-derived=True Bridge={bridge_enabled} "
                     f"analysis_rgb={color_rgb} "
-                    f"display_rgb={match_display_rgb}"
+                    f"analysis_lab={match.library_color.lab} "
+                    f"display_rgb={match_display_rgb} "
+                    f"display_lab={match_display_lab}"
                 )
 
             except Exception as e:
                 print(
-                    f"DEBUG COMPARE MATCH SWATCH: "
+                    f"DEBUG COMPARE MATCH DISPLAY: "
                     f"display conversion failed: {e}"
                 )
                 match_display_rgb = color_rgb
-
-            if is_raw_derived:
-                try:
-                    from utils.raw_display_bridge import display_rgb_to_lab
-                    match_display_lab = display_rgb_to_lab(match_display_rgb)
-
-                except Exception as e:
-                    print(
-                        f"DEBUG COMPARE MATCH VALUES: "
-                        f"display conversion failed: {e}"
-                    )
-                    match_display_rgb = color_rgb
-                    match_display_lab = match.library_color.lab  
+                match_display_lab = match.library_color.lab 
 
         name_text = match.library_color.name
         if hasattr(match, 'library_name'):
