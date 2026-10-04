@@ -92,6 +92,36 @@ def _is_vuescan_linear_tiff(file_path) -> bool:
     except Exception:
         return False
 
+def _is_vuescan_linear_png(file_path) -> bool:
+    """Return True if this PNG appears to be a VueScan linear RAW file."""
+    try:
+        with Image.open(file_path) as img:
+            exif = img.getexif()
+
+            # EXIF tag 305: Software
+            software = str(exif.get(305, ''))
+
+            # EXIF IFD tag 40961: ColorSpace
+            # 65535 (0xFFFF) = Uncalibrated
+            color_space = None
+            try:
+                exif_ifd = exif.get_ifd(34665)
+                color_space = exif_ifd.get(40961)
+            except Exception:
+                pass
+
+            # A normal color-managed PNG may contain an ICC profile.
+            has_icc = 'icc_profile' in img.info
+
+            return (
+                'vuescan' in software.lower()
+                and color_space == 65535
+                and not has_icc
+            )
+
+    except Exception:
+        return False
+
 def _is_vuescan_raw_uncertain(file_path) -> bool:
     """Return True when a VueScan TIFF has ambiguous RAW metadata.
 
@@ -309,7 +339,15 @@ def load_image(file_path: Union[str, Path], display_only: bool = False) -> Tuple
             
             # Set format info for non-TIFF files
             if file_path.suffix.lower() == '.png':
-                metadata['format_info'] = "PNG loaded (lossless, good for color analysis)"
+                if _is_vuescan_linear_png(file_path):
+                    metadata['is_raw'] = True
+                    metadata['format_info'] = "VueScan linear RAW PNG"
+                    image._stampz_is_raw = True
+                    logger.info(
+                        f"VueScan linear RAW PNG detected: {file_path}"
+                    )
+                else:
+                    metadata['format_info'] = "PNG loaded (lossless, good for color analysis)"
             elif file_path.suffix.lower() in ['.jpg', '.jpeg']:
                 metadata['format_info'] = "JPEG loaded (compressed, not ideal for precise color analysis)"
             elif file_path.suffix.lower() in ['.tif', '.tiff']:
