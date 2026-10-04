@@ -341,11 +341,45 @@ def load_image(file_path: Union[str, Path], display_only: bool = False) -> Tuple
             if file_path.suffix.lower() == '.png':
                 if _is_vuescan_linear_png(file_path):
                     metadata['is_raw'] = True
-                    metadata['format_info'] = "VueScan linear RAW PNG"
                     image._stampz_is_raw = True
-                    logger.info(
-                        f"VueScan linear RAW PNG detected: {file_path}"
-                    )
+
+                    if display_only:
+                        # Preserve native linear VueScan RAW values for display.
+                        metadata['format_info'] = (
+                            "VueScan linear RAW PNG — native linear display"
+                        )
+                        metadata['linear_gamma_corrected'] = False
+                        logger.info(
+                            f"VueScan linear RAW PNG detected, "
+                            f"native display preserved: {file_path}"
+                        )
+                    else:
+                        # Analysis path: apply linear -> sRGB gamma,
+                        # matching the VueScan RAW TIFF analysis path.
+                        arr = np.asarray(image).astype(np.float64) / 255.0
+                        srgb = np.where(
+                            arr <= 0.0031308,
+                            12.92 * arr,
+                            1.055 * np.power(
+                                np.maximum(arr, 1e-12), 1.0 / 2.4
+                            ) - 0.055
+                        )
+                        arr_8bit = (
+                            np.clip(srgb, 0.0, 1.0) * 255.0
+                        ).astype(np.uint8)
+
+                        image = Image.fromarray(arr_8bit, mode='RGB')
+                        image._stampz_is_raw = True
+
+                        metadata['format_info'] = (
+                            "VueScan linear RAW PNG — sRGB gamma applied"
+                        )
+                        metadata['linear_gamma_corrected'] = True
+
+                        logger.info(
+                            f"VueScan linear RAW PNG detected, "
+                            f"sRGB gamma applied: {file_path}"
+                        )
                 else:
                     metadata['format_info'] = "PNG loaded (lossless, good for color analysis)"
             elif file_path.suffix.lower() in ['.jpg', '.jpeg']:
