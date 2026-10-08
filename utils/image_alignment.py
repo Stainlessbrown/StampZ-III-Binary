@@ -119,6 +119,12 @@ class ImageAlignmentManager:
                 img_16bit = pil_image._stampz_16bit_data
                 cropped_16bit = img_16bit[y_min:y_max, x_min:x_max]
                 cropped._stampz_16bit_data = cropped_16bit
+                cropped._stampz_16bit_encoding = getattr(
+                    pil_image, '_stampz_16bit_encoding', None
+                )
+                cropped._stampz_is_raw = getattr(
+                    pil_image, '_stampz_is_raw', False
+                )            
                 print(f"  Auto-cropped from {pil_image.size} to {cropped.size} (16-bit preserved)")
             else:
                 print(f"  Auto-cropped from {pil_image.size} to {cropped.size}")
@@ -285,6 +291,12 @@ class ImageAlignmentManager:
                 aligned_pil = Image.fromarray(aligned_8bit)
                 # Attach the 16-bit aligned data
                 aligned_pil._stampz_16bit_data = aligned_array
+                aligned_pil._stampz_16bit_encoding = getattr(
+                    pil_image, '_stampz_16bit_encoding', None
+                )
+                aligned_pil._stampz_is_raw = getattr(
+                    pil_image, '_stampz_is_raw', False
+                )
                 print(f"DEBUG align_image: preserved 16-bit data, shape: {aligned_array.shape}")
             else:
                 aligned_pil = Image.fromarray(aligned_array)
