@@ -29,6 +29,7 @@ except ImportError:
 
 from .coordinate_db import CoordinateDB, CoordinatePoint, SampleAreaType
 from .color_analysis_db import ColorAnalysisDB
+from .image_processor import _apply_srgb_gamma_16bit
 
 @dataclass
 class ColorMeasurement:
@@ -609,6 +610,28 @@ class ColorAnalyzer:
         """
         left, top, right, bottom = bounds
         pixels = []
+        # Prefer preserved 16-bit data when it matches the displayed image.
+        source_16bit = getattr(image, '_stampz_16bit_data', None)
+        encoding_16bit = getattr(image, '_stampz_16bit_encoding', None)
+
+        if (
+            source_16bit is not None
+            and isinstance(source_16bit, np.ndarray)
+            and source_16bit.dtype == np.uint16
+            and source_16bit.ndim == 3
+            and source_16bit.shape[2] >= 3
+            and source_16bit.shape[:2] == (image.height, image.width)
+            and encoding_16bit in ('linear', 'srgb')
+        ):
+            use_16bit = True
+        else:
+            use_16bit = False
+            
+        # Record the pixel source actually selected for sampling.
+        self.last_sampling_bit_depth = 16 if use_16bit else 8
+        self.last_sampling_channels = (
+            source_16bit.shape[2] if use_16bit else len(image.getbands())
+        )
         
         # Convert image to RGB if needed — but keep RGBA so the alpha-skip works
         if image.mode not in ('RGB', 'RGBA'):
@@ -638,7 +661,25 @@ class ColorAnalyzer:
                         continue
                 
                 try:
-                    pixel = image.getpixel((x, y))
+                    if use_16bit:
+                        # Transparent pixels must not influence the sample.
+                        if (
+                            source_16bit.shape[2] >= 4
+                            and source_16bit[y, x, 3] == 0
+                        ):
+                            continue
+
+                        pixel_16bit = source_16bit[y, x, :3]
+
+                        if encoding_16bit == 'linear':
+                            pixel_16bit = _apply_srgb_gamma_16bit(pixel_16bit)
+
+                        pixel = tuple(
+                            float(value) * 255.0 / 65535.0
+                            for value in pixel_16bit
+                        )
+                    else:
+                        pixel = image.getpixel((x, y))
                     if isinstance(pixel, (tuple, list)) and len(pixel) >= 3:
                         # Handle transparency for RGBA images
                         if len(pixel) == 4 and pixel[3] == 0:  # Skip fully transparent pixels

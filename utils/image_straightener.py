@@ -62,6 +62,12 @@ class ImageStraightener:
                     expand,
                     auto_crop
                 )
+                rotated._stampz_is_raw = getattr(
+                    image, '_stampz_is_raw', False
+                )
+                rotated._stampz_16bit_encoding = getattr(
+                    image, '_stampz_16bit_encoding', None
+                )
                 return rotated
             else:
                 # Standard 8-bit rotation using PIL
@@ -236,6 +242,7 @@ class ImageStraightener:
                 # But attach the 16-bit array so save operations can use it
                 display_array = (rotated_array / 256).astype(np.uint8)
                 rotated_pil = Image.fromarray(display_array)
+                rotated_pil._stampz_16bit_data = rotated_array
                 
                 # Store the original 16-bit data as an attribute
                 rotated_pil._stampz_16bit_data = rotated_array

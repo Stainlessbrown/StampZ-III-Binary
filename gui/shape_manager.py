@@ -358,6 +358,10 @@ class ShapeManager:
             cropped._stampz_is_raw = getattr(
                 self.core.original_image, '_stampz_is_raw', False
             )
+
+            cropped._stampz_16bit_encoding = getattr(
+                self.core.original_image, '_stampz_16bit_encoding', None
+            )
             print(f"DEBUG get_cropped_image: preserved 16-bit data, shape: {cropped_16bit.shape}")
             
             return cropped

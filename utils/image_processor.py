@@ -320,6 +320,11 @@ def load_image(file_path: Union[str, Path], display_only: bool = False) -> Tuple
                     img_array_8bit = (img_array / 65535.0 * 255.0).astype(np.uint8)
                     image = Image.fromarray(img_array_8bit)
                     image._stampz_16bit_data = img_array
+                    image._stampz_16bit_encoding = (
+                        "linear"
+                        if is_linear and not metadata.get('linear_gamma_corrected', False)
+                        else "srgb"
+                    )                   
                     image._stampz_source_file = str(file_path)
                     image._stampz_is_raw = bool(metadata.get('is_raw', False))
                     logger.info(f"Loaded 16-bit TIFF with full precision, attached _stampz_16bit_data: {file_path}")

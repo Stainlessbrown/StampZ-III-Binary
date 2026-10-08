@@ -92,7 +92,21 @@ class SampleResultsManager(tk.Frame):
         
         self.filename_label = ttk.Label(header_frame, text="No file loaded", 
                                        font=("Arial", 12))
-        self.filename_label.pack(side=tk.LEFT, padx=self.current_sizes['padding'])
+        self.filename_label.pack(
+            anchor='w',
+            padx=self.current_sizes['padding']
+        )
+
+        self.sampling_depth_label = ttk.Label(
+            header_frame,
+            text="Sampling: Not yet determined",
+            font=("Arial", 10),
+            foreground="black"
+        )
+        self.sampling_depth_label.pack(
+            anchor='w',
+            padx=self.current_sizes['padding']
+        )
     
     def _create_results_section(self):
         """Create the results section with samples and average display."""
@@ -262,6 +276,22 @@ class SampleResultsManager(tk.Frame):
                     continue
             
             print(f"DEBUG: Processed {len(self.sample_points)} sample points")
+            # Show the precision actually used by the analyzer.
+            bit_depth = getattr(analyzer, 'last_sampling_bit_depth', None)
+            channels = getattr(analyzer, 'last_sampling_channels', None)
+
+            if bit_depth in (8, 16):
+                channel_text = "RGBA" if channels == 4 else "RGB"
+                depth_text = f"Sampling: {bit_depth}-bit {channel_text}"
+
+                if bit_depth == 16:
+                    depth_text += " • Full precision"
+                    if channels == 4:
+                        depth_text += " • Transparent pixels excluded"
+            else:
+                depth_text = "Sampling: Not yet determined"
+
+            self.sampling_depth_label.config(text=depth_text)            
             
             # Update the display
             self._display_sample_points()
