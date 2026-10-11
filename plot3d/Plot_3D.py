@@ -2629,7 +2629,11 @@ class Plot3DApp:
             
             show_spheres = False
             sphere_data = None
-            if hasattr(self, 'sphere_manager') and self.sphere_manager:
+            if (
+                self.show_spheres_layer.get()
+                and hasattr(self, 'sphere_manager')
+                and self.sphere_manager
+            ):
                 # Extract sphere data from sphere_manager which has access to all rows
                 sphere_df = self.sphere_manager.data_df
                 # Filter to rows with valid centroid data
