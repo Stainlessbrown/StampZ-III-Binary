@@ -716,6 +716,10 @@ class HighlightManager:
         """Handle pick events from matplotlib - works with both 3D and true 2D views"""
         if not self.point_selection_mode.get():
             return
+
+        # Ignore pickable controls that are not plotted data points.
+        if not hasattr(event, "ind"):
+            return
             
         try:
             # Determine if we're in any 2D view mode (in-place or orphan)

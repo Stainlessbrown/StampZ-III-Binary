@@ -27,22 +27,22 @@ class SettingsManager:
         try:
             from __init__ import __version__, __app_name__, __description__
         except ImportError:
-            __version__ = "3.3.1c"
+            __version__ = "3.3.1d"
             __app_name__ = "StampZ_III"
             __description__ = "Image analysis and color analysis tool"
         
         messagebox.showinfo(
             f"About {__app_name__}",
-            f"{__app_name__} v{__version__}\\n\\n"
-            f"{__description__}\\n\\n"
-            "Features:\\n"
-            "• Image cropping with polygon selection\\n"
-            "• Color analysis and measurement\\n"
-            "• Black Ink Extractor for cancellation isolation\\n"
-            "• Compare mode for color averaging\\n"
-            "• Export to ODS, XLSX, and CSV formats\\n"
-            "• Color library management\\n"
-            "• Spectral analysis tools\\n\\n"
+            f"{__app_name__} v{__version__}\n\n"
+            f"{__description__}\n\n"
+            "Features:\n"
+            "• Image cropping with polygon selection\n"
+            "• Color analysis and measurement\n"
+            "• Black Ink Extractor for cancellation isolation\n"
+            "• Compare mode for color averaging\n"
+            "• Export to ODS, XLSX, and CSV formats\n"
+            "• Color library management\n"
+            "• Spectral analysis tools\n\n"
             "Built for precision philatelic analysis."
         )
 

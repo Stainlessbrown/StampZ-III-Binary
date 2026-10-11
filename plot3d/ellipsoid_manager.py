@@ -23,6 +23,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from matplotlib.transforms import IdentityTransform
+
 from utils.color_ellipsoid import (
     EllipsoidFit,
     ellipsoid_mesh,
@@ -78,7 +80,13 @@ class EllipsoidManager:
         self.is_color_visible: Optional[Callable[[str], bool]] = is_color_visible
 
         # Render state.
-        self._artists: List = []                                      # mpl objects to clear on next render
+        self._artists: List = []
+        self._stats_artist = None
+        self._corner_artists = {}
+        self._corner_click_id = None
+        # Remember the statistics panel position across plot refreshes.
+        self._stats_corner = "upper_right"                                             
+        # mpl objects to clear on next render
         self._mode: str = self.MODE_WHOLE
         self._master_visible: bool = False                            # off by default
         self.visibility_states: Dict[str, bool] = {}                  # per-stamp on/off
@@ -93,12 +101,24 @@ class EllipsoidManager:
 
         self.logger = logging.getLogger(__name__)
 
+        # Connect corner selection once for this canvas.
+        self._corner_click_id = self.canvas.mpl_connect(
+            "pick_event", self._on_corner_pick
+        )
+
     # ----------------------------------------------------------------- #
     # Public API
     # ----------------------------------------------------------------- #
 
     def update_references(self, ax, canvas, data_df: pd.DataFrame) -> None:
         """Refresh axis/canvas/data references and invalidate fits."""
+        # Discard the old statistics panel when plot references refresh.
+        if self._stats_artist is not None:
+            try:
+                self._stats_artist.remove()
+            except (ValueError, AttributeError):
+                pass
+            self._stats_artist = None
         self.ax = ax
         self.canvas = canvas
         self.data_df = data_df
@@ -233,6 +253,7 @@ class EllipsoidManager:
         """Draw all visible ellipsoids on the current axis."""
         self.clear()
         if not self._master_visible:
+            self._update_stats_display()
             self._safe_draw()
             return
         self._ensure_fits()
@@ -244,6 +265,8 @@ class EllipsoidManager:
             self._render_whole()
         else:
             self._render_tone()
+
+        self._update_stats_display()
         self._safe_draw()
 
     # ----------------------------------------------------------------- #
@@ -522,6 +545,165 @@ class EllipsoidManager:
                 self._artists.append(axis_line)
             except Exception as e:
                 self.logger.warning("Major-axis line failed: %s", e)
+
+    def _update_stats_display(self) -> None:
+        """Display geometric statistics for visible ellipsoids."""
+        # Remove the previous corner-selector controls.
+        for artist in self._corner_artists.values():
+            try:
+                artist.remove()
+            except (ValueError, AttributeError):
+                pass
+        self._corner_artists = {}
+        if self._stats_artist is not None:
+            try:
+                self._stats_artist.remove()
+            except (ValueError, AttributeError):
+                pass
+            self._stats_artist = None
+
+        if not self._master_visible:
+            return
+
+        self._ensure_fits()
+        lines = [
+            "ELLIPSOID STATISTICS",
+            "",
+            "Position:",
+            "",
+        ]
+
+        if self._mode == self.MODE_WHOLE:
+            candidates = [
+                (f"All / {stamp}", fit)
+                for stamp, fit in (self._fits_whole or {}).items()
+                if self.visibility_states.get(stamp, True)
+            ]
+        else:
+            candidates = []
+            for (stamp, cluster), fit in (self._fits_tone or {}).items():
+                if not self.visibility_states.get(stamp, True):
+                    continue
+
+                colour = self._tone_colour.get((stamp, cluster))
+                if colour and self.is_color_visible is not None:
+                    if not self.is_color_visible(colour):
+                        continue
+
+                candidates.append((f"Cluster {cluster}", fit))
+
+        for label, fit in candidates:
+            vals, _ = principal_axes(fit)
+            diameters = 4.0 * np.sqrt(np.maximum(vals, 0.0))
+
+            minor = float(diameters[2])
+            elongation = (
+                float(diameters[0]) / minor
+                if minor > 0 else float("inf")
+            )
+
+            lines.extend([
+                "",
+                f"{label}  (N={fit.n_samples})",
+                f"Major:  {diameters[0]:.4f}",
+                f"Middle: {diameters[1]:.4f}",
+                f"Minor:  {diameters[2]:.4f}",
+                f"Ratio:  {elongation:.2f}:1",
+            ])
+
+        if not candidates:
+            return
+
+        corners = {
+            "upper_right": (0.98, 0.98, "right", "top"),
+            "lower_right": (0.98, 0.02, "right", "bottom"),
+            "lower_left": (0.02, 0.02, "left", "bottom"),
+            "upper_left": (0.02, 0.98, "left", "top"),
+        }
+        x, y, ha, va = corners[self._stats_corner]      
+
+        self._stats_artist = self.ax.text2D(
+            x, y,
+            "\n".join(lines),
+            transform=self.ax.transAxes,
+            ha=ha,
+            va=va,
+            fontsize=10,
+            fontfamily="sans-serif",
+            color="black",
+            bbox=dict(
+                boxstyle="round,pad=0.5",
+                facecolor="#FFFDF0",
+                edgecolor="#555555",
+                alpha=0.97,
+            ),
+            zorder=100,
+        )
+
+        # Measure the rendered statistics panel for selector alignment.
+        renderer = self.canvas.get_renderer()
+        stats_bbox = self._stats_artist.get_window_extent(renderer=renderer)
+
+        # Position the four controls in one row inside the panel.
+        # Coordinates are in display pixels.
+        # Center the controls on the blank line following "Position:".
+        line_height = self._stats_artist.get_fontsize() * self.ax.figure.dpi / 72 * 1.2
+        row_y = stats_bbox.ymax - 3.5 * line_height
+
+        labels = ("TL", "TR", "BL", "BR")
+        spacing = 32
+        row_width = (len(labels) - 1) * spacing
+        start_x = (stats_bbox.xmin + stats_bbox.xmax - row_width) / 2
+
+        positions = {
+            label: (start_x + i * spacing, row_y)
+            for i, label in enumerate(labels)
+        }
+
+        for label, (px, py) in positions.items():
+            self._corner_artists[label] = self.ax.text2D(
+                px, py,
+                label,
+                transform=IdentityTransform(),
+                ha="center",
+                va="center",
+                fontsize=9,
+                fontweight="bold",
+                color="black",
+                bbox=dict(
+                    boxstyle="round,pad=0.2",
+                    facecolor="#FFFDF0",
+                    edgecolor="#777777",
+                ),
+                zorder=101,
+            )
+
+            self._corner_artists[label].set_picker(True)
+            print(
+                f"DEBUG CORNER CREATED: {label}, "
+                f"picker={self._corner_artists[label].get_picker()}, "
+                f"axes_active={self._corner_artists[label].axes is self.ax}"
+            )
+
+    def _on_corner_pick(self, event) -> None:
+        """Move the statistics panel when a corner label is clicked."""
+        print(f"DEBUG CORNER PICK: artist={event.artist!r}")
+        if event.mouseevent.button != 1:
+            return
+
+        corners = {
+            "TL": "upper_left",
+            "TR": "upper_right",
+            "BL": "lower_left",
+            "BR": "lower_right",
+        }
+
+        for label, artist in self._corner_artists.items():
+            if event.artist is artist:
+                self._stats_corner = corners[label]
+                self._update_stats_display()
+                self._safe_draw()
+                return
 
     def _safe_draw(self) -> None:
         try:
