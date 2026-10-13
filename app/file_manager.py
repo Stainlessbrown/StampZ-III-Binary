@@ -119,6 +119,16 @@ class FileManager:
                 self.app.canvas.core.set_raw_display_bridge(bridge_enabled)
                 self.app.current_file = filename
                 self.app.current_image_metadata = metadata  # Store metadata for later use
+
+                # Apply CR30 display only to ordinary images.
+                # RAW images retain their existing Bridge display.
+                calibrated_display_enabled = (
+                    prefs_manager.get_calibrated_image_display_enabled()
+                    and not metadata.get('is_raw', False)
+                )
+                self.app.canvas.core.set_calibrated_image_display(
+                    calibrated_display_enabled
+                )
                 
                 # Clear any cached leveling images when new image is loaded
                 if hasattr(self.app, 'control_panel') and hasattr(self.app.control_panel, '_true_original_image'):

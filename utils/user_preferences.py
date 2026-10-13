@@ -1326,6 +1326,7 @@ class PreferencesManager:
     _OPTIMIZE_STEP_KEY = "optimize_position_step_px"
     _EXPORT_INCLUDE_PAPER_KEY = "export_include_paper"
     _RAW_DISPLAY_BRIDGE_KEY = "raw_display_bridge_enabled"
+    _CALIBRATED_IMAGE_DISPLAY_KEY = "calibrated_image_display_enabled"
     _TREAT_ALL_IMAGES_AS_RAW_KEY = "treat_all_images_as_raw"
 
     def get_export_include_paper(self) -> bool:
@@ -1350,6 +1351,18 @@ class PreferencesManager:
     def set_raw_display_bridge_enabled(self, enabled: bool) -> bool:
         """Persist whether the RAW display bridge is enabled."""
         return self.set(self._RAW_DISPLAY_BRIDGE_KEY, bool(enabled))
+
+    def get_calibrated_image_display_enabled(self) -> bool:
+        """Return whether calibrated image display is enabled."""
+        val = self.get(self._CALIBRATED_IMAGE_DISPLAY_KEY, False)
+        return bool(val)
+
+    def set_calibrated_image_display_enabled(self, enabled: bool) -> bool:
+        """Persist the calibrated image display preference."""
+        return self.set(
+            self._CALIBRATED_IMAGE_DISPLAY_KEY,
+            bool(enabled)
+        )
 
     def get_treat_all_images_as_raw(self) -> bool:
         """Return whether all opened images should be treated as RAW."""

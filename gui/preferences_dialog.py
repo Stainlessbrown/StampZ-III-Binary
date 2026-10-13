@@ -623,6 +623,36 @@ class PreferencesDialog:
             font=("TkDefaultFont", 9),
             foreground="gray"
         ).pack(anchor=tk.W)
+
+        # Calibrated image display preferences
+        calibrated_display_frame = ttk.LabelFrame(
+            sampling_frame,
+            text="Calibrated Image Display",
+            padding="10"
+        )
+        calibrated_display_frame.pack(fill=tk.X, pady=(0, 10))
+
+        self.calibrated_image_display_var = tk.BooleanVar(value=False)
+
+        ttk.Checkbutton(
+            calibrated_display_frame,
+            text="Use Calibrated Image Display",
+            variable=self.calibrated_image_display_var,
+            command=self._toggle_calibrated_image_display
+        ).pack(anchor=tk.W, pady=(0, 5))
+
+        ttk.Label(
+            calibrated_display_frame,
+            text=(
+                "Display images using the active CR30 scanner calibration. "
+                "Changes image appearance only; original image data, "
+                "sampling measurements, and database values remain unchanged."
+            ),
+            wraplength=550,
+            justify=tk.LEFT,
+            font=("TkDefaultFont", 9),
+            foreground="gray"
+        ).pack(anchor=tk.W)
         
         # Template defaults section
         template_frame = ttk.LabelFrame(sampling_frame, text="Template Defaults", padding="10")
@@ -871,6 +901,24 @@ class PreferencesDialog:
             is_raw = metadata.get('is_raw', False)
 
             self.app.canvas.core.set_raw_display_bridge(enabled and is_raw)
+
+            # Restore CR30 display for ordinary images when enabled.
+            if not is_raw:
+                self.app.canvas.core.set_calibrated_image_display(
+                    self.calibrated_image_display_var.get()
+                )
+
+    def _toggle_calibrated_image_display(self):
+        """Update the image preview without changing analytical data."""
+        enabled = self.calibrated_image_display_var.get()
+
+        if self.app is not None and hasattr(self.app, 'canvas'):
+            metadata = getattr(self.app, 'current_image_metadata', {}) or {}
+            is_raw = metadata.get('is_raw', False)
+
+            self.app.canvas.core.set_calibrated_image_display(
+                enabled and not is_raw
+            )
     
     def _create_compare_mode_tab(self, notebook):
         """Create the Compare mode preferences tab."""
@@ -1494,6 +1542,11 @@ class PreferencesDialog:
             self.prefs_manager.get_raw_display_bridge_enabled()
         )
 
+        # Calibrated image display preference (default OFF)
+        self.calibrated_image_display_var.set(
+            self.prefs_manager.get_calibrated_image_display_enabled()
+        )        
+
         # Treat all images as RAW preference
         self.treat_all_images_as_raw_var.set(
             self.prefs_manager.get_treat_all_images_as_raw()
@@ -1637,6 +1690,11 @@ class PreferencesDialog:
             # RAW display bridge preference
             self.prefs_manager.set_raw_display_bridge_enabled(
                 self.raw_display_bridge_var.get()
+            )
+
+            # Calibrated image display preference
+            self.prefs_manager.set_calibrated_image_display_enabled(
+                self.calibrated_image_display_var.get()
             )
 
             # Treat all images as RAW preference

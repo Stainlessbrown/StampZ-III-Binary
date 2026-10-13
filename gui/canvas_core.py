@@ -7,6 +7,8 @@ import tkinter as tk
 from typing import Optional, Tuple, Callable
 from PIL import Image, ImageTk
 from utils.raw_display_bridge import apply_raw_display_bridge
+from utils.scanner_calibration import get_active_calibration
+from utils.calibrated_image_display import render_calibrated_preview
 import logging
 
 logger = logging.getLogger(__name__)
@@ -28,6 +30,19 @@ class CanvasCore:
         # Image management
         self.original_image: Optional[Image.Image] = None
         self.display_image: Optional[ImageTk.PhotoImage] = None
+
+        # Display-only CR30 cache; never used for analytical sampling
+        self._calibrated_display_cache: Optional[Image.Image] = None
+
+        # Whether the optional CR30 display rendering is enabled
+        self._calibrated_display_enabled: bool = False
+
+        # Calibration instance used to generate the cached preview
+        self._calibrated_cache_calibration = None
+
+        # Track RAW Bridge state independently of calibrated display
+        self._raw_display_bridge_enabled: bool = False
+
         self.image_scale: float = 1.0
         self.image_offset: Tuple[int, int] = (0, 0)
         
@@ -42,6 +57,14 @@ class CanvasCore:
             image: PIL Image to load
         """
         self.original_image = image
+
+        # A new image invalidates any previous CR30 display preview
+        self._calibrated_display_cache = None
+
+        # New images must not inherit the previous image's RAW Bridge state
+        self._raw_display_bridge_enabled = False
+        self._calibrated_cache_calibration = None
+
         # Pre-composite RGBA onto white for fast display; sampling uses original_image
         if image.mode == 'RGBA':
             bg = Image.new('RGB', image.size, (255, 255, 255))
@@ -72,7 +95,16 @@ class CanvasCore:
 
     def set_raw_display_bridge(self, enabled: bool) -> None:
         """Enable or disable the RAW display bridge without altering source data."""
+        self._raw_display_bridge_enabled = bool(enabled)
+
         if self.original_image is None:
+            return
+
+        # RAW images retain their existing RAW Display Bridge behavior.
+        if enabled and getattr(self.original_image, '_stampz_is_raw', False):
+            logger.info("CR30 calibrated display skipped for RAW image")
+            self._display_source = self._get_uncalibrated_display_source()
+            self.update_display()
             return
 
         if enabled:
@@ -97,6 +129,66 @@ class CanvasCore:
                 self._display_source = bg
             else:
                 self._display_source = self.original_image
+
+        self.update_display()
+
+    def _get_uncalibrated_display_source(self) -> Image.Image:
+        """Return the normal display image, respecting RAW Bridge state."""
+        if self.original_image is None:
+            raise ValueError("No image is loaded")
+
+        source = self.original_image
+
+        if source.mode == 'RGBA':
+            bg = Image.new('RGB', source.size, (255, 255, 255))
+            bg.paste(source, mask=source.split()[3])
+            source = bg
+
+        if self._raw_display_bridge_enabled:
+            return apply_raw_display_bridge(source)
+
+        return source
+
+    def set_calibrated_image_display(self, enabled: bool) -> None:
+        """Switch CR30 display rendering without altering analytical pixels."""
+        self._calibrated_display_enabled = bool(enabled)
+
+        if self.original_image is None:
+            return
+
+        if not enabled:
+            self._display_source = self._get_uncalibrated_display_source()
+            self.update_display()
+            return
+
+        calibration = get_active_calibration()
+
+        if calibration is None or not calibration.is_valid:
+            logger.warning(
+                "Calibrated display requested without a valid CR30 calibration"
+            )
+            self._display_source = self._get_uncalibrated_display_source()
+            self.update_display()
+            return
+
+        try:
+            if (
+                self._calibrated_display_cache is None
+                or self._calibrated_cache_calibration is not calibration
+            ):
+                source = self._get_uncalibrated_display_source()
+                self._calibrated_display_cache = render_calibrated_preview(
+                    source,
+                    calibration,
+                    max_size=None
+                )
+                self._calibrated_cache_calibration = calibration
+
+            self._display_source = self._calibrated_display_cache
+
+        except Exception as exc:
+            logger.exception("CR30 calibrated display failed: %s", exc)
+            self._display_source = self._get_uncalibrated_display_source()
 
         self.update_display()
     
