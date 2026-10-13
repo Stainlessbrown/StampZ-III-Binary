@@ -1239,6 +1239,7 @@ class ColorLibraryManager:
             name_var = tk.StringVar()
             notes_var = tk.StringVar()
             source_var = tk.StringVar()
+            raw_derived_var = tk.BooleanVar(value=False)
             rgb_vars = [tk.StringVar() for _ in range(3)]
             lab_vars = [tk.StringVar() for _ in range(3)]
             
@@ -1251,6 +1252,11 @@ class ColorLibraryManager:
             
             ttk.Label(content_frame, text="Source:").pack(anchor="w", pady=(10, 2))
             ttk.Entry(content_frame, textvariable=source_var, width=40).pack(fill=tk.X, pady=2)
+            ttk.Checkbutton(
+                content_frame,
+                text="RAW-derived",
+                variable=raw_derived_var
+            ).pack(anchor="w", pady=(10, 2))
             
             # Input for RGB or L*a*b* - manual entries only
             ttk.Label(content_frame, text="Enter either L*a*b* or RGB values (not both required):").pack(anchor="w", pady=(10, 5))
@@ -1320,13 +1326,23 @@ class ColorLibraryManager:
                     if rgb is None and lab is None:
                         messagebox.showerror("Error", "Please enter either RGB or L*a*b* values")
                         return
-                    
+
+                    # Preserve RAW provenance without altering color values.
+                    notes = notes_var.get().strip()
+                    raw_status = (
+                        "RAW-derived: Yes"
+                        if raw_derived_var.get()
+                        else "RAW-derived: No"
+                    )
+                    notes = f"{notes}\n{raw_status}" if notes else raw_status
+
                     success = self.library.add_color(
                         name=name,
                         rgb=rgb,
                         lab=lab,
                         source=source_var.get().strip(),
-                        notes=notes_var.get().strip() or None
+                        notes=notes,
+                        is_raw=raw_derived_var.get()
                     )
                     
                     if success:
