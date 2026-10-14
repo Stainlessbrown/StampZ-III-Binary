@@ -382,6 +382,21 @@ class SampleResultsManager(tk.Frame):
             display_rgb = rgb
             display_lab = lab
             swatch_rgb = rgb
+            # Optional CR30 calibrated appearance for ordinary-image swatches.
+            # Display only: analytical RGB, Lab, and Delta E remain unchanged.
+            metadata = getattr(self, 'current_image_metadata', {}) or {}
+            if not metadata.get('is_raw', False):
+                try:
+                    from utils.scanner_calibration import get_active_calibration
+                    from utils.calibrated_image_display import calibrated_display_rgb
+
+                    core = self.app.canvas.core
+                    if core._calibrated_display_enabled:
+                        calibration = get_active_calibration()
+                        if calibration is not None and calibration.is_valid:
+                            swatch_rgb = calibrated_display_rgb(rgb, calibration)
+                except Exception as e:
+                    print(f"DEBUG: CR30 Results swatch skipped: {e}")
 
             metadata = getattr(self, 'current_image_metadata', {}) or {}
             if metadata.get('is_raw', False):
@@ -629,7 +644,23 @@ class SampleResultsManager(tk.Frame):
         # Library/DB/File saves.
         display_rgb = avg_rgb
         display_lab = avg_lab
-        swatch_rgb = avg_rgb        
+        swatch_rgb = avg_rgb
+
+        # Optional CR30 calibrated appearance for ordinary-image averages.
+        # Display only: analytical averages and saved values remain unchanged.
+        metadata = getattr(self, 'current_image_metadata', {}) or {}
+        if not metadata.get('is_raw', False):
+            try:
+                from utils.scanner_calibration import get_active_calibration
+                from utils.calibrated_image_display import calibrated_display_rgb
+
+                core = self.app.canvas.core
+                if core._calibrated_display_enabled:
+                    calibration = get_active_calibration()
+                    if calibration is not None and calibration.is_valid:
+                        swatch_rgb = calibrated_display_rgb(avg_rgb, calibration)
+            except Exception as e:
+                print(f"DEBUG: CR30 AVG swatch skipped: {e}")      
 
         metadata = getattr(self, 'current_image_metadata', {}) or {}
         if metadata.get('is_raw', False):

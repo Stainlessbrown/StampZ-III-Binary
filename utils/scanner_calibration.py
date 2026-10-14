@@ -312,8 +312,24 @@ class ScannerCalibration:
             metadata.get('raw_detection_uncertain', False)
         )
         
-        img = img.convert("RGB")
-        arr = np.asarray(img, dtype=np.float64)
+        # Prefer preserved 16-bit analytical data for CR30 patch sampling.
+        source_16bit = getattr(img, '_stampz_16bit_data', None)
+
+        if (
+            isinstance(source_16bit, np.ndarray)
+            and source_16bit.dtype == np.uint16
+            and source_16bit.ndim == 3
+            and source_16bit.shape[2] >= 3
+            and source_16bit.shape[:2] == (img.height, img.width)
+        ):
+            # load_image() has already prepared the analytical encoding.
+            # Retain fractional RGB precision on the existing 0–255 scale.
+            arr = source_16bit[:, :, :3].astype(np.float64) * (255.0 / 65535.0)
+            print("CALIBRATION: sampling preserved 16-bit analytical RGB")
+        else:
+            img = img.convert("RGB")
+            arr = np.asarray(img, dtype=np.float64)
+            print("CALIBRATION: 8-bit RGB fallback")
 
         h, w, _ = arr.shape
 

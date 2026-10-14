@@ -17,6 +17,25 @@ from utils.scanner_calibration import srgb_to_lab
 
 BATCH_SIZE = 256
 
+def calibrated_display_rgb(rgb, calibration):
+    """Return CR30-calibrated display RGB without modifying analytical data."""
+    if calibration is None or not calibration.is_valid:
+        return tuple(float(v) for v in rgb)
+
+    values = np.asarray(rgb, dtype=np.float64).reshape(1, 3)
+
+    calibrated_lab = _vectorized_cr30(values, calibration)
+
+    display = lab2rgb(
+        calibrated_lab.reshape(1, 1, 3)
+    ).reshape(3)
+
+    return tuple(
+        int(v) for v in np.clip(
+            np.rint(display * 255.0), 0, 255
+        )
+    )
+
 
 def _vectorized_cr30(rgb_values, calibration):
     """Apply the existing CR30 local Lab correction in batches."""
