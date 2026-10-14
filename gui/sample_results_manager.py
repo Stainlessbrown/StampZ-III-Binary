@@ -435,8 +435,9 @@ class SampleResultsManager(tk.Frame):
             if lab and sample['enabled'].get():
                 is_paper = sample['is_paper'].get()
                 group_avg = paper_avg_lab if is_paper else ink_avg_lab
-                if group_avg:
-                                        # Use the exact same cached ΔE as the on-image marker HUD.
+                group_count = len(enabled_paper) if is_paper else len(enabled_ink)
+                if group_avg is not None and group_count >= 2:
+                    # Use the exact same cached ΔE as the on-image marker HUD.
                     # Fall back to the local calculation when no live model is
                     # available (e.g. non-standard/synthetic Results sources).
                     live_model = getattr(self, '_live_model_ref', None)
@@ -496,6 +497,12 @@ class SampleResultsManager(tk.Frame):
                         value_col, text=f"  {breakdown}",
                         font=("Arial", 12),
                     ).pack(anchor='w')
+            elif sample['enabled'].get():
+                ttk.Label(
+                    value_col,
+                    text="ΔE: —",
+                    font=("Arial", 12, "bold"),
+                ).pack(anchor='w', pady=(6, 0))                  
             if stddev_text:
                 ttk.Label(
                     value_col, text=stddev_text, font=("Arial", 12),

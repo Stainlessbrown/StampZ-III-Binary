@@ -265,20 +265,15 @@ class ColorAnalyzer:
         return math.sqrt(delta_l**2 + delta_a**2 + delta_b**2)
     
     def _calculate_quality_controlled_average(
-        self, 
-        lab_values: List[Tuple[float, float, float]], 
+        self,
+        lab_values: List[Tuple[float, float, float]],
         rgb_values: List[Tuple[float, float, float]],
         delta_e_threshold: float = 6.0
     ) -> Dict[str, Any]:
-        """Calculate average with ΔE-based outlier detection for quality control.
-        
-        Args:
-            lab_values: List of Lab color tuples
-            rgb_values: List of RGB color tuples
-            delta_e_threshold: Threshold for outlier exclusion (default 6.0)
-            
-        Returns:
-            Dictionary with averaging results including quality metrics
+        """Average all user-enabled samples without automatic outlier exclusion.
+
+        Sample inclusion is controlled by the caller.
+        The delta_e_threshold argument is retained for compatibility.
         """
         if not lab_values or not rgb_values or len(lab_values) != len(rgb_values):
             return {
@@ -288,63 +283,32 @@ class ColorAnalyzer:
                 'samples_used': 0,
                 'outliers_excluded': 0
             }
-        
-        # Calculate initial average to use as reference
-        initial_lab = (
-            sum(lab[0] for lab in lab_values) / len(lab_values),
-            sum(lab[1] for lab in lab_values) / len(lab_values),
-            sum(lab[2] for lab in lab_values) / len(lab_values)
-        )
-        
-        # Calculate ΔE from each sample to the initial average
-        delta_e_values = []
-        for lab in lab_values:
-            delta_e = self.calculate_delta_e(lab, initial_lab)
-            delta_e_values.append(delta_e)
-        
-        # Identify outliers based on ΔE threshold
-        outlier_indices = set()
-        for i, delta_e in enumerate(delta_e_values):
-            if delta_e > delta_e_threshold:
-                outlier_indices.add(i)
-        
-        # Filter out outliers
-        filtered_lab = [lab for i, lab in enumerate(lab_values) if i not in outlier_indices]
-        filtered_rgb = [rgb for i, rgb in enumerate(rgb_values) if i not in outlier_indices]
-        
-        # If all samples are outliers, use all samples (avoid empty result)
-        if not filtered_lab:
-            filtered_lab = lab_values
-            filtered_rgb = rgb_values
-            outlier_indices = set()
-        
-        # Calculate final averages from filtered samples
+
+        n = len(lab_values)
+
         avg_lab = (
-            sum(lab[0] for lab in filtered_lab) / len(filtered_lab),
-            sum(lab[1] for lab in filtered_lab) / len(filtered_lab),
-            sum(lab[2] for lab in filtered_lab) / len(filtered_lab)
+            sum(lab[0] for lab in lab_values) / n,
+            sum(lab[1] for lab in lab_values) / n,
+            sum(lab[2] for lab in lab_values) / n
         )
-        
+
         avg_rgb = (
-            sum(rgb[0] for rgb in filtered_rgb) / len(filtered_rgb),
-            sum(rgb[1] for rgb in filtered_rgb) / len(filtered_rgb),
-            sum(rgb[2] for rgb in filtered_rgb) / len(filtered_rgb)
+            sum(rgb[0] for rgb in rgb_values) / n,
+            sum(rgb[1] for rgb in rgb_values) / n,
+            sum(rgb[2] for rgb in rgb_values) / n
         )
-        
-        # Calculate quality metrics from final filtered samples
-        final_delta_e_values = []
-        for lab in filtered_lab:
-            delta_e = self.calculate_delta_e(lab, avg_lab)
-            final_delta_e_values.append(delta_e)
-        
-        max_delta_e = max(final_delta_e_values) if final_delta_e_values else 0.0
-        
+
+        delta_e_values = [
+            self.calculate_delta_e(lab, avg_lab)
+            for lab in lab_values
+        ]
+
         return {
             'avg_lab': avg_lab,
             'avg_rgb': avg_rgb,
-            'max_delta_e': max_delta_e,
-            'samples_used': len(filtered_lab),
-            'outliers_excluded': len(outlier_indices)
+            'max_delta_e': max(delta_e_values) if delta_e_values else 0.0,
+            'samples_used': n,
+            'outliers_excluded': 0
         }
     
     def extract_sample_colors(self, image: Image.Image, coordinate_set_name: str) -> List[ColorMeasurement]:
