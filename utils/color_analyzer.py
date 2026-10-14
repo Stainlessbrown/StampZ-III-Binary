@@ -59,6 +59,20 @@ class ColorAnalyzer:
         """
         self.db = CoordinateDB()
         self.print_type = print_type
+
+    @staticmethod
+    def calibrated_lab_to_rgb(lab):
+        """Represent an already-calibrated Lab measurement as sRGB 0–255.
+
+        Does not apply scanner calibration again.
+        Lab remains authoritative if the color is outside sRGB gamut.
+        """
+        from utils.scanner_calibration import lab_to_srgb
+
+        lab_array = np.asarray(lab, dtype=np.float64).reshape(1, 3)
+        rgb_array = lab_to_srgb(lab_array)[0] * 255.0
+
+        return tuple(float(v) for v in rgb_array)
     
     def rgb_to_lab(self, rgb: Tuple[float, float, float]) -> Tuple[float, float, float]:
         """Convert RGB to CIE L*a*b* color space, with optional TPS calibration.

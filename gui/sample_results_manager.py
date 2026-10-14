@@ -2549,8 +2549,9 @@ class SampleResultsManager(tk.Frame):
         sample_measurements = []
         
         for i, sample in enumerate(samples, 1):
-            sample_rgb = sample['rgb']
-            sample_lab = analyzer.rgb_to_lab(sample_rgb)
+            sample_rgb_original = sample['rgb']
+            sample_lab = analyzer.rgb_to_lab(sample_rgb_original)
+            sample_rgb = analyzer.calibrated_lab_to_rgb(sample_lab)
             
             rgb_stddev = sample.get('rgb_stddev', None)
             lab_stddev = sample.get('lab_stddev', None)
