@@ -222,22 +222,26 @@ jobs:
 
   cleanup:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: always()
     permissions:
       actions: write
     steps:
     - name: Delete old artifacts (keep current + previous builds)
-      uses: actions/github-script@v7
+      uses: actions/github-script@v8
       with:
         script: |
-          const artifacts = await github.rest.actions.listArtifactsForRepo({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-          });
+          const allArtifacts = await github.paginate(
+            github.rest.actions.listArtifactsForRepo,
+            {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100,
+            }
+          );
           
           // Sort artifacts by creation time (newest first)
-          const sortedArtifacts = artifacts.data.artifacts.sort((a, b) => 
+          const sortedArtifacts = allArtifacts.sort((a, b) =>
             new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
           );
           
