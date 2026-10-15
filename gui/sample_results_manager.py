@@ -646,21 +646,22 @@ class SampleResultsManager(tk.Frame):
         display_lab = avg_lab
         swatch_rgb = avg_rgb
 
-        # Optional CR30 calibrated appearance for ordinary-image averages.
-        # Display only: analytical averages and saved values remain unchanged.
+        # Ordinary-image AVG swatch:
+        # Use the authoritative analytical Lab to generate display RGB.
+        # This is the same conversion used when saving to Library.
+        # No scanner calibration is applied a second time.
         metadata = getattr(self, 'current_image_metadata', {}) or {}
+
         if not metadata.get('is_raw', False):
             try:
-                from utils.scanner_calibration import get_active_calibration
-                from utils.calibrated_image_display import calibrated_display_rgb
+                from utils.color_analyzer import ColorAnalyzer
 
-                core = self.app.canvas.core
-                if core._calibrated_display_enabled:
-                    calibration = get_active_calibration()
-                    if calibration is not None and calibration.is_valid:
-                        swatch_rgb = calibrated_display_rgb(avg_rgb, calibration)
+                swatch_rgb = ColorAnalyzer.calibrated_lab_to_rgb(avg_lab)
+                display_rgb = swatch_rgb
+
             except Exception as e:
-                print(f"DEBUG: CR30 AVG swatch skipped: {e}")      
+                print(f"DEBUG: AVG Lab-to-RGB display conversion failed: {e}")
+                swatch_rgb = avg_rgb   
 
         metadata = getattr(self, 'current_image_metadata', {}) or {}
         if metadata.get('is_raw', False):
@@ -2282,11 +2283,16 @@ class SampleResultsManager(tk.Frame):
                 from utils.color_library import ColorLibrary
                 color_lib = ColorLibrary(library)
                 
-                # Add the new color with notes
+                # Preserve scanner RGB and save the calibrated RGB/Lab pair.
+                from utils.color_analyzer import ColorAnalyzer
+
+                calibrated_rgb = ColorAnalyzer.calibrated_lab_to_rgb(lab_values)
+
                 success = color_lib.add_color(
                     name=name,
-                    rgb=rgb_values,
+                    rgb=calibrated_rgb,
                     lab=lab_values,
+                    original_rgb=rgb_values,
                     notes=notes if notes else None,
                     is_raw=is_raw
                 )

@@ -127,6 +127,9 @@ CREATE TABLE IF NOT EXISTS library_colors (
                     rgb_r REAL NOT NULL,        -- RGB for display purposes only
                     rgb_g REAL NOT NULL,
                     rgb_b REAL NOT NULL,
+                    original_rgb_r REAL,
+                    original_rgb_g REAL,
+                    original_rgb_b REAL,
                     category TEXT NOT NULL DEFAULT 'General',
                     source TEXT NOT NULL DEFAULT 'Custom',
                     is_raw INTEGER NOT NULL DEFAULT 0,
@@ -138,6 +141,20 @@ CREATE TABLE IF NOT EXISTS library_colors (
                     anchor_position TEXT        -- center, top_left, etc.
                 )
             """)
+
+            # Preserve original scanner RGB in existing libraries.
+            # NULL indicates a legacy record without separate source RGB.
+            for channel in ("r", "g", "b"):
+                column = f"original_rgb_{channel}"
+                existing_columns = {
+                    row[1] for row in conn.execute(
+                        "PRAGMA table_info(library_colors)"
+                    )
+                }
+                if column not in existing_columns:
+                    conn.execute(
+                        f"ALTER TABLE library_colors ADD COLUMN {column} REAL"
+                    )
 
             # Add RAW provenance flag to existing color libraries
             cursor = conn.cursor()
@@ -443,7 +460,8 @@ CREATE TABLE IF NOT EXISTS library_colors (
                   lab: Tuple[float, float, float] = None,
                   description: str = "", category: str = "General",
                   source: str = "Custom", notes: str = None,
-                  is_raw: bool = False) -> bool:
+                  is_raw: bool = False,
+                  original_rgb: Tuple[float, float, float] = None) -> bool:
         """Add a new color to the library. Preferred input is CIE L*a*b*.
         
         Args:
@@ -511,11 +529,18 @@ CREATE TABLE IF NOT EXISTS library_colors (
                         conn.execute("""
                         INSERT INTO library_colors (
                             name, description, lab_l, lab_a, lab_b,
-                            rgb_r, rgb_g, rgb_b, category, source, notes, is_raw
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                """, (
-                            final_name, description, lab_values[0], lab_values[1], lab_values[2],
-                            rgb_values[0], rgb_values[1], rgb_values[2], category, source, notes, int(is_raw)
+                            rgb_r, rgb_g, rgb_b,
+                            original_rgb_r, original_rgb_g, original_rgb_b,
+                            category, source, notes, is_raw
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            final_name, description,
+                            lab_values[0], lab_values[1], lab_values[2],
+                            rgb_values[0], rgb_values[1], rgb_values[2],
+                            original_rgb[0] if original_rgb is not None else None,
+                            original_rgb[1] if original_rgb is not None else None,
+                            original_rgb[2] if original_rgb is not None else None,
+                            category, source, notes, int(is_raw)
                         ))
                         print(f"DEBUG: INSERT statement executed, now committing...")
                         
