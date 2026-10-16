@@ -406,11 +406,21 @@ class SampleResultsManager(tk.Frame):
                     prefs = get_preferences_manager()
                     bridge_enabled = prefs.get_raw_display_bridge_enabled()
                     from utils.raw_display_bridge import analysis_rgb_to_raw_display_rgb
+                    from utils.color_analyzer import ColorAnalyzer
 
-                    swatch_rgb = analysis_rgb_to_raw_display_rgb(
-                        rgb,
-                        bridge_enabled=bridge_enabled,
-                    )
+                    # Reconstruct the calibrated display color from this
+                    # sample's already-calibrated analytical Lab.
+                    # Preserve original sampled RGB and analytical Lab.
+                    calibrated_rgb = ColorAnalyzer.calibrated_lab_to_rgb(lab)
+
+                    if bridge_enabled:
+                        swatch_rgb = analysis_rgb_to_raw_display_rgb(
+                            calibrated_rgb,
+                            bridge_enabled=True,
+                        )
+                    else:
+                        swatch_rgb = calibrated_rgb
+                        display_rgb = calibrated_rgb
 
                     if bridge_enabled:
                         from utils.raw_display_bridge import display_rgb_to_lab
@@ -675,22 +685,23 @@ class SampleResultsManager(tk.Frame):
                 prefs = get_preferences_manager()
                 bridge_enabled = prefs.get_raw_display_bridge_enabled()
 
-                # The swatch always follows the same visual path as the
-                # loaded RAW image:
-                #   Bridge OFF -> native RAW appearance
-                #   Bridge ON  -> native RAW appearance + display bridge
-                swatch_rgb = analysis_rgb_to_raw_display_rgb(
-                    avg_rgb,
-                    bridge_enabled=bridge_enabled,
-                )
+                # Reconstruct display RGB from the authoritative Lab.
+                # Calibration is already reflected in avg_lab.
+                from utils.color_analyzer import ColorAnalyzer
+                calibrated_rgb = ColorAnalyzer.calibrated_lab_to_rgb(avg_lab)
 
-                # Numerical readout:
-                #   Bridge OFF -> gospel analytical values
-                #   Bridge ON  -> temporary bridged display values
                 if bridge_enabled:
+                    # Apply the existing RAW Bridge to calibrated RGB.
+                    swatch_rgb = analysis_rgb_to_raw_display_rgb(
+                        calibrated_rgb,
+                        bridge_enabled=True,
+                    )
                     display_rgb = swatch_rgb
                     display_lab = display_rgb_to_lab(display_rgb)
                 else:
+                    # Show the calibrated color without RAW Bridge.
+                    swatch_rgb = calibrated_rgb
+                    display_rgb = calibrated_rgb
                     display_lab = avg_lab
 
                 print(
@@ -706,6 +717,15 @@ class SampleResultsManager(tk.Frame):
                 print(f"DEBUG RESULTS DISPLAY: display conversion failed: {e}")
                 display_rgb = avg_rgb
                 display_lab = avg_lab
+
+        print(
+            f"DEBUG AVG FINAL SWATCH: "
+            f"RGB={swatch_rgb} "
+            f"HEX=#{int(swatch_rgb[0]):02x}"
+            f"{int(swatch_rgb[1]):02x}"
+            f"{int(swatch_rgb[2]):02x} "
+            f"Lab={avg_lab}"
+        )
 
         canvas.create_rectangle(
             0, 0, sw_w, sw_h,

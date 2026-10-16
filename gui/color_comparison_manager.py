@@ -662,6 +662,16 @@ class ColorComparisonManager(tk.Frame):
         sample_display_lab = sample_lab
 
         metadata = getattr(self, 'current_image_metadata', {}) or {}
+        # Ordinary-image Compare display:
+        # Derive RGB from the authoritative analytical Lab.
+        # This matches Results AVG and Library without recalibration.
+        if not metadata.get('is_raw', False):
+            try:
+                from utils.color_analyzer import ColorAnalyzer
+                sample_display_rgb = ColorAnalyzer.calibrated_lab_to_rgb(sample_lab)
+            except Exception as e:
+                print(f"DEBUG: Compare Lab-to-RGB display failed: {e}")
+                sample_display_rgb = sample_rgb       
         if metadata.get('is_raw', False):
             try:
                 from utils.raw_display_bridge import analysis_rgb_to_raw_display_rgb

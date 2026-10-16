@@ -8,6 +8,13 @@ from typing import Tuple, Optional, Union
 from PIL import Image, ImageTk
 import logging
 import numpy as np
+# High-precision PNG decoding (16-bit RGB/RGBA)
+try:
+    import cv2
+    HAS_OPENCV = True
+except ImportError:
+    cv2 = None
+    HAS_OPENCV = False
 
 # Import 16-bit TIFF loader
 try:
@@ -256,6 +263,106 @@ def load_image(file_path: Union[str, Path], display_only: bool = False) -> Tuple
                 return image, metadata
             except Exception as e:
                 raise ImageLoadError(f"Failed to load RAW file {file_path}: {e}")
+
+        # Preserve 16-bit RGB PNG precision independently of display depth.
+        if suffix == '.png' and HAS_OPENCV:
+            import io
+            from PIL import ImageCms
+
+            with Image.open(file_path) as png_info:
+                icc_bytes = png_info.info.get('icc_profile')
+                png_info_dict = dict(png_info.info)
+
+            is_linear_raw = _is_vuescan_linear_png(file_path)
+            is_srgb = False
+            profile_description = None
+
+            if icc_bytes:
+                try:
+                    profile = ImageCms.ImageCmsProfile(
+                        io.BytesIO(icc_bytes)
+                    )
+                    profile_description = ImageCms.getProfileDescription(
+                        profile
+                    )
+                    is_srgb = 'srgb' in profile_description.lower()
+                except Exception as exc:
+                    logger.warning(
+                        f"Could not identify PNG ICC profile: {exc}"
+                    )
+            else:
+                # No ICC profile: ordinary PNGs are provisionally
+                # interpreted as sRGB, unless identified as linear RAW.
+                is_srgb = not is_linear_raw
+
+            # Non-sRGB embedded profiles require a separate
+            # color-managed high-bit-depth conversion.
+            if is_srgb or is_linear_raw:
+                png_array = cv2.imread(
+                    str(file_path), cv2.IMREAD_UNCHANGED
+                )
+
+                if (
+                    png_array is not None
+                    and png_array.dtype == np.uint16
+                    and png_array.ndim == 3
+                    and png_array.shape[2] == 3
+                ):
+                    rgb16 = cv2.cvtColor(
+                        png_array, cv2.COLOR_BGR2RGB
+                    )
+
+                    if is_linear_raw and not display_only:
+                        rgb16 = _apply_srgb_gamma_16bit(rgb16)
+
+                    rgb8 = np.round(
+                        rgb16.astype(np.float64) / 257.0
+                    ).astype(np.uint8)
+
+                    image = Image.fromarray(rgb8, mode='RGB')
+                    image._stampz_16bit_data = rgb16
+                    image._stampz_16bit_encoding = (
+                        'linear'
+                        if is_linear_raw and display_only
+                        else 'srgb'
+                    )
+                    image._stampz_source_file = str(file_path)
+                    image._stampz_is_raw = is_linear_raw
+
+                    metadata.update({
+                        'format_info': (
+                            'VueScan linear RAW PNG — 16-bit preserved'
+                            if is_linear_raw
+                            else '16-bit RGB PNG — full precision preserved'
+                        ),
+                        'precision_preserved': True,
+                        'original_bit_depth': 16,
+                        'samples_per_pixel': 3,
+                        'photometric': 'RGB',
+                        'data_type': 'uint16',
+                        'value_range': (
+                            int(rgb16.min()), int(rgb16.max())
+                        ),
+                        'icc_profile_name': profile_description,
+                        'color_profile': (
+                            'Uncalibrated linear RAW'
+                            if is_linear_raw
+                            else 'Embedded sRGB'
+                            if icc_bytes
+                            else 'Assumed sRGB (no ICC profile)'
+                        ),
+                        'is_raw': is_linear_raw,
+                        'linear_gamma_corrected': (
+                            is_linear_raw and not display_only
+                        ),
+                    })
+
+                    logger.info(
+                        f"Loaded 16-bit PNG with full precision: "
+                        f"{file_path}, RAW={is_linear_raw}, "
+                        f"display_only={display_only}"
+                    )
+                    return image, metadata
 
         # Handle TIFF files with 16-bit loader if available
         if file_path.suffix.lower() in ['.tif', '.tiff'] and HAS_16BIT_LOADER:
