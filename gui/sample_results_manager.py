@@ -353,23 +353,26 @@ class SampleResultsManager(tk.Frame):
         for sample in self.sample_points:
             frame = ttk.Frame(self.samples_frame)
             frame.pack(fill=tk.X, pady=5)
+            # Left column for sample controls and Delta E information.
+            controls_frame = ttk.Frame(frame)
+            controls_frame.pack(side=tk.LEFT, anchor='n', padx=(5, 5))
             
             # Sample toggle
-            ttk.Checkbutton(frame,
+            ttk.Checkbutton(controls_frame,
                           text=f"Sample {sample['index']}",
                           variable=sample['enabled'],
-                          command=self._on_sample_toggle).pack(side=tk.LEFT)
+                          command=self._on_sample_toggle).pack(anchor='w', pady=(0, 4))
             
             # Paper toggle — marks this sample as paper-margin (vs ink).
             # Wrapped so we can enforce the "min 2 ink samples" rule:
             # turning P on is rejected if it would drop the ink-tagged
             # count below 2 (which would leave the ink section empty
             # and hide the Save / Compute coverage buttons).
-            ttk.Checkbutton(frame,
+            ttk.Checkbutton(controls_frame,
                           text="P",
                           variable=sample['is_paper'],
                           command=lambda s=sample: self._on_paper_toggle(s)).pack(
-                              side=tk.LEFT, padx=(2, 8))
+                              anchor='w', padx=(2, 0), pady=(0, 4))
             
         # Color values with ΔE from this sample's group average
             rgb = sample['rgb']
@@ -413,20 +416,18 @@ class SampleResultsManager(tk.Frame):
                     # Preserve original sampled RGB and analytical Lab.
                     calibrated_rgb = ColorAnalyzer.calibrated_lab_to_rgb(lab)
 
-                    if bridge_enabled:
-                        swatch_rgb = analysis_rgb_to_raw_display_rgb(
-                            calibrated_rgb,
-                            bridge_enabled=True,
-                        )
-                    else:
-                        swatch_rgb = calibrated_rgb
-                        display_rgb = calibrated_rgb
+                    # Use the same calibrated RAW rendering path
+                    # for individual samples and AVG.
+                    # Analytical RGB and Lab remain unchanged.
+                    swatch_rgb = analysis_rgb_to_raw_display_rgb(
+                        calibrated_rgb,
+                        bridge_enabled=bridge_enabled,
+                    )
 
-                    if bridge_enabled:
-                        from utils.raw_display_bridge import display_rgb_to_lab
+                    from utils.raw_display_bridge import display_rgb_to_lab
 
-                        display_rgb = swatch_rgb
-                        display_lab = display_rgb_to_lab(display_rgb)
+                    display_rgb = swatch_rgb
+                    display_lab = display_rgb_to_lab(display_rgb)
 
                     print(
                         f"DEBUG SAMPLE DISPLAY: RAW=True "
@@ -445,7 +446,7 @@ class SampleResultsManager(tk.Frame):
                     swatch_rgb = rgb            
 
             top_text = get_conditional_color_values_text(
-                display_rgb, display_lab, compact=True
+                rgb, lab, compact=True
             )
 
             # Compute ΔE + breakdown so we can render the ΔE line in its own
@@ -499,10 +500,42 @@ class SampleResultsManager(tk.Frame):
             # so we can colour it independently; the rest stay in plain ttk
             # labels stacked above and below it.
             value_col = ttk.Frame(frame)
-            value_col.pack(side=tk.LEFT, padx=20, anchor='nw')
+            value_col.pack(side=tk.LEFT, padx=(8, 5), anchor='nw')
+
+            # Authoritative analytical measurements.
             ttk.Label(
-                value_col, text=top_text, font=("Arial", 12), justify=tk.LEFT,
+                value_col,
+                text="Analytical",
+                font=("Arial", 11, "bold"),
             ).pack(anchor='w')
+
+            ttk.Label(
+                value_col,
+                text=top_text,
+                font=("Arial", 12),
+                justify=tk.LEFT,
+            ).pack(anchor='w')
+            # Secondary display-only values.
+            # These are never used for analytical calculations.
+            rendered_text = get_conditional_color_values_text(
+                display_rgb, display_lab, compact=True
+            )
+
+            ttk.Label(
+                value_col,
+                text="Rendered*",
+                font=("Arial", 10, "bold"),
+                foreground="black",
+            ).pack(anchor='w', pady=(4, 0))
+
+            ttk.Label(
+                value_col,
+                text=rendered_text,
+                font=("Arial", 10),
+                foreground="black",
+                justify=tk.LEFT,
+            ).pack(anchor='w')
+
             if delta_e is not None:
                 # Threshold-banded colour for the headline ΔE.
                 if delta_e <= 1.0:
@@ -511,23 +544,29 @@ class SampleResultsManager(tk.Frame):
                     de_color = "#0066CC"   # blue
                 else:
                     de_color = "#CC0000"   # red
+
                 ttk.Label(
-                    value_col,
-                    text=f"ΔE from {role_label} avg: {delta_e:.2f}",
+                    controls_frame,
+                    text=f"ΔE: {delta_e:.2f}",
                     font=("Arial", 12, "bold"),
                     foreground=de_color,
                 ).pack(anchor='w', pady=(6, 0))
-                if breakdown:
-                    ttk.Label(
-                        value_col, text=f"  {breakdown}",
-                        font=("Arial", 12),
-                    ).pack(anchor='w')
+
+            if breakdown:
+                ttk.Label(
+                    controls_frame,
+                    text=f"  {breakdown}",
+                    font=("Arial", 10),
+                    foreground="black",
+                ).pack(anchor='w')
+
             elif sample['enabled'].get():
                 ttk.Label(
-                    value_col,
+                    controls_frame,
                     text="ΔE: —",
                     font=("Arial", 12, "bold"),
-                ).pack(anchor='w', pady=(6, 0))                  
+                ).pack(anchor='w', pady=(6, 0))    
+
             if stddev_text:
                 ttk.Label(
                     value_col, text=stddev_text, font=("Arial", 12),
@@ -536,7 +575,7 @@ class SampleResultsManager(tk.Frame):
             # Color swatch using canvas - increased height to accommodate multi-line text
             canvas = tk.Canvas(
                 frame,
-                width=450,
+                width=275,
                 height=100,
                 highlightthickness=1,
                 highlightbackground='gray'
@@ -546,7 +585,7 @@ class SampleResultsManager(tk.Frame):
             # Create rectangle for color display
             
             canvas.create_rectangle(
-                0, 0, 450, 100,
+                0, 0, 275, 100,
                 fill=f"#{int(swatch_rgb[0]):02x}{int(swatch_rgb[1]):02x}{int(swatch_rgb[2]):02x}",
                 outline=''
             )
@@ -635,6 +674,20 @@ class SampleResultsManager(tk.Frame):
             self.average_frame, text=label,
             font=("Arial", 12, "bold"),
         ).pack(anchor='w', padx=10, pady=(8, 2))
+
+        # Explain analytical versus rendered measurements.
+        ttk.Label(
+            self.average_frame,
+            text=(
+                "Analytical: Calibrated measurements used for "
+                "averaging, ΔE, comparisons, and saved data.\n"
+                "Rendered*: Display-only values representing "
+                "the swatch; not analytical measurements."
+            ),
+            font=("Arial", 11, "bold"),
+            foreground="black",
+            justify=tk.LEFT,
+        ).pack(anchor='w', padx=10, pady=(4, 8))
         
         # Display row
         frame = ttk.Frame(self.average_frame)
@@ -690,19 +743,16 @@ class SampleResultsManager(tk.Frame):
                 from utils.color_analyzer import ColorAnalyzer
                 calibrated_rgb = ColorAnalyzer.calibrated_lab_to_rgb(avg_lab)
 
-                if bridge_enabled:
-                    # Apply the existing RAW Bridge to calibrated RGB.
-                    swatch_rgb = analysis_rgb_to_raw_display_rgb(
-                        calibrated_rgb,
-                        bridge_enabled=True,
-                    )
-                    display_rgb = swatch_rgb
-                    display_lab = display_rgb_to_lab(display_rgb)
-                else:
-                    # Show the calibrated color without RAW Bridge.
-                    swatch_rgb = calibrated_rgb
-                    display_rgb = calibrated_rgb
-                    display_lab = avg_lab
+                # Reconstruct the native RAW appearance from calibrated RGB.
+                # Apply RAW Bridge only when enabled.
+                # Analytical RGB and Lab remain unchanged.
+                swatch_rgb = analysis_rgb_to_raw_display_rgb(
+                    calibrated_rgb,
+                    bridge_enabled=bridge_enabled,
+                )
+
+                display_rgb = swatch_rgb
+                display_lab = display_rgb_to_lab(display_rgb)
 
                 print(
                     f"DEBUG RESULTS DISPLAY: RAW=True "
@@ -733,17 +783,48 @@ class SampleResultsManager(tk.Frame):
             outline='',
         )
         
-        value_text = get_conditional_color_values_text(
-            display_rgb, display_lab, compact=True,
+        # Authoritative analytical values, used for averaging,
+        # Delta E, comparisons, and saved measurements.
+        analytical_text = get_conditional_color_values_text(
+            avg_rgb, avg_lab, compact=True
         )
-        
+
+        # Display-only values corresponding to the rendered swatch.
+        rendered_text = get_conditional_color_values_text(
+            display_rgb, display_lab, compact=True
+        )
+
         values_frame = ttk.Frame(frame)
         values_frame.pack(side=tk.LEFT, padx=20, fill=tk.Y)
-        
+
         ttk.Label(
-            values_frame, text=value_text,
+            values_frame,
+            text="Analytical",
+            font=("Arial", 12, "bold"),
+            foreground="black",
+        ).pack(anchor='w', pady=(10 if big else 4, 2))
+
+        ttk.Label(
+            values_frame,
+            text=analytical_text,
             font=("Arial", 14 if big else 12),
-        ).pack(pady=(10 if big else 4))
+            justify=tk.LEFT,
+        ).pack(anchor='w')
+
+        ttk.Label(
+            values_frame,
+            text="Rendered*",
+            font=("Arial", 11, "bold"),
+            foreground="black",
+        ).pack(anchor='w', pady=(10, 2))
+
+        ttk.Label(
+            values_frame,
+            text=rendered_text,
+            font=("Arial", 11),
+            foreground="black",
+            justify=tk.LEFT,
+        ).pack(anchor='w')
         
         if outliers_excluded > 0:
             outlier_text = (

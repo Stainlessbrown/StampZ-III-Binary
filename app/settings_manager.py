@@ -27,7 +27,7 @@ class SettingsManager:
         try:
             from __init__ import __version__, __app_name__, __description__
         except ImportError:
-            __version__ = "3.3.1k"
+            __version__ = "3.3.1l"
             __app_name__ = "StampZ_III"
             __description__ = "Image analysis and color analysis tool"
         
