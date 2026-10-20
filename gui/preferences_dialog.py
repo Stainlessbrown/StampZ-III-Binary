@@ -208,8 +208,50 @@ class PreferencesDialog:
     
     def _create_spreadsheet_export_tab(self, notebook):
         """Create the spreadsheet export preferences tab."""
-        export_frame = ttk.Frame(notebook, padding="10")
-        notebook.add(export_frame, text="Spreadsheet Exports")
+        outer_frame = ttk.Frame(notebook)
+        notebook.add(outer_frame, text="Spreadsheet Exports")
+
+        canvas = tk.Canvas(outer_frame, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(
+            outer_frame, orient="vertical", command=canvas.yview
+        )
+
+        scrollable_frame = ttk.Frame(canvas)
+        window_id = canvas.create_window(
+            (0, 0), window=scrollable_frame, anchor="nw"
+        )
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda event: canvas.configure(
+                scrollregion=canvas.bbox("all")
+            )
+        )
+
+        canvas.bind(
+            "<Configure>",
+            lambda event: canvas.itemconfigure(
+                window_id, width=event.width
+            )
+        )
+
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        export_frame = ttk.Frame(scrollable_frame, padding="10")
+        export_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Scroll only while Spreadsheet Exports is the active tab.
+        def _on_export_mousewheel(event):
+            if notebook.select() != str(outer_frame):
+                return
+            if canvas.winfo_ismapped():
+                canvas.yview_scroll(
+                    -1 if event.delta > 0 else 1, "units"
+                )
+
+        canvas.bind("<MouseWheel>", _on_export_mousewheel)
         
         # Export directory section
         dir_frame = ttk.LabelFrame(export_frame, text="Export Directory", padding="10")
@@ -396,40 +438,38 @@ class PreferencesDialog:
             font=("TkDefaultFont", 10, "bold")
         ).pack(anchor=tk.W, pady=(0, 10))
         
-        self.export_include_rgb_var = tk.BooleanVar()
-        self.rgb_checkbox = ttk.Checkbutton(
-            color_space_frame,
-            text="Include RGB color values (Red, Green, Blue)",
-            variable=self.export_include_rgb_var,
-            command=self._on_color_space_change
-        )
-        self.rgb_checkbox.pack(anchor=tk.W, pady=(0, 5))
-        
-        self.export_include_lab_var = tk.BooleanVar()
-        self.lab_checkbox = ttk.Checkbutton(
-            color_space_frame,
-            text="Include L*a*b* color values (CIE L*a*b*)",
-            variable=self.export_include_lab_var,
-            command=self._on_color_space_change
-        )
-        self.lab_checkbox.pack(anchor=tk.W, pady=(0, 5))
-        
-        self.export_include_cmy_var = tk.BooleanVar()
-        self.cmy_checkbox = ttk.Checkbutton(
-            color_space_frame,
-            text="Include CMY color values (Cyan, Magenta, Yellow)",
-            variable=self.export_include_cmy_var,
-            command=self._on_color_space_change
-        )
-        self.cmy_checkbox.pack(anchor=tk.W, pady=(0, 10))
-        
+        # Preserve the requested display order: Lab, LCh, RGB, CMY.
+        for key, title in (
+            ("lab", "Include L*a*b* color values (CIE Lab)"),
+            ("lch", "Include L*C*h° color values (CIE LCh)"),
+            ("rgb", "Include RGB color values (Red, Green, Blue)"),
+            ("cmy", "Include CMY color values (Cyan, Magenta, Yellow)"),
+        ):
+            var = tk.BooleanVar()
+            setattr(self, f"export_include_{key}_var", var)
+            checkbox = ttk.Checkbutton(
+                color_space_frame,
+                text=title,
+                variable=var,
+                command=self._on_color_space_change,
+            )
+            setattr(self, f"{key}_checkbox", checkbox)
+            checkbox.pack(anchor=tk.W, pady=(0, 5))
+
         ttk.Label(
             color_space_frame,
-            text="• RGB: Scanned image native format (0-255 per channel)\n• L*a*b*: Perceptually uniform color space, better for color analysis\n• CMY: Subtractive color model (255 - RGB), useful for print analysis\n• Selecting specific color spaces reduces export column count\n• At least one color space must be selected",
+            text=(
+                "• Lab: Authoritative perceptual color measurements\n"
+                "• LCh: Lightness, chroma, hue derived from Lab\n"
+                "• RGB: Red, Green, Blue\n"
+                "• CMY: Subtractive color representation\n"
+                "• Selections also affect certain on-screen readouts\n"
+                "• At least one color space must be selected"
+            ),
             font=("TkDefaultFont", 9),
-            foreground="gray"
+            foreground="gray",
         ).pack(anchor=tk.W)
-    
+
     def _create_image_dialog_tab(self, notebook):
         """Create the image dialog preferences tab."""
         dialog_frame = ttk.Frame(notebook, padding="10")
@@ -1574,6 +1614,7 @@ class PreferencesDialog:
         # Color space preferences
         self.export_include_rgb_var.set(self.prefs_manager.get_export_include_rgb())
         self.export_include_lab_var.set(self.prefs_manager.get_export_include_lab())
+        self.export_include_lch_var.set(self.prefs_manager.get_export_include_lch())
         self.export_include_cmy_var.set(self.prefs_manager.get_export_include_cmy())
         
         # Compare mode preferences
@@ -1742,9 +1783,17 @@ class PreferencesDialog:
                 return False
             
             # Color space preferences
-            self.prefs_manager.set_export_include_rgb(self.export_include_rgb_var.get())
-            self.prefs_manager.set_export_include_lab(self.export_include_lab_var.get())
-            self.prefs_manager.set_export_include_cmy(self.export_include_cmy_var.get())
+            if not self.prefs_manager.set_export_color_spaces(
+                include_lab=self.export_include_lab_var.get(),
+                include_lch=self.export_include_lch_var.get(),
+                include_rgb=self.export_include_rgb_var.get(),
+                include_cmy=self.export_include_cmy_var.get(),
+            ):
+                messagebox.showerror(
+                    "Invalid Color Selection",
+                    "At least one color space must be selected."
+                )
+                return False
             
             # Analysis save preferences
             self.prefs_manager.set_save_individual_default(self.save_individual_default_var.get())
@@ -1828,20 +1877,21 @@ class PreferencesDialog:
         self._apply_settings()
     
     def _on_color_space_change(self):
-        """Handle color space checkbox changes to ensure at least one is selected."""
-        rgb_checked = self.export_include_rgb_var.get()
-        lab_checked = self.export_include_lab_var.get()
-        cmy_checked = self.export_include_cmy_var.get()
-        
-        # Ensure at least one color space is selected
-        if not rgb_checked and not lab_checked and not cmy_checked:
-            # If all are unchecked, recheck RGB as default
+        """Require at least one selected color space; use RGB as fallback."""
+        selected = (
+            self.export_include_lab_var.get(),
+            self.export_include_lch_var.get(),
+            self.export_include_rgb_var.get(),
+            self.export_include_cmy_var.get(),
+        )
+        if not any(selected):
             self.export_include_rgb_var.set(True)
             messagebox.showwarning(
                 "Color Space Required",
-                "At least one color space (RGB, L*a*b*, or CMY) must be selected for exports.\n\nRGB has been re-enabled."
+                "At least one color space must be selected.\n\n"
+                "RGB has been re-enabled."
             )
-    
+
     def _create_debug_tab(self, notebook):
         """Create the debug preferences tab."""
         debug_frame = ttk.Frame(notebook, padding="10")

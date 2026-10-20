@@ -22,6 +22,7 @@ class ExportPreferences:
     export_normalized_values: bool = False  # Export color values normalized to 0.0-1.0 range
     export_include_rgb: bool = True  # Include RGB color values in export
     export_include_lab: bool = True  # Include L*a*b* color values in export
+    export_include_lch: bool = False  # Include CIE LCh color values in export
     export_include_cmy: bool = False  # Include CMY color values in export
 
 
@@ -336,6 +337,27 @@ class PreferencesManager:
             print(f"Error setting L*a*b* export preference: {e}")
             return False
     
+    def get_export_include_lch(self) -> bool:
+        """Get whether CIE LCh values are included in exports."""
+        return self.preferences.export_prefs.export_include_lch
+
+    def set_export_color_spaces(
+        self, include_lab: bool, include_lch: bool,
+        include_rgb: bool, include_cmy: bool
+    ) -> bool:
+        """Atomically update all four export color-space selections."""
+        if not any((include_lab, include_lch, include_rgb, include_cmy)):
+            print("Error: At least one export color space must be selected")
+            return False
+
+        prefs = self.preferences.export_prefs
+        prefs.export_include_lab = bool(include_lab)
+        prefs.export_include_lch = bool(include_lch)
+        prefs.export_include_rgb = bool(include_rgb)
+        prefs.export_include_cmy = bool(include_cmy)
+        self.save_preferences()
+        return True
+
     def get_export_include_cmy(self) -> bool:
         """Get whether to include CMY color values in exports."""
         return self.preferences.export_prefs.export_include_cmy
@@ -1136,6 +1158,7 @@ class PreferencesManager:
                         export_normalized_values=export_data.get('export_normalized_values', False),
                         export_include_rgb=export_data.get('export_include_rgb', True),
                         export_include_lab=export_data.get('export_include_lab', True),
+                        export_include_lch=export_data.get('export_include_lch', False),
                         export_include_cmy=export_data.get('export_include_cmy', False)
                     )
                 
