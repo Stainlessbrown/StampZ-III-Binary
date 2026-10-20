@@ -235,10 +235,6 @@ class StampZApp:
         """Delegate to analysis manager."""
         return self.analysis_manager.export_with_library_matches()
         
-    def open_spectral_analysis(self):
-        """Delegate to analysis manager."""
-        return self.analysis_manager.open_spectral_analysis()
-        
     def open_3d_analysis(self):
         """Delegate to analysis manager."""
         return self.analysis_manager.open_3d_analysis()

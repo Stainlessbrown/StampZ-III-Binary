@@ -153,12 +153,6 @@ class MenuManager:
         self.color_menu.add_separator()
         
         self.color_menu.add_command(
-            label="Spectral Analysis...", 
-            command=self.app.open_spectral_analysis
-        )
-        self.color_menu.add_separator()
-        
-        self.color_menu.add_command(
             label="Plot_3D Data Manager...", 
             command=self.app.analysis_manager.open_plot3d_data_manager
         )
