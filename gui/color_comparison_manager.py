@@ -736,14 +736,14 @@ class ColorComparisonManager(tk.Frame):
 
         sample_label.config(
             text=(
-                f"Comparing: RGB({int(sample_display_rgb[0])}, "
-                f"{int(sample_display_rgb[1])}, "
-                f"{int(sample_display_rgb[2])}) | "
-                f"L*a*b*({sample_display_lab[0]:.1f}, "
-                f"{sample_display_lab[1]:.1f}, "
-                f"{sample_display_lab[2]:.1f})"
+                f"Comparing: RGB({sample_rgb[0]:.2f}, "
+                f"{sample_rgb[1]:.2f}, "
+                f"{sample_rgb[2]:.2f}) | "
+                f"L*a*b*({sample_lab[0]:.3f}, "
+                f"{sample_lab[1]:.3f}, "
+                f"{sample_lab[2]:.3f})"
             )
-        )               
+        )
 
         # Draw sample color
         sample_canvas.create_rectangle(
@@ -757,8 +757,10 @@ class ColorComparisonManager(tk.Frame):
         sample_info_frame.pack(fill=tk.X, padx=(0, 10), pady=(0, 10), anchor='w')
         
         sample_info_text = (
-            f"RGB: ({int(sample_display_rgb[0])}, {int(sample_display_rgb[1])}, {int(sample_display_rgb[2])})\n"
-            f"L*a*b*: ({sample_display_lab[0]:.1f}, {sample_display_lab[1]:.1f}, {sample_display_lab[2]:.1f})"
+            f"Analytical RGB: ({sample_rgb[0]:.2f}, "
+            f"{sample_rgb[1]:.2f}, {sample_rgb[2]:.2f})\n"
+            f"Analytical L*a*b*: ({sample_lab[0]:.3f}, "
+            f"{sample_lab[1]:.3f}, {sample_lab[2]:.3f})"
         )
         
         sample_info_label = ttk.Label(
@@ -856,11 +858,12 @@ class ColorComparisonManager(tk.Frame):
         # Display very small ΔE values (< 0.1) as 0.0 to account for floating-point rounding
         display_delta_e = 0.0 if match.delta_e_2000 < 0.1 else match.delta_e_2000
         values_text = (
-            f"RGB: ({int(match_display_rgb[0])}, {int(match_display_rgb[1])}, {int(match_display_rgb[2])}) | "
-            f"L*a*b*: ({match_display_lab[0]:.1f}, {match_display_lab[1]:.1f}, {match_display_lab[2]:.1f}) | "
+            f"RGB: ({color_rgb[0]:.2f}, {color_rgb[1]:.2f}, {color_rgb[2]:.2f}) | "
+            f"L*a*b*: ({match.library_color.lab[0]:.3f}, "
+            f"{match.library_color.lab[1]:.3f}, "
+            f"{match.library_color.lab[2]:.3f}) | "
             f"ΔE: {display_delta_e:.2f}"
         )
-        
         values_label = ttk.Label(
             info_frame,
             text=values_text,

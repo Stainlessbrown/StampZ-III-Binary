@@ -518,26 +518,6 @@ class SampleResultsManager(tk.Frame):
                 font=("Arial", 12),
                 justify=tk.LEFT,
             ).pack(anchor='w')
-            # Secondary display-only values.
-            # These are never used for analytical calculations.
-            rendered_text = get_conditional_color_values_text(
-                display_rgb, display_lab, compact=True
-            )
-
-            ttk.Label(
-                value_col,
-                text="Rendered*",
-                font=("Arial", 10, "bold"),
-                foreground="black",
-            ).pack(anchor='w', pady=(4, 0))
-
-            ttk.Label(
-                value_col,
-                text=rendered_text,
-                font=("Arial", 10),
-                foreground="black",
-                justify=tk.LEFT,
-            ).pack(anchor='w')
 
             if delta_e is not None:
                 # Threshold-banded colour for the headline ΔE.
@@ -578,7 +558,6 @@ class SampleResultsManager(tk.Frame):
             if get_preferences_manager().get_export_include_lch():
                 for heading, lab_values in (
                     ("LCh — Analytical", lab),
-                    ("LCh — Rendered*", display_lab),
                 ):
                     if lab_values is None:
                         continue
@@ -709,8 +688,6 @@ class SampleResultsManager(tk.Frame):
             text=(
                 "Analytical: Calibrated measurements used for "
                 "averaging, ΔE, comparisons, and saved data.\n"
-                "Rendered*: Display-only values representing "
-                "the swatch; not analytical measurements."
             ),
             font=("Arial", 11, "bold"),
             foreground="black",
@@ -817,11 +794,6 @@ class SampleResultsManager(tk.Frame):
             avg_rgb, avg_lab, compact=True
         )
 
-        # Display-only values corresponding to the rendered swatch.
-        rendered_text = get_conditional_color_values_text(
-            display_rgb, display_lab, compact=True
-        )
-
         values_frame = ttk.Frame(frame)
         values_frame.pack(side=tk.LEFT, padx=20, fill=tk.Y)
 
@@ -836,21 +808,6 @@ class SampleResultsManager(tk.Frame):
             values_frame,
             text=analytical_text,
             font=("Arial", 14 if big else 12),
-            justify=tk.LEFT,
-        ).pack(anchor='w')
-
-        ttk.Label(
-            values_frame,
-            text="Rendered*",
-            font=("Arial", 11, "bold"),
-            foreground="black",
-        ).pack(anchor='w', pady=(10, 2))
-
-        ttk.Label(
-            values_frame,
-            text=rendered_text,
-            font=("Arial", 11),
-            foreground="black",
             justify=tk.LEFT,
         ).pack(anchor='w')
         
@@ -874,7 +831,6 @@ class SampleResultsManager(tk.Frame):
 
             for heading, lab_values in (
                 ("LCh — Analytical", avg_lab),
-                ("LCh — Rendered*", display_lab),
             ):
                 if lab_values is None:
                     continue
