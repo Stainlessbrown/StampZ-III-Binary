@@ -30,6 +30,7 @@ def get_conditional_color_info(
         show_rgb = prefs.get_export_include_rgb()
         show_lab = prefs.get_export_include_lab()
         show_cmy = prefs.get_export_include_cmy()
+        show_lch = prefs.get_export_include_lch()
         
         # Always show at least one color space to avoid empty display
         if not show_rgb and not show_lab and not show_cmy and not show_hex:
@@ -46,6 +47,15 @@ def get_conditional_color_info(
         # Add RGB info if enabled
         if show_rgb:
             color_info_parts.append(f"RGB: {rgb[0]:.2f}, {rgb[1]:.2f}, {rgb[2]:.2f}")
+
+        # CIE LCh — derived from the same Lab values being displayed.
+        if show_lch and lab is not None:
+            from utils.lab_difference import lab_to_lch
+
+            L, C, h = lab_to_lch(lab)
+            color_info_parts.append(
+                f"LCh: L*={L:.3f}, C*={C:.3f}, h°={h:.3f}"
+            )
         
         # Add CMY info if enabled (CMY = 255 - RGB)
         if show_cmy:

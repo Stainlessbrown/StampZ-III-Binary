@@ -716,6 +716,12 @@ class ColorLibraryManager:
                 display_lab,
             )
 
+            if is_raw_derived:
+                print(
+                    f"DEBUG LIBRARY TEXT: {color.name} "
+                    f"Bridge={bridge_enabled}\n{color_info}"
+                )
+
             # Color display on left - simplified
             color_display = ColorDisplay(
                 display_frame,

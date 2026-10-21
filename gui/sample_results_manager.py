@@ -357,22 +357,25 @@ class SampleResultsManager(tk.Frame):
             controls_frame = ttk.Frame(frame)
             controls_frame.pack(side=tk.LEFT, anchor='n', padx=(5, 5))
             
+            # Horizontal row for Sample and Paper toggles.
+            toggle_frame = ttk.Frame(controls_frame)
+            toggle_frame.pack(anchor='w', pady=(0, 4))
+
             # Sample toggle
-            ttk.Checkbutton(controls_frame,
-                          text=f"Sample {sample['index']}",
-                          variable=sample['enabled'],
-                          command=self._on_sample_toggle).pack(anchor='w', pady=(0, 4))
-            
-            # Paper toggle — marks this sample as paper-margin (vs ink).
-            # Wrapped so we can enforce the "min 2 ink samples" rule:
-            # turning P on is rejected if it would drop the ink-tagged
-            # count below 2 (which would leave the ink section empty
-            # and hide the Save / Compute coverage buttons).
-            ttk.Checkbutton(controls_frame,
-                          text="P",
-                          variable=sample['is_paper'],
-                          command=lambda s=sample: self._on_paper_toggle(s)).pack(
-                              anchor='w', padx=(2, 0), pady=(0, 4))
+            ttk.Checkbutton(
+                toggle_frame,
+                text=f"Sample {sample['index']}",
+                variable=sample['enabled'],
+                command=self._on_sample_toggle,
+            ).pack(side=tk.LEFT)
+
+            # Paper toggle — preserve existing validation callback.
+            ttk.Checkbutton(
+                toggle_frame,
+                text="P",
+                variable=sample['is_paper'],
+                command=lambda s=sample: self._on_paper_toggle(s),
+            ).pack(side=tk.LEFT, padx=(8, 0))
             
         # Color values with ΔE from this sample's group average
             rgb = sample['rgb']
@@ -566,6 +569,31 @@ class SampleResultsManager(tk.Frame):
                     text="ΔE: —",
                     font=("Arial", 12, "bold"),
                 ).pack(anchor='w', pady=(6, 0))    
+
+            # LCh readouts: derived from existing analytical/display Lab.
+            # No changes to averaging, Delta E, or stored measurements.
+            from utils.user_preferences import get_preferences_manager
+            from utils.lab_difference import lab_to_lch
+
+            if get_preferences_manager().get_export_include_lch():
+                for heading, lab_values in (
+                    ("LCh — Analytical", lab),
+                    ("LCh — Rendered*", display_lab),
+                ):
+                    if lab_values is None:
+                        continue
+                    L, C, h = lab_to_lch(lab_values)
+                    ttk.Label(
+                        controls_frame,
+                        text=heading,
+                        font=("Arial", 10, "bold"),
+                    ).pack(anchor="w", pady=(5, 0))
+
+                    ttk.Label(
+                        controls_frame,
+                        text=f"L*: {L:.3f}   C*: {C:.3f}   h°: {h:.3f}",
+                        font=("Arial", 10),
+                    ).pack(anchor="w")
 
             if stddev_text:
                 ttk.Label(
@@ -834,6 +862,36 @@ class SampleResultsManager(tk.Frame):
                 f"Max ΔE from centroid: {max_delta_e:.2f}"
             )
             ttk.Label(values_frame, text=outlier_text, font=("Arial", 10)).pack(pady=5)
+
+        # LCh for both ink and paper averages.
+        # Derived from the existing authoritative and rendered Lab values.
+        from utils.user_preferences import get_preferences_manager
+        from utils.lab_difference import lab_to_lch
+
+        if get_preferences_manager().get_export_include_lch():
+            lch_frame = ttk.Frame(values_frame)
+            lch_frame.pack(anchor='w', pady=(8, 4))
+
+            for heading, lab_values in (
+                ("LCh — Analytical", avg_lab),
+                ("LCh — Rendered*", display_lab),
+            ):
+                if lab_values is None:
+                    continue
+
+                L, C, h = lab_to_lch(lab_values)
+
+                ttk.Label(
+                    lch_frame,
+                    text=heading,
+                    font=("Arial", 11, "bold"),
+                ).pack(anchor='w', pady=(4, 0))
+
+                ttk.Label(
+                    lch_frame,
+                    text=f"L*: {L:.3f}   C*: {C:.3f}   h°: {h:.3f}",
+                    font=("Arial", 11),
+                ).pack(anchor='w')
         
         if not with_buttons:
             return

@@ -156,13 +156,6 @@ class PreferencesDialog:
         )
         cancel_btn.pack(side=tk.RIGHT, padx=(5, 0))
         
-        apply_btn = ttk.Button(
-            right_buttons, 
-            text="Apply/Continue", 
-            command=self._on_apply
-        )
-        apply_btn.pack(side=tk.RIGHT, padx=5)
-        
         ok_btn = ttk.Button(
             right_buttons, 
             text="OK/Close", 
@@ -1871,10 +1864,6 @@ class PreferencesDialog:
             self.result = "ok"
             self._persist_window_geometry()
             self.root.destroy()
-    
-    def _on_apply(self):
-        """Handle Apply button."""
-        self._apply_settings()
     
     def _on_color_space_change(self):
         """Require at least one selected color space; use RGB as fallback."""

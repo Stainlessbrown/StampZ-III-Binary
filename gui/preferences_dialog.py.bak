@@ -1,0 +1,2388 @@
+#!/usr/bin/env python3
+"""
+Preferences dialog for StampZ
+Allows users to configure export settings and other preferences.
+"""
+
+import os
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
+from pathlib import Path
+from typing import Optional
+
+
+class PreferencesDialog:
+    """Dialog for configuring user preferences."""
+    
+    def __init__(self, parent: tk.Tk, app=None):
+        self.parent = parent
+        self.app = app
+        self.root = tk.Toplevel(parent)
+        self.prefs_manager = None
+        self.result = None
+        
+        # Import here to avoid circular imports
+        from utils.user_preferences import get_preferences_manager
+        self.prefs_manager = get_preferences_manager()
+        
+        self._setup_dialog()
+        self._create_widgets()
+        self._load_current_settings()
+        
+    def _setup_dialog(self):
+        """Set up the dialog window."""
+        self.root.title("Preferences & Setup")
+        
+        # Get screen dimensions to calculate optimal dialog size
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        
+        # Calculate dialog size based on screen size, leaving space for dock/taskbar
+        if screen_height <= 768:  # Small screens (laptops)
+            dialog_height = min(800, int(screen_height * 0.95))  # Further increased for Compare Mode tab
+        else:  # Larger screens
+            dialog_height = min(950, int(screen_height * 0.95))  # Further increased for Compare Mode tab
+        
+        dialog_width = min(800, int(screen_width * 0.70))  # Wider to accommodate content
+        
+        # Wait for parent window to be fully initialized
+        self.parent.update_idletasks()
+        
+        # Apply saved geometry (multi-monitor aware). If nothing is saved,
+        # keep the pre-existing parent-centered math (harmless here since
+        # the dialog is sized for the parent's monitor anyway).
+        try:
+            from utils.window_geometry import apply_window_geometry, save_window_geometry, load_saved_geometry
+            self._save_window_geometry = save_window_geometry
+            self._window_geometry_key = 'preferences_dialog'
+            # Prefer a saved geometry if we have one; otherwise use the
+            # legacy parent-centered placement.
+            if load_saved_geometry(self._window_geometry_key):
+                apply_window_geometry(
+                    self.root,
+                    self._window_geometry_key,
+                    parent=None,
+                    default_size_ratio=0.7,
+                    min_width=650,
+                    min_height=750,
+                )
+            else:
+                # First-time placement: keep the existing parent-centered math
+                # so we don't change first-run positioning.
+                try:
+                    parent_x = self.parent.winfo_x()
+                    parent_y = self.parent.winfo_y()
+                    parent_width = self.parent.winfo_width()
+                    parent_height = self.parent.winfo_height()
+                    x = parent_x + (parent_width - dialog_width) // 2
+                    y = parent_y + (parent_height - dialog_height) // 2
+                except tk.TclError:
+                    x = (screen_width - dialog_width) // 2
+                    y = (screen_height - dialog_height) // 2
+                x = max(50, min(x, screen_width - dialog_width - 50))
+                y = max(50, min(y, screen_height - dialog_height - 50))
+                self.root.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
+        except Exception as e:
+            # If the helper can't load, fall back to the original math.
+            print(f"PreferencesDialog: falling back to legacy geometry ({e})")
+            self._save_window_geometry = None
+            self._window_geometry_key = None
+            try:
+                parent_x = self.parent.winfo_x()
+                parent_y = self.parent.winfo_y()
+                parent_width = self.parent.winfo_width()
+                parent_height = self.parent.winfo_height()
+                x = parent_x + (parent_width - dialog_width) // 2
+                y = parent_y + (parent_height - dialog_height) // 2
+            except tk.TclError:
+                x = (screen_width - dialog_width) // 2
+                y = (screen_height - dialog_height) // 2
+            x = max(50, min(x, screen_width - dialog_width - 50))
+            y = max(50, min(y, screen_height - dialog_height - 50))
+            self.root.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
+        self.root.resizable(True, True)
+        
+        # Set minimum size to ensure all content is usable
+        self.root.minsize(650, 750)  # Maximum increased minimum height for Compare Mode tab
+        
+        # Make dialog modal without transient relationship to avoid multi-monitor issues
+        # The transient() call causes the dialog to disappear when moved between screens on macOS
+        # We'll use grab_set() for modality without the problematic parent-child relationship
+        
+        # Skip transient() entirely to prevent multi-monitor disappearing issue
+        # This means the dialog won't automatically minimize when parent minimizes,
+        # but it will stay visible when moved between screens
+        
+        # Set modal behavior - this blocks interaction with parent window
+        self.root.grab_set()
+        
+        # Make the dialog appear on top and focus on it
+        self.root.lift()
+        self.root.focus_force()
+        
+        # Brief topmost to ensure visibility, then allow normal behavior
+        self.root.attributes('-topmost', True)
+        self.root.after(100, lambda: self.root.attributes('-topmost', False))
+        
+        # Handle window closing
+        self.root.protocol("WM_DELETE_WINDOW", self._on_cancel)
+        
+    def _create_widgets(self):
+        """Create the dialog widgets."""
+        # Main container with fixed layout to prevent button overflow
+        main_frame = ttk.Frame(self.root, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Button bar at the top for easier access on small screens
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, side=tk.TOP, pady=(0, 10))
+        
+        # Create buttons with proper spacing and visibility
+        reset_btn = ttk.Button(
+            button_frame, 
+            text="Reset to Defaults", 
+            command=self._reset_to_defaults
+        )
+        reset_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Create a frame for right-aligned buttons
+        right_buttons = ttk.Frame(button_frame)
+        right_buttons.pack(side=tk.RIGHT, padx=5)
+        
+        cancel_btn = ttk.Button(
+            right_buttons, 
+            text="Cancel", 
+            command=self._on_cancel
+        )
+        cancel_btn.pack(side=tk.RIGHT, padx=(5, 0))
+        
+        apply_btn = ttk.Button(
+            right_buttons, 
+            text="Apply/Continue", 
+            command=self._on_apply
+        )
+        apply_btn.pack(side=tk.RIGHT, padx=5)
+        
+        ok_btn = ttk.Button(
+            right_buttons, 
+            text="OK/Close", 
+            command=self._on_ok
+        )
+        ok_btn.pack(side=tk.RIGHT, padx=5)
+        
+        # Content area (notebook) - this gets the expandable space
+        content_frame = ttk.Frame(main_frame)
+        content_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Create notebook for different preference categories
+        notebook = ttk.Notebook(content_frame)
+        notebook.pack(fill=tk.BOTH, expand=True)
+        
+        # Migration tab (only show if migration is possible) - First priority
+        self._create_migration_tab(notebook)
+        
+        # Image dialog preferences tab - Basic workflow setup
+        self._create_image_dialog_tab(notebook)
+        
+        # Spreadsheet export preferences tab - Core functionality setup
+        self._create_spreadsheet_export_tab(notebook)
+        
+        # Sampling preferences tab - Advanced configuration (includes library defaults)
+        self._create_sampling_tab(notebook)
+        
+        # Compare mode preferences tab
+        self._create_compare_mode_tab(notebook)
+        
+        # Measurement preferences tab
+        self._create_measurement_tab(notebook)
+        
+        # Debug preferences tab
+        self._create_debug_tab(notebook)
+        
+        # Workspaces tab for managing active resources
+        self._create_workspaces_tab(notebook)
+        
+        # Future tabs can be added here
+        # self._create_general_tab(notebook)
+        # self._create_appearance_tab(notebook)
+    
+    def _create_spreadsheet_export_tab(self, notebook):
+        """Create the spreadsheet export preferences tab."""
+        outer_frame = ttk.Frame(notebook)
+        notebook.add(outer_frame, text="Spreadsheet Exports")
+
+        canvas = tk.Canvas(outer_frame, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(
+            outer_frame, orient="vertical", command=canvas.yview
+        )
+
+        scrollable_frame = ttk.Frame(canvas)
+        window_id = canvas.create_window(
+            (0, 0), window=scrollable_frame, anchor="nw"
+        )
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda event: canvas.configure(
+                scrollregion=canvas.bbox("all")
+            )
+        )
+
+        canvas.bind(
+            "<Configure>",
+            lambda event: canvas.itemconfigure(
+                window_id, width=event.width
+            )
+        )
+
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        export_frame = ttk.Frame(scrollable_frame, padding="10")
+        export_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Scroll only while Spreadsheet Exports is the active tab.
+        def _on_export_mousewheel(event):
+            if notebook.select() != str(outer_frame):
+                return
+            if canvas.winfo_ismapped():
+                canvas.yview_scroll(
+                    -1 if event.delta > 0 else 1, "units"
+                )
+
+        canvas.bind("<MouseWheel>", _on_export_mousewheel)
+        
+        # Export directory section
+        dir_frame = ttk.LabelFrame(export_frame, text="Export Directory", padding="10")
+        dir_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        # Current directory display
+        ttk.Label(dir_frame, text="Current directory:").pack(anchor=tk.W)
+        
+        self.export_dir_var = tk.StringVar()
+        self.export_dir_entry = ttk.Entry(
+            dir_frame, 
+            textvariable=self.export_dir_var,
+            state="readonly",
+            width=60
+        )
+        self.export_dir_entry.pack(fill=tk.X, pady=(5, 10))
+        
+        # Directory selection buttons
+        dir_button_frame = ttk.Frame(dir_frame)
+        dir_button_frame.pack(fill=tk.X)
+        
+        ttk.Button(
+            dir_button_frame,
+            text="Browse...",
+            command=self._browse_export_directory
+        ).pack(side=tk.LEFT)
+        
+        ttk.Button(
+            dir_button_frame,
+            text="Use Default",
+            command=self._use_default_directory
+        ).pack(side=tk.LEFT, padx=(10, 0))
+        
+        # Save button to immediately apply directory changes
+        ttk.Button(
+            dir_button_frame,
+            text="Save Settings",
+            command=self._apply_settings,
+            style="Accent.TButton"  # Make it stand out
+        ).pack(side=tk.LEFT, padx=(20, 0))
+        
+        ttk.Button(
+            dir_button_frame,
+            text="Open Directory",
+            command=self._open_current_directory
+        ).pack(side=tk.RIGHT)
+        
+        # Filename format section
+        filename_frame = ttk.LabelFrame(export_frame, text="Filename Format", padding="10")
+        filename_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(
+            filename_frame, 
+            text="Template (use {sample_set}, {date}, {datetime}):"
+        ).pack(anchor=tk.W)
+        
+        self.filename_template_var = tk.StringVar()
+        ttk.Entry(
+            filename_frame,
+            textvariable=self.filename_template_var,
+            width=40
+        ).pack(fill=tk.X, pady=(5, 10))
+        
+        # Filename options
+        self.include_timestamp_var = tk.BooleanVar()
+        ttk.Checkbutton(
+            filename_frame,
+            text="Include timestamp in filename",
+            variable=self.include_timestamp_var
+        ).pack(anchor=tk.W)
+        
+        # Preview
+        preview_frame = ttk.Frame(filename_frame)
+        preview_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        ttk.Label(preview_frame, text="Preview:").pack(side=tk.LEFT)
+        self.filename_preview = ttk.Label(
+            preview_frame, 
+            text="", 
+            foreground="blue",
+            font=("TkDefaultFont", 9, "italic")
+        )
+        self.filename_preview.pack(side=tk.LEFT, padx=(10, 0))
+        
+        # Update preview when template changes
+        self.filename_template_var.trace_add("write", self._update_filename_preview)
+        self.include_timestamp_var.trace_add("write", self._update_filename_preview)
+        
+        # Export format section
+        format_frame = ttk.LabelFrame(export_frame, text="Export Format", padding="10")
+        format_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(format_frame, text="Preferred export format:").pack(anchor=tk.W, pady=(0, 5))
+        
+        self.export_format_var = tk.StringVar()
+        format_radio_frame = ttk.Frame(format_frame)
+        format_radio_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Radiobutton(
+            format_radio_frame,
+            text="ODS (LibreOffice Calc) - Recommended",
+            variable=self.export_format_var,
+            value="ods"
+        ).pack(anchor=tk.W)
+        
+        ttk.Radiobutton(
+            format_radio_frame,
+            text="XLSX (Microsoft Excel)",
+            variable=self.export_format_var,
+            value="xlsx"
+        ).pack(anchor=tk.W)
+        
+        ttk.Radiobutton(
+            format_radio_frame,
+            text="CSV (Comma Separated Values)",
+            variable=self.export_format_var,
+            value="csv"
+        ).pack(anchor=tk.W)
+        
+        # Format info
+        format_info = ttk.Label(
+            format_frame,
+            text="Note: Files will open in the appropriate application based on format",
+            font=("TkDefaultFont", 9),
+            foreground="blue"
+        )
+        format_info.pack(anchor=tk.W, pady=(5, 0))
+        
+        # Export behavior section
+        behavior_frame = ttk.LabelFrame(export_frame, text="Export Behavior", padding="10")
+        behavior_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        self.auto_open_var = tk.BooleanVar()
+        ttk.Checkbutton(
+            behavior_frame,
+            text="Automatically open exported files after export",
+            variable=self.auto_open_var
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Color value format section
+        self.export_normalized_var = tk.BooleanVar()
+        ttk.Checkbutton(
+            behavior_frame,
+            text="Export color values normalized to 0.0-1.0 range",
+            variable=self.export_normalized_var
+        ).pack(anchor=tk.W)
+        
+        ttk.Label(
+            behavior_frame,
+            text="When enabled, RGB and L*a*b* values are exported as normalized decimals (0.0-1.0).\nWhen disabled, standard ranges are used (RGB: 0-255, L*a*b*: full scale).",
+            font=("TkDefaultFont", 9),
+            foreground="gray"
+        ).pack(anchor=tk.W, pady=(5, 0))
+        
+        # Paper sample inclusion section
+        ttk.Separator(behavior_frame).pack(fill=tk.X, pady=8)
+        self.export_include_paper_var = tk.BooleanVar()
+        ttk.Checkbutton(
+            behavior_frame,
+            text="Include paper-tagged samples (-p) in exports and Plot_3D",
+            variable=self.export_include_paper_var
+        ).pack(anchor=tk.W)
+        
+        ttk.Label(
+            behavior_frame,
+            text=(
+                "When unchecked (default), measurement sets whose name ends in '-p'\n"
+                "are hidden from the ODS / Plot_3D exporter and the realtime worksheet,\n"
+                "so K-means and \u0394E operate on ink only. Check this to surface\n"
+                "paper points alongside ink (e.g. for a paper-only analysis)."
+            ),
+            font=("TkDefaultFont", 9),
+            foreground="gray",
+            justify=tk.LEFT,
+        ).pack(anchor=tk.W, pady=(5, 0))
+        
+        # Color space selection section
+        color_space_frame = ttk.LabelFrame(export_frame, text="Color Space Selection", padding="10")
+        color_space_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        ttk.Label(
+            color_space_frame,
+            text="Choose which color spaces to include in exports:",
+            font=("TkDefaultFont", 10, "bold")
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Preserve the requested display order: Lab, LCh, RGB, CMY.
+        for key, title in (
+            ("lab", "Include L*a*b* color values (CIE Lab)"),
+            ("lch", "Include L*C*h° color values (CIE LCh)"),
+            ("rgb", "Include RGB color values (Red, Green, Blue)"),
+            ("cmy", "Include CMY color values (Cyan, Magenta, Yellow)"),
+        ):
+            var = tk.BooleanVar()
+            setattr(self, f"export_include_{key}_var", var)
+            checkbox = ttk.Checkbutton(
+                color_space_frame,
+                text=title,
+                variable=var,
+                command=self._on_color_space_change,
+            )
+            setattr(self, f"{key}_checkbox", checkbox)
+            checkbox.pack(anchor=tk.W, pady=(0, 5))
+
+        ttk.Label(
+            color_space_frame,
+            text=(
+                "• Lab: Authoritative perceptual color measurements\n"
+                "• LCh: Lightness, chroma, hue derived from Lab\n"
+                "• RGB: Red, Green, Blue\n"
+                "• CMY: Subtractive color representation\n"
+                "• Selections also affect certain on-screen readouts\n"
+                "• At least one color space must be selected"
+            ),
+            font=("TkDefaultFont", 9),
+            foreground="gray",
+        ).pack(anchor=tk.W)
+
+    def _create_image_dialog_tab(self, notebook):
+        """Create the image dialog preferences tab."""
+        dialog_frame = ttk.Frame(notebook, padding="10")
+        notebook.add(dialog_frame, text="Image Dialogs")
+        
+        # Remember directories section
+        remember_frame = ttk.LabelFrame(dialog_frame, text="Directory Memory (Images Only)", padding="10")
+        remember_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        self.remember_directories_var = tk.BooleanVar()
+        ttk.Checkbutton(
+            remember_frame,
+            text="Remember last used directory for image files (Open and Save)",
+            variable=self.remember_directories_var
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        ttk.Label(
+            remember_frame,
+            text="When enabled, image Open and Save dialogs will start in the last directory you used.\n"
+            "This ensures cropped images and their data files stay together.",
+            font=("TkDefaultFont", 9),
+            foreground="gray"
+        ).pack(anchor=tk.W)
+
+        # RAW source preference
+        raw_source_frame = ttk.LabelFrame(
+            dialog_frame,
+            text="RAW Image Source",
+            padding="10"
+        )
+        raw_source_frame.pack(fill=tk.X, pady=(0, 10))
+
+        self.treat_all_images_as_raw_var = tk.BooleanVar(value=False)
+
+        ttk.Checkbutton(
+            raw_source_frame,
+            text="Treat all opened images as RAW / linear sources",
+            variable=self.treat_all_images_as_raw_var
+        ).pack(anchor=tk.W, pady=(0, 5))
+
+        ttk.Label(
+            raw_source_frame,
+            text=(
+                "Use only when all images in your normal StampZ workflow are RAW / linear sources. "
+                "When enabled, StampZ treats every opened image as RAW regardless of its metadata. "
+                "Standard TIFF, PNG, or other non-RAW images may display incorrectly when the "
+                "RAW Display Bridge is enabled."
+            ),
+            wraplength=550,
+            justify=tk.LEFT,
+            font=("TkDefaultFont", 12, "bold"),
+            foreground="red"
+        ).pack(anchor=tk.W)
+        
+        # Current directories section
+        current_frame = ttk.LabelFrame(dialog_frame, text="Current Remembered Directory", padding="10")
+        current_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Last image directory (unified for open and save)
+        ttk.Label(
+            current_frame, 
+            text="Last image directory (for Open and Save):",
+            font=("TkDefaultFont", 9, "bold")
+        ).pack(anchor=tk.W)
+        self.last_image_var = tk.StringVar()
+        ttk.Entry(
+            current_frame,
+            textvariable=self.last_image_var,
+            state="readonly",
+            width=60
+        ).pack(fill=tk.X, pady=(2, 10))
+        
+        ttk.Label(
+            current_frame,
+            text="Note: This is where your original images and cropped images are stored.\n"
+            "Data files (perforation measurements, color analysis) are saved in the same directory.",
+            font=("TkDefaultFont", 8),
+            foreground="blue"
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Clear directories button
+        clear_button_frame = ttk.Frame(current_frame)
+        clear_button_frame.pack(fill=tk.X)
+        
+        ttk.Button(
+            clear_button_frame,
+            text="Clear Remembered Directory",
+            command=self._clear_remembered_directories
+        ).pack(side=tk.LEFT)
+        
+        # Info section
+        info_frame = ttk.LabelFrame(dialog_frame, text="About This Setting", padding="10")
+        info_frame.pack(fill=tk.X)
+        
+        info_text = (
+            "Directory Memory tracks where you work with image files.\n\n"
+            "Why this matters:\n"
+            "• The data logger creates measurement and analysis files (*_StampZ_Data.txt) in the same directory as your images\n"
+            "• Keeping original and cropped images in the same directory ensures all data stays together\n"
+            "• This is separate from the Export Settings, which controls where spreadsheet exports go\n\n"
+            "Best practice: Keep all images for a project in one directory."
+        )
+        
+        ttk.Label(
+            info_frame,
+            text=info_text,
+            wraplength=550,
+            justify=tk.LEFT,
+            font=("TkDefaultFont", 9)
+        ).pack(anchor=tk.W)
+    
+    def _create_sampling_tab(self, notebook):
+        """Create the sampling preferences tab."""
+        # Create outer frame and add to notebook
+        outer_frame = ttk.Frame(notebook)
+        notebook.add(outer_frame, text="Sampling")
+        
+        # Create canvas and scrollbar
+        canvas = tk.Canvas(outer_frame, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(outer_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Pack canvas and scrollbar
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Enable mousewheel scrolling
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        
+        # Now use scrollable_frame as the parent for content
+        sampling_frame = ttk.Frame(scrollable_frame, padding="10")
+        sampling_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Color Library section - moved from Image Dialogs
+        library_frame = ttk.LabelFrame(sampling_frame, text="Color Library Defaults", padding="10")
+        library_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(library_frame, text="Default color library:").pack(anchor=tk.W, pady=(0, 5))
+        
+        self.default_library_var = tk.StringVar()
+        self.library_combo = ttk.Combobox(
+            library_frame,
+            textvariable=self.default_library_var,
+            state="readonly",
+            width=30
+        )
+        self.library_combo.pack(anchor=tk.W, pady=(0, 10))
+        
+        ttk.Label(
+            library_frame,
+            text="This library will be automatically selected when opening the Color Library Manager\nand when using the Compare feature in color analysis.",
+            font=("TkDefaultFont", 9),
+            foreground="gray"
+        ).pack(anchor=tk.W)
+
+        # RAW display preferences section
+        raw_display_frame = ttk.LabelFrame(
+            sampling_frame,
+            text="RAW Image Display",
+            padding="10"
+        )
+        raw_display_frame.pack(fill=tk.X, pady=(10, 10))
+
+        self.raw_display_bridge_var = tk.BooleanVar(value=True)
+
+        ttk.Checkbutton(
+            raw_display_frame,
+            text="Use RAW Display Bridge",
+            variable=self.raw_display_bridge_var,
+            command=self._toggle_raw_display_bridge
+        ).pack(anchor=tk.W, pady=(0, 5))
+
+        ttk.Label(
+            raw_display_frame,
+            text=(
+                "Adjusts RAW image appearance for viewing only. "
+                "Does not affect sampling, calibration, or color analysis."
+            ),
+            wraplength=550,
+            justify=tk.LEFT,
+            font=("TkDefaultFont", 9),
+            foreground="gray"
+        ).pack(anchor=tk.W)
+
+        # Calibrated image display preferences
+        calibrated_display_frame = ttk.LabelFrame(
+            sampling_frame,
+            text="Calibrated Image Display",
+            padding="10"
+        )
+        calibrated_display_frame.pack(fill=tk.X, pady=(0, 10))
+
+        self.calibrated_image_display_var = tk.BooleanVar(value=False)
+
+        ttk.Checkbutton(
+            calibrated_display_frame,
+            text="Use Calibrated Image Display",
+            variable=self.calibrated_image_display_var,
+            command=self._toggle_calibrated_image_display
+        ).pack(anchor=tk.W, pady=(0, 5))
+
+        ttk.Label(
+            calibrated_display_frame,
+            text=(
+                "Display images using the active CR30 scanner calibration. "
+                "Changes image appearance only; original image data, "
+                "sampling measurements, and database values remain unchanged."
+            ),
+            wraplength=550,
+            justify=tk.LEFT,
+            font=("TkDefaultFont", 9),
+            foreground="gray"
+        ).pack(anchor=tk.W)
+        
+        # Template defaults section
+        template_frame = ttk.LabelFrame(sampling_frame, text="Template Defaults", padding="10")
+        template_frame.pack(fill=tk.X, pady=(10, 10))
+        
+        ttk.Label(template_frame, text="Default template:").pack(anchor=tk.W, pady=(0, 5))
+        
+        self.default_template_var = tk.StringVar()
+        self.template_combo = ttk.Combobox(
+            template_frame,
+            textvariable=self.default_template_var,
+            state="readonly",
+            width=30
+        )
+        self.template_combo.pack(anchor=tk.W, pady=(0, 10))
+        
+        ttk.Label(
+            template_frame,
+            text="This template will be automatically selected when starting a new analysis.\nLeave as '(None)' to choose template each time.",
+            font=("TkDefaultFont", 9),
+            foreground="gray"
+        ).pack(anchor=tk.W)
+        
+        # Save location preferences section
+        save_prefs_frame = ttk.LabelFrame(sampling_frame, text="Analysis Save Preferences", padding="10")
+        save_prefs_frame.pack(fill=tk.X, pady=(10, 10))
+        
+        ttk.Label(
+            save_prefs_frame,
+            text="Default settings for the Save Results dialog:",
+            font=("TkDefaultFont", 10, "bold")
+        ).pack(anchor=tk.W, pady=(0, 5))
+        
+        ttk.Label(
+            save_prefs_frame,
+            text="(These control what's pre-selected; saving still requires clicking Save button)",
+            font=("TkDefaultFont", 8),
+            foreground="gray",
+            style="Italic.TLabel"
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Database name setting
+        db_name_frame = ttk.Frame(save_prefs_frame)
+        db_name_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(db_name_frame, text="Default database name:", width=20).pack(side=tk.LEFT)
+        self.default_database_var = tk.StringVar()
+        db_entry = ttk.Entry(db_name_frame, textvariable=self.default_database_var, width=30)
+        db_entry.pack(side=tk.LEFT, padx=(5, 0))
+        
+        ttk.Label(
+            save_prefs_frame,
+            text="Individual samples will save to: {name}.db\nAverages will save to: {name}_AVG.db",
+            font=("TkDefaultFont", 8),
+            foreground="blue"
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Checkbox for save individual samples
+        self.save_individual_default_var = tk.BooleanVar()
+        ttk.Checkbutton(
+            save_prefs_frame,
+            text="Save individual sample measurements by default",
+            variable=self.save_individual_default_var
+        ).pack(anchor=tk.W, pady=(0, 5))
+        
+        # Checkbox for save averaged result
+        self.save_average_default_var = tk.BooleanVar()
+        ttk.Checkbutton(
+            save_prefs_frame,
+            text="Save calculated average by default",
+            variable=self.save_average_default_var
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Checkbox for automatic _AVG suffix
+        self.use_averages_suffix_var = tk.BooleanVar()
+        ttk.Checkbutton(
+            save_prefs_frame,
+            text="Automatically add _AVG suffix to average database names",
+            variable=self.use_averages_suffix_var
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Separator for quick save option
+        ttk.Separator(save_prefs_frame, orient='horizontal').pack(fill=tk.X, pady=(5, 10))
+        
+        # Checkbox for quick save
+        self.enable_quick_save_var = tk.BooleanVar()
+        ttk.Checkbutton(
+            save_prefs_frame,
+            text="⚡ Enable Quick Save (skip database selection dialog)",
+            variable=self.enable_quick_save_var
+        ).pack(anchor=tk.W, pady=(0, 5))
+        
+        ttk.Label(
+            save_prefs_frame,
+            text="When enabled, clicking Save Results will save immediately using the settings above.\n"
+            "Reduces from 2 dialogs + 3 clicks to 1 success message + 1 click.",
+            font=("TkDefaultFont", 8),
+            foreground="blue"
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        ttk.Label(
+            save_prefs_frame,
+            text="Note: You can still override by holding Shift when clicking Save Results.",
+            font=("TkDefaultFont", 8),
+            foreground="gray",
+            style="Italic.TLabel"
+        ).pack(anchor=tk.W)
+        
+        # Sample area defaults section
+        sample_frame = ttk.LabelFrame(sampling_frame, text="Sample Area Defaults", padding="10")
+        sample_frame.pack(fill=tk.X, pady=(10, 10))
+        
+        ttk.Label(
+            sample_frame, 
+            text="Set default shape, size, and anchor for new sample areas:",
+            font=("TkDefaultFont", 10, "bold")
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Sample controls layout
+        sample_controls_frame = ttk.Frame(sample_frame)
+        sample_controls_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Shape selection
+        shape_frame = ttk.Frame(sample_controls_frame)
+        shape_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        ttk.Label(shape_frame, text="Shape:", width=10).pack(side=tk.LEFT)
+        self.sample_shape_var = tk.StringVar()
+        shape_combo = ttk.Combobox(
+            shape_frame,
+            textvariable=self.sample_shape_var,
+            values=['circle', 'rectangle'],
+            state='readonly',
+            width=15
+        )
+        shape_combo.pack(side=tk.LEFT, padx=(5, 0))
+        
+        # Size selection
+        size_frame = ttk.Frame(sample_controls_frame)
+        size_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        ttk.Label(size_frame, text="Size:", width=10).pack(side=tk.LEFT)
+        
+        # Width
+        width_frame = ttk.Frame(size_frame)
+        width_frame.pack(side=tk.LEFT, padx=(5, 0))
+        
+        ttk.Label(width_frame, text="W:").pack(side=tk.LEFT)
+        self.sample_width_var = tk.StringVar()
+        width_spin = ttk.Spinbox(
+            width_frame,
+            textvariable=self.sample_width_var,
+            from_=1, to=100,
+            width=6
+        )
+        width_spin.pack(side=tk.LEFT, padx=(2, 0))
+        
+        # Height
+        height_frame = ttk.Frame(size_frame)
+        height_frame.pack(side=tk.LEFT, padx=(10, 0))
+        
+        ttk.Label(height_frame, text="H:").pack(side=tk.LEFT)
+        self.sample_height_var = tk.StringVar()
+        height_spin = ttk.Spinbox(
+            height_frame,
+            textvariable=self.sample_height_var,
+            from_=1, to=100,
+            width=6
+        )
+        height_spin.pack(side=tk.LEFT, padx=(2, 0))
+        
+        ttk.Label(size_frame, text="pixels", font=("TkDefaultFont", 9)).pack(side=tk.LEFT, padx=(10, 0))
+        
+        # Anchor selection
+        anchor_frame = ttk.Frame(sample_controls_frame)
+        anchor_frame.pack(fill=tk.X)
+        
+        ttk.Label(anchor_frame, text="Anchor:", width=10).pack(side=tk.LEFT)
+        self.sample_anchor_var = tk.StringVar()
+        anchor_combo = ttk.Combobox(
+            anchor_frame,
+            textvariable=self.sample_anchor_var,
+            values=['center', 'top_left', 'top_right', 'bottom_left', 'bottom_right'],
+            state='readonly',
+            width=15
+        )
+        anchor_combo.pack(side=tk.LEFT, padx=(5, 0))
+        
+        # Maximum samples selection
+        max_samples_frame = ttk.Frame(sample_controls_frame)
+        max_samples_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        ttk.Label(max_samples_frame, text="Max Samples:", width=10).pack(side=tk.LEFT)
+        self.max_samples_var = tk.StringVar()
+        max_samples_combo = ttk.Combobox(
+            max_samples_frame,
+            textvariable=self.max_samples_var,
+            values=['1', '2', '3', '4', '5', '6'],
+            state='readonly',
+            width=5
+        )
+        max_samples_combo.pack(side=tk.LEFT, padx=(5, 0))
+        
+        ttk.Label(max_samples_frame, text="samples", font=("TkDefaultFont", 9)).pack(side=tk.LEFT, padx=(10, 0))
+        
+        # Sample defaults info
+        sample_info_text = (
+            "These settings will be used as defaults when creating new sample areas. "
+            "You can still adjust individual samples after placing them."
+        )
+        
+        ttk.Label(
+            sample_frame,
+            text=sample_info_text,
+            wraplength=550,
+            justify=tk.LEFT,
+            font=("TkDefaultFont", 9),
+            foreground="gray"
+        ).pack(anchor=tk.W, pady=(10, 0))
+        
+        # Information section
+        info_frame = ttk.LabelFrame(sampling_frame, text="Information", padding="10")
+        info_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        info_text = (
+            "• Sample area defaults apply to all new samples created in the application\n"
+            "• You can override these defaults for individual samples after placement\n"
+            "• Circle samples are recommended for most color analysis tasks\n"
+            "• Rectangle samples are useful for analyzing larger color areas or patterns"
+        )
+        
+        ttk.Label(
+            info_frame,
+            text=info_text,
+            wraplength=550,
+            justify=tk.LEFT,
+            font=("TkDefaultFont", 9)
+        ).pack(anchor=tk.W)
+
+    def _toggle_raw_display_bridge(self):
+        """Toggle the RAW display bridge for the currently displayed RAW image."""
+        enabled = self.raw_display_bridge_var.get()
+
+        if self.app is not None and hasattr(self.app, 'canvas'):
+            metadata = getattr(self.app, 'current_image_metadata', {}) or {}
+            is_raw = metadata.get('is_raw', False)
+
+            self.app.canvas.core.set_raw_display_bridge(enabled and is_raw)
+
+            # Restore CR30 display for ordinary images when enabled.
+            if not is_raw:
+                self.app.canvas.core.set_calibrated_image_display(
+                    self.calibrated_image_display_var.get()
+                )
+
+    def _toggle_calibrated_image_display(self):
+        """Update the image preview without changing analytical data."""
+        enabled = self.calibrated_image_display_var.get()
+
+        if self.app is not None and hasattr(self.app, 'canvas'):
+            metadata = getattr(self.app, 'current_image_metadata', {}) or {}
+            is_raw = metadata.get('is_raw', False)
+
+            self.app.canvas.core.set_calibrated_image_display(
+                enabled and not is_raw
+            )
+    
+    def _create_compare_mode_tab(self, notebook):
+        """Create the Compare mode preferences tab."""
+        compare_frame = ttk.Frame(notebook, padding="10")
+        notebook.add(compare_frame, text="Compare Mode")
+        
+        # Auto-save averages section
+        auto_save_frame = ttk.LabelFrame(compare_frame, text="Average Color Handling", padding="10")
+        auto_save_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        self.auto_save_averages_var = tk.BooleanVar()
+        ttk.Checkbutton(
+            auto_save_frame,
+            text="Automatically save averaged colors to database",
+            variable=self.auto_save_averages_var
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Explanation
+        explanation_text = (
+            "When enabled, averaged colors will be automatically saved to the database "
+            "whenever you calculate an average in Compare mode. This eliminates the need "
+            "to manually click the 'Save Average to Database' button each time.\n\n"
+            "When disabled, you will need to manually click the button to save averages "
+            "if you want them included in your exports."
+        )
+        
+        ttk.Label(
+            auto_save_frame,
+            text=explanation_text,
+            wraplength=550,
+            justify=tk.LEFT,
+            font=("TkDefaultFont", 9),
+            foreground="gray"
+        ).pack(anchor=tk.W)
+        
+        # Window management section
+        window_mgmt_frame = ttk.LabelFrame(
+            compare_frame, text="Window Management", padding="10"
+        )
+        window_mgmt_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        self.auto_close_prev_library_windows_var = tk.BooleanVar()
+        ttk.Checkbutton(
+            window_mgmt_frame,
+            text="Close previous Color Library Manager windows when re-sampling",
+            variable=self.auto_close_prev_library_windows_var
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        window_mgmt_explanation = (
+            "When enabled, opening the Color Library Manager or clicking "
+            "'Compare Sample to Library' will automatically close any previous "
+            "Color Library Manager windows that are still open. This avoids "
+            "window clutter and frees memory on resource-constrained machines.\n\n"
+            "When disabled (the default), previous windows remain open so you "
+            "can compare multiple analyses side-by-side. You can always use "
+            "Color Analysis \u2192 Close All Library Windows to close them manually."
+        )
+        
+        ttk.Label(
+            window_mgmt_frame,
+            text=window_mgmt_explanation,
+            wraplength=550,
+            justify=tk.LEFT,
+            font=("TkDefaultFont", 9),
+            foreground="gray"
+        ).pack(anchor=tk.W)
+        
+        # Information section
+        info_frame = ttk.LabelFrame(compare_frame, text="About Compare Mode", padding="10")
+        info_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        info_text = (
+            "Compare mode allows you to analyze sample points from loaded images and compare "
+            "their averaged color values against your color libraries.\n\n"
+            "• Sample points can be toggled on/off to refine the average\n"
+            "• Quality-controlled averaging excludes outliers based on ΔE thresholds\n"
+            "• Saved averages are included in your data exports\n"
+            "• The 'Save Average to Database' button behavior is controlled by this preference"
+        )
+        
+        ttk.Label(
+            info_frame,
+            text=info_text,
+            wraplength=550,
+            justify=tk.LEFT,
+            font=("TkDefaultFont", 9)
+        ).pack(anchor=tk.W)
+    
+    def _create_measurement_tab(self, notebook):
+        """Create the measurement preferences tab."""
+        measurement_frame = ttk.Frame(notebook, padding="10")
+        notebook.add(measurement_frame, text="Measurements")
+        
+        # DPI Settings section
+        dpi_frame = ttk.LabelFrame(measurement_frame, text="Image DPI Settings", padding="10")
+        dpi_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(
+            dpi_frame,
+            text="Default DPI for measurements:",
+            font=("TkDefaultFont", 10, "bold")
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        # DPI selection
+        dpi_control_frame = ttk.Frame(dpi_frame)
+        dpi_control_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(dpi_control_frame, text="DPI:", width=8).pack(side=tk.LEFT)
+        
+        self.default_dpi_var = tk.StringVar()
+        dpi_combo = ttk.Combobox(
+            dpi_control_frame,
+            textvariable=self.default_dpi_var,
+            values=['300', '400', '600', '800', '1200'],
+            state='normal',
+            width=10
+        )
+        dpi_combo.pack(side=tk.LEFT, padx=(5, 10))
+        
+        ttk.Label(
+            dpi_control_frame, 
+            text="(or enter custom value)",
+            font=("TkDefaultFont", 9),
+            foreground="gray"
+        ).pack(side=tk.LEFT)
+        
+        # DPI explanation
+        dpi_explanation = (
+            "DPI (Dots Per Inch) is crucial for accurate measurements. This setting will be used as the "
+            "default for all measurement features:\n\n"
+            "• Perforation Gauge Measurement\n"
+            "• Precision Color Measurements\n"
+            "• Future measurement tools\n\n"
+            "Common DPI values:\n"
+            "• 150 DPI: Basic scans, less precise measurements\n"
+            "• 300 DPI: Standard document scans\n"
+            "• 600 DPI: High-quality stamp scans (recommended)\n"
+            "• 1200 DPI: Professional archival scans\n"
+            "• 2400 DPI: Ultra high-resolution scans\n\n"
+            "You can still override this setting in individual measurement dialogs if needed."
+        )
+        
+        ttk.Label(
+            dpi_frame,
+            text=dpi_explanation,
+            wraplength=550,
+            justify=tk.LEFT,
+            font=("TkDefaultFont", 9),
+            foreground="gray"
+        ).pack(anchor=tk.W, pady=(10, 0))
+        
+        # Measurement Features section
+        features_frame = ttk.LabelFrame(measurement_frame, text="Measurement Features", padding="10")
+        features_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        self.perforation_enabled_var = tk.BooleanVar()
+        ttk.Checkbutton(
+            features_frame,
+            text="Enable Perforation Gauge Measurement",
+            variable=self.perforation_enabled_var
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Default background color
+        bg_color_control_frame = ttk.Frame(features_frame)
+        bg_color_control_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(bg_color_control_frame, text="Default scan background:", width=20).pack(side=tk.LEFT)
+        
+        self.default_bg_color_var = tk.StringVar()
+        bg_color_combo = ttk.Combobox(
+            bg_color_control_frame,
+            textvariable=self.default_bg_color_var,
+            values=['black', 'dark_gray', 'white', 'light_gray'],
+            state='readonly',
+            width=12
+        )
+        bg_color_combo.pack(side=tk.LEFT, padx=(5, 10))
+        
+        ttk.Label(
+            bg_color_control_frame,
+            text="(color of area around stamp in scans)",
+            font=("TkDefaultFont", 9),
+            foreground="gray"
+        ).pack(side=tk.LEFT)
+        
+        # Feature explanation
+        feature_explanation = (
+            "Perforation Gauge Measurement provides automated measurement of stamp perforation gauge "
+            "using computer vision techniques. The measurement uses the DPI setting above to calculate "
+            "accurate gauge values in standard catalog format (11, 11¼, 11½, 11¾, 12, etc.).\n\n"
+            "This feature requires OpenCV to be installed. If disabled, the Measurement menu will "
+            "only show Precision Measurements."
+        )
+        
+        ttk.Label(
+            features_frame,
+            text=feature_explanation,
+            wraplength=550,
+            justify=tk.LEFT,
+            font=("TkDefaultFont", 9),
+            foreground="gray"
+        ).pack(anchor=tk.W)
+    
+    def _create_migration_tab(self, notebook):
+        """Create the migration tab (only if migration is possible)."""
+        try:
+            from utils.migration import StampZMigration
+            migration = StampZMigration()
+            
+            # Only create tab if migration is needed or already completed
+            if not migration.is_migration_needed() and not migration.is_migration_completed():
+                return  # No migration tab needed for new users
+            
+        except ImportError:
+            return  # Migration utility not available
+        
+        migration_frame = ttk.Frame(notebook, padding="10")
+        notebook.add(migration_frame, text="Migration")
+        
+        # Title
+        title_frame = ttk.Frame(migration_frame)
+        title_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(
+            title_frame,
+            text="StampZ to StampZ_II Migration",
+            font=("TkDefaultFont", 12, "bold")
+        ).pack(anchor=tk.W)
+        
+        if migration.is_migration_completed():
+            # Show migration completion status
+            self._create_migration_completed_section(migration_frame, migration)
+        elif migration.is_migration_needed():
+            # Show migration options
+            self._create_migration_needed_section(migration_frame, migration)
+    
+    def _create_migration_completed_section(self, parent, migration):
+        """Create section for completed migration."""
+        status_frame = ttk.LabelFrame(parent, text="Migration Status", padding="10")
+        status_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Success message
+        ttk.Label(
+            status_frame,
+            text="✅ Migration completed successfully!",
+            font=("TkDefaultFont", 11, "bold"),
+            foreground="green"
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Get migration info
+        info = migration.get_migration_info()
+        if info:
+            info_text = f"Migration Date: {info.get('Migration completed', 'Unknown')}\n"
+            info_text += f"Files Migrated: {info.get('Migrated files', 'Unknown')}\n"
+            info_text += f"Backup Created: {info.get('Backup created', 'Unknown')}"
+            
+            ttk.Label(
+                status_frame,
+                text=info_text,
+                font=("TkDefaultFont", 10)
+            ).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Info about old directory
+        info_frame = ttk.LabelFrame(parent, text="Information", padding="10")
+        info_frame.pack(fill=tk.X)
+        
+        info_text = (
+            "Your data has been successfully migrated from the old StampZ directory to StampZ-III.\n\n"
+            "• All your color libraries, analysis data, and templates are now in StampZ-III\n"
+            "• The old StampZ directory has been left unchanged as a backup\n"
+            "• StampZ-III now uses the migrated data exclusively\n\n"
+            "You can safely delete the old StampZ directory if you no longer need it, "
+            "but it's recommended to keep it as a backup until you're sure everything works correctly."
+        )
+        
+        ttk.Label(
+            info_frame,
+            text=info_text,
+            wraplength=600,
+            justify=tk.LEFT,
+            font=("TkDefaultFont", 10)
+        ).pack(anchor=tk.W)
+    
+    def _create_migration_needed_section(self, parent, migration):
+        """Create section for needed migration."""
+        # Warning
+        warning_frame = ttk.LabelFrame(parent, text="Migration Available", padding="10")
+        warning_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(
+            warning_frame,
+            text="⚠️ StampZ data found that can be migrated to StampZ-III",
+            font=("TkDefaultFont", 11, "bold"),
+            foreground="orange"
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Get migration summary
+        summary = migration.get_migration_summary()
+        
+        # Summary of what will be migrated
+        summary_frame = ttk.LabelFrame(parent, text="Migration Summary", padding="10")
+        summary_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        summary_text = f"The following data from your old StampZ installation can be migrated:\n\n"
+        
+        if summary['color_libraries']:
+            summary_text += f"📚 Color Libraries ({len(summary['color_libraries'])}):"
+            for lib in summary['color_libraries']:
+                summary_text += f"\n  • {lib['name']} ({lib['size_mb']} MB)"
+            summary_text += "\n\n"
+        
+        if summary['color_analysis']:
+            summary_text += f"🔬 Color Analysis ({len(summary['color_analysis'])}):"
+            for analysis in summary['color_analysis']:
+                summary_text += f"\n  • {analysis['name']} ({analysis['size_mb']} MB)"
+            summary_text += "\n\n"
+        
+        if summary['coordinates']:
+            summary_text += f"📍 Coordinate Templates ({len(summary['coordinates'])}):"
+            for coord in summary['coordinates']:
+                summary_text += f"\n  • {coord['path']} ({coord['size_mb']} MB)"
+            summary_text += "\n\n"
+        
+        summary_text += f"Total: {summary['total_files']} files, {summary['total_size_mb']} MB"
+        
+        ttk.Label(
+            summary_frame,
+            text=summary_text,
+            font=("TkDefaultFont", 10),
+            justify=tk.LEFT
+        ).pack(anchor=tk.W)
+        
+        # Migration options
+        options_frame = ttk.LabelFrame(parent, text="Migration Options", padding="10")
+        options_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        self.create_backup_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            options_frame,
+            text="Create backup of original StampZ directory (recommended)",
+            variable=self.create_backup_var
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Migration button
+        button_frame = ttk.Frame(options_frame)
+        button_frame.pack(fill=tk.X)
+        
+        ttk.Button(
+            button_frame,
+            text="Migrate Data to StampZ-III",
+            command=lambda: self._perform_migration(migration),
+            style="Accent.TButton"
+        ).pack(side=tk.LEFT, padx=(0, 10))
+        
+        ttk.Button(
+            button_frame,
+            text="Skip Migration",
+            command=self._skip_migration
+        ).pack(side=tk.LEFT)
+        
+        # Info about the process
+        info_frame = ttk.LabelFrame(parent, text="What happens during migration?", padding="10")
+        info_frame.pack(fill=tk.X)
+        
+        info_text = (
+            "1. Your old StampZ directory will be backed up (if selected)\n"
+            "2. Data will be copied to the new StampZ-III directory structure\n"
+            "3. StampZ-III will use the migrated data going forward\n"
+            "4. Your original StampZ directory remains unchanged\n\n"
+            "This process is safe and reversible - your original data is never deleted."
+        )
+        
+        ttk.Label(
+            info_frame,
+            text=info_text,
+            font=("TkDefaultFont", 10),
+            justify=tk.LEFT
+        ).pack(anchor=tk.W)
+    
+    def _perform_migration(self, migration):
+        """Perform the data migration."""
+        # Confirm with user
+        result = messagebox.askyesno(
+            "Confirm Migration",
+            "This will migrate your StampZ data to StampZ-III.\n\n"
+            "Your original StampZ directory will be preserved.\n\n"
+            "Continue with migration?"
+        )
+        
+        if not result:
+            return
+        
+        # Show progress dialog
+        progress_dialog = tk.Toplevel(self.root)
+        progress_dialog.title("Migrating Data...")
+        progress_dialog.geometry("400x150")
+        progress_dialog.transient(self.root)
+        progress_dialog.grab_set()
+        
+        # Center the progress dialog
+        progress_dialog.update_idletasks()
+        x = (progress_dialog.winfo_screenwidth() // 2) - (progress_dialog.winfo_width() // 2)
+        y = (progress_dialog.winfo_screenheight() // 2) - (progress_dialog.winfo_height() // 2)
+        progress_dialog.geometry(f"+{x}+{y}")
+        
+        progress_label = ttk.Label(progress_dialog, text="Migrating your data to StampZ-III...\nPlease wait...")
+        progress_label.pack(expand=True)
+        
+        progress_dialog.update()
+        
+        try:
+            # Perform the migration
+            create_backup = self.create_backup_var.get()
+            success, message = migration.perform_migration(create_backup=create_backup)
+            
+            progress_dialog.destroy()
+            
+            if success:
+                messagebox.showinfo("Migration Successful", message)
+                # Recreate the migration tab to show completed status
+                self._recreate_migration_tab()
+            else:
+                messagebox.showerror("Migration Failed", message)
+                
+        except Exception as e:
+            progress_dialog.destroy()
+            messagebox.showerror("Migration Error", f"An error occurred during migration:\n\n{str(e)}")
+    
+    def _skip_migration(self):
+        """Skip the migration (user chooses not to migrate)."""
+        result = messagebox.askyesno(
+            "Skip Migration",
+            "Are you sure you want to skip migrating your StampZ data?\n\n"
+            "You can always migrate later from this preferences dialog.\n\n"
+            "If you skip migration, StampZ-III will start with empty libraries and no previous data."
+        )
+        
+        if result:
+            messagebox.showinfo(
+                "Migration Skipped",
+                "Migration has been skipped. You can migrate your data later \n"
+                "by returning to this preferences dialog."
+            )
+    
+    def _recreate_migration_tab(self):
+        """Recreate the migration tab (after migration completion)."""
+        # This would require rebuilding the entire notebook, which is complex
+        # For now, just show a message that restart is recommended
+        messagebox.showinfo(
+            "Restart Recommended",
+            "Migration completed successfully!\n\n"
+            "Please restart StampZ-III to see the updated migration status.\n\n"
+            "Your migrated data is now available in StampZ-III."
+        )
+    
+    def _clear_remembered_directories(self):
+        """Clear the remembered directory."""
+        result = messagebox.askyesno(
+            "Clear Directory",
+            "This will clear the remembered image directory.\n\nAre you sure?"
+        )
+        
+        if result:
+            # Clear the directory in preferences
+            self.prefs_manager.preferences.file_dialog_prefs.last_image_directory = ""
+            self.prefs_manager.save_preferences()
+            
+            # Update the display
+            self.last_image_var.set("")
+            
+            messagebox.showinfo("Cleared", "Remembered directory has been cleared.")
+    
+    def _load_color_library_preferences(self):
+        """Load color library preferences."""
+        try:
+            # Get available libraries
+            available_libraries = self.prefs_manager.get_available_color_libraries()
+            
+            # Convert to display names for better UX
+            display_names = []
+            library_mapping = {}  # display_name -> library_name
+            
+            for lib_name in available_libraries:
+                if lib_name == 'basic_colors':
+                    display_name = 'Basic Colors'
+                elif lib_name.lower() == 'sg' or lib_name.lower() == 'stanley_gibbons_colors':
+                    display_name = 'SG (Stanley Gibbons)'
+                    lib_name = 'sg'  # Normalize
+                elif '_' in lib_name:
+                    display_name = ' '.join(word.capitalize() for word in lib_name.split('_'))
+                else:
+                    display_name = lib_name.capitalize()
+                
+                display_names.append(display_name)
+                library_mapping[display_name] = lib_name
+            
+            # Update combobox
+            self.library_combo['values'] = display_names
+            
+            # Set current selection
+            current_library = self.prefs_manager.get_default_color_library()
+            display_name = None
+            for display, lib in library_mapping.items():
+                if lib == current_library:
+                    display_name = display
+                    break
+            
+            if display_name:
+                self.default_library_var.set(display_name)
+            elif display_names:  # Fallback to first available
+                self.default_library_var.set(display_names[0])
+                
+            # Store mapping for later use
+            self._library_mapping = library_mapping
+            
+        except Exception as e:
+            print(f"Error loading color library preferences: {e}")
+            # Fallback
+            self.library_combo['values'] = []
+            self.default_library_var.set('')
+            self._library_mapping = {}
+    
+    def _load_template_preferences(self):
+        """Load template preferences from coordinates.db."""
+        try:
+            import sqlite3
+            import sys
+            
+            # Get path to coordinates.db
+            if hasattr(sys, '_MEIPASS'):
+                # Running as packaged app
+                if sys.platform.startswith('linux'):
+                    user_data_dir = os.path.expanduser('~/.local/share/StampZ-III')
+                elif sys.platform == 'darwin':
+                    user_data_dir = os.path.expanduser('~/Library/Application Support/StampZ-III')
+                else:
+                    user_data_dir = os.path.expanduser('~/AppData/Roaming/StampZ-III')
+                db_path = os.path.join(user_data_dir, "data", "coordinates.db")
+            else:
+                # Running in development
+                current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                db_path = os.path.join(current_dir, "data", "coordinates.db")
+            
+            available_templates = ['(None)']  # Start with no default option
+            
+            # Load templates from coordinates.db (exclude temporary/manual mode templates)
+            if os.path.exists(db_path):
+                with sqlite3.connect(db_path) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        SELECT DISTINCT cs.name
+                        FROM coordinate_sets cs
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM coordinates c 
+                            WHERE c.set_id = cs.id AND c.temporary = 1
+                        )
+                        ORDER BY cs.name
+                    """)
+                    templates = cursor.fetchall()
+                    for template in templates:
+                        if template[0]:  # Only add non-empty names
+                            available_templates.append(template[0])
+            
+            # Update combobox
+            self.template_combo['values'] = available_templates
+            
+            # Set current selection
+            current_template = self.prefs_manager.get_default_template()
+            if current_template and current_template in available_templates:
+                self.default_template_var.set(current_template)
+            else:
+                self.default_template_var.set('(None)')
+                
+        except Exception as e:
+            print(f"Error loading template preferences: {e}")
+            import traceback
+            traceback.print_exc()
+            # Fallback
+            self.template_combo['values'] = ['(None)']
+            self.default_template_var.set('(None)')
+    
+    def _load_current_settings(self):
+        """Load current settings into the dialog."""
+        prefs = self.prefs_manager.preferences.export_prefs
+        
+        # Export directory
+        current_dir = self.prefs_manager.get_export_directory()
+        self.export_dir_var.set(current_dir)
+        
+        # Filename template
+        self.filename_template_var.set(prefs.export_filename_format)
+        self.include_timestamp_var.set(prefs.include_timestamp)
+        
+        # Export format
+        self.export_format_var.set(prefs.preferred_export_format)
+        
+        # Export behavior
+        self.auto_open_var.set(prefs.auto_open_after_export)
+        
+        # Normalized export values
+        self.export_normalized_var.set(prefs.export_normalized_values)
+        
+        # Paper-tagged sample inclusion (top-level JSON pref, default False)
+        self.export_include_paper_var.set(
+            self.prefs_manager.get_export_include_paper()
+        )
+        
+        # File dialog preferences
+        dialog_prefs = self.prefs_manager.preferences.file_dialog_prefs
+        self.remember_directories_var.set(dialog_prefs.remember_directories)
+        
+        # Show current remembered directory (unified for images)
+        last_image_dir = self.prefs_manager.get_last_image_directory()
+        self.last_image_var.set(last_image_dir or "(none)")
+        
+        # Color library preferences
+        self._load_color_library_preferences()
+
+        # RAW display bridge preference
+        self.raw_display_bridge_var.set(
+            self.prefs_manager.get_raw_display_bridge_enabled()
+        )
+
+        # Calibrated image display preference (default OFF)
+        self.calibrated_image_display_var.set(
+            self.prefs_manager.get_calibrated_image_display_enabled()
+        )        
+
+        # Treat all images as RAW preference
+        self.treat_all_images_as_raw_var.set(
+            self.prefs_manager.get_treat_all_images_as_raw()
+        )
+        
+        # Template preferences
+        self._load_template_preferences()
+        
+        # Interface mode preference removed
+        
+        # Sample area preferences
+        self.sample_shape_var.set(self.prefs_manager.get_default_sample_shape())
+        self.sample_width_var.set(str(self.prefs_manager.get_default_sample_width()))
+        self.sample_height_var.set(str(self.prefs_manager.get_default_sample_height()))
+        self.sample_anchor_var.set(self.prefs_manager.get_default_sample_anchor())
+        self.max_samples_var.set(str(self.prefs_manager.get_max_samples()))
+        
+        # Analysis save preferences
+        self.save_individual_default_var.set(self.prefs_manager.get_save_individual_default())
+        self.save_average_default_var.set(self.prefs_manager.get_save_average_default())
+        self.default_database_var.set(self.prefs_manager.get_default_database_name())
+        self.use_averages_suffix_var.set(self.prefs_manager.get_use_averages_suffix())
+        self.enable_quick_save_var.set(self.prefs_manager.get_enable_quick_save())
+        
+        # Color space preferences
+        self.export_include_rgb_var.set(self.prefs_manager.get_export_include_rgb())
+        self.export_include_lab_var.set(self.prefs_manager.get_export_include_lab())
+        self.export_include_lch_var.set(self.prefs_manager.get_export_include_lch())
+        self.export_include_cmy_var.set(self.prefs_manager.get_export_include_cmy())
+        
+        # Compare mode preferences
+        self.auto_save_averages_var.set(self.prefs_manager.get_auto_save_averages())
+        self.auto_close_prev_library_windows_var.set(
+            self.prefs_manager.get_auto_close_previous_library_windows()
+        )
+        
+        # Measurement preferences
+        self.default_dpi_var.set(str(self.prefs_manager.get_default_dpi()))
+        self.perforation_enabled_var.set(self.prefs_manager.get_perforation_measurement_enabled())
+        self.default_bg_color_var.set(self.prefs_manager.get_default_background_color())
+        
+        # Debug preferences
+        self.debug_logging_var.set(self.prefs_manager.get('debug_logging_enabled', False))
+        
+        # Update preview
+        self._update_filename_preview()
+    
+    def _update_filename_preview(self, *args):
+        """Update the filename preview."""
+        try:
+            # Create a temporary preferences manager with current settings
+            template = self.filename_template_var.get()
+            include_timestamp = self.include_timestamp_var.get()
+            
+            # Create preview filename
+            from datetime import datetime
+            variables = {
+                "sample_set": "my_template",
+                "date": datetime.now().strftime("%Y%m%d"),
+                "datetime": datetime.now().strftime("%Y%m%d_%H%M%S")
+            }
+            
+            try:
+                filename = template.format(**variables)
+            except (KeyError, ValueError) as e:
+                filename = f"my_template_{variables['date']} (invalid template)"
+            
+            if include_timestamp:
+                timestamp = datetime.now().strftime("_%H%M%S")
+                filename += timestamp
+            
+            filename += ".ods"
+            
+            self.filename_preview.config(text=filename, foreground="blue")
+        except Exception:
+            self.filename_preview.config(text="(preview error)", foreground="red")
+    
+    def _browse_export_directory(self):
+        """Browse for export directory."""
+        current_dir = self.export_dir_var.get()
+        
+        directory = filedialog.askdirectory(
+            title="Choose Export Directory",
+            initialdir=current_dir if current_dir else str(Path.home() / "Desktop")
+        )
+        
+        if directory:
+            self.export_dir_var.set(directory)
+    
+    def _use_default_directory(self):
+        """Set export directory to default."""
+        default_dir = self.prefs_manager._get_default_export_directory()
+        self.export_dir_var.set(default_dir)
+    
+    def _open_current_directory(self):
+        """Open the current export directory in file explorer."""
+        current_dir = self.export_dir_var.get()
+        
+        if not current_dir:
+            messagebox.showwarning("No Directory", "No export directory is set.")
+            return
+        
+        try:
+            import subprocess
+            import sys
+            
+            if sys.platform == 'darwin':  # macOS
+                subprocess.run(['open', current_dir])
+            elif sys.platform.startswith('linux'):  # Linux
+                subprocess.run(['xdg-open', current_dir])
+            elif sys.platform.startswith('win'):  # Windows
+                subprocess.run(['explorer', current_dir])
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not open directory:\n{e}")
+    
+    def _apply_settings(self):
+        """Apply the current settings."""
+        try:
+            # Export directory
+            new_dir = self.export_dir_var.get()
+            if new_dir:
+                self.prefs_manager.set_export_directory(new_dir)
+            
+            # Filename settings
+            self.prefs_manager.preferences.export_prefs.export_filename_format = self.filename_template_var.get()
+            self.prefs_manager.preferences.export_prefs.include_timestamp = self.include_timestamp_var.get()
+            
+            # Export format
+            self.prefs_manager.set_preferred_export_format(self.export_format_var.get())
+            
+            # Export behavior
+            self.prefs_manager.preferences.export_prefs.auto_open_after_export = self.auto_open_var.get()
+            
+            # Normalized export values
+            self.prefs_manager.set_export_normalized_values(self.export_normalized_var.get())
+            
+            # Paper-tagged sample inclusion in exports and Plot_3D
+            self.prefs_manager.set_export_include_paper(
+                self.export_include_paper_var.get()
+            )
+
+            # RAW display bridge preference
+            self.prefs_manager.set_raw_display_bridge_enabled(
+                self.raw_display_bridge_var.get()
+            )
+
+            # Calibrated image display preference
+            self.prefs_manager.set_calibrated_image_display_enabled(
+                self.calibrated_image_display_var.get()
+            )
+
+            # Treat all images as RAW preference
+            self.prefs_manager.set_treat_all_images_as_raw(
+                self.treat_all_images_as_raw_var.get()
+            )
+            
+            # File dialog preferences
+            self.prefs_manager.set_remember_directories(self.remember_directories_var.get())
+            
+            # Color library preference
+            if hasattr(self, '_library_mapping') and hasattr(self, 'default_library_var'):
+                display_name = self.default_library_var.get()
+                if display_name in self._library_mapping:
+                    library_name = self._library_mapping[display_name]
+                    self.prefs_manager.set_default_color_library(library_name)
+            
+            # Template preference
+            if hasattr(self, 'default_template_var'):
+                template_name = self.default_template_var.get()
+                if template_name == '(None)':
+                    template_name = ''
+                self.prefs_manager.set_default_template(template_name)
+            
+            # Interface mode preference removed
+            
+            # Sample area preferences
+            self.prefs_manager.set_default_sample_shape(self.sample_shape_var.get())
+            try:
+                width = int(self.sample_width_var.get())
+                height = int(self.sample_height_var.get())
+                self.prefs_manager.set_default_sample_width(width)
+                self.prefs_manager.set_default_sample_height(height)
+            except ValueError:
+                messagebox.showerror("Invalid Input", "Sample width and height must be valid numbers.")
+                return False
+            self.prefs_manager.set_default_sample_anchor(self.sample_anchor_var.get())
+            
+            # Maximum samples preference
+            try:
+                max_samples = int(self.max_samples_var.get())
+                self.prefs_manager.set_max_samples(max_samples)
+            except ValueError:
+                messagebox.showerror("Invalid Input", "Maximum samples must be a valid number (1-6).")
+                return False
+            
+            # Color space preferences
+            if not self.prefs_manager.set_export_color_spaces(
+                include_lab=self.export_include_lab_var.get(),
+                include_lch=self.export_include_lch_var.get(),
+                include_rgb=self.export_include_rgb_var.get(),
+                include_cmy=self.export_include_cmy_var.get(),
+            ):
+                messagebox.showerror(
+                    "Invalid Color Selection",
+                    "At least one color space must be selected."
+                )
+                return False
+            
+            # Analysis save preferences
+            self.prefs_manager.set_save_individual_default(self.save_individual_default_var.get())
+            self.prefs_manager.set_save_average_default(self.save_average_default_var.get())
+            self.prefs_manager.set_default_database_name(self.default_database_var.get())
+            self.prefs_manager.set_use_averages_suffix(self.use_averages_suffix_var.get())
+            self.prefs_manager.set_enable_quick_save(self.enable_quick_save_var.get())
+            
+            # Compare mode preferences
+            self.prefs_manager.set_auto_save_averages(self.auto_save_averages_var.get())
+            self.prefs_manager.set_auto_close_previous_library_windows(
+                self.auto_close_prev_library_windows_var.get()
+            )
+            
+            # Measurement preferences
+            try:
+                dpi = int(self.default_dpi_var.get())
+                self.prefs_manager.set_default_dpi(dpi)
+            except ValueError:
+                messagebox.showerror("Invalid DPI", "Please enter a valid DPI value (72-2400).")
+                return False
+            
+            self.prefs_manager.set_perforation_measurement_enabled(self.perforation_enabled_var.get())
+            self.prefs_manager.set_default_background_color(self.default_bg_color_var.get())
+            
+            # Debug preferences
+            debug_enabled = self.debug_logging_var.get()
+            self.prefs_manager.set('debug_logging_enabled', debug_enabled)
+            
+            # Apply debug logging setting immediately
+            try:
+                from utils.debug_logger import set_debug_enabled
+                set_debug_enabled(debug_enabled)
+            except Exception as e:
+                print(f"Warning: Could not apply debug logging setting: {e}")
+            
+            # Workspace preferences
+            if hasattr(self, '_save_workspace_preferences'):
+                self._save_workspace_preferences()
+            
+            # Save preferences
+            success = self.prefs_manager.save_preferences()
+            
+            if success:
+                messagebox.showinfo(
+                    "Preferences Saved", 
+                    "Preferences saved successfully!\n\n"
+                    "Most changes take effect immediately.\n"
+                    "Some preferences (like export settings) may require a restart to fully take effect."
+                )
+                return True
+            else:
+                messagebox.showerror("Error", "Failed to save preferences.")
+                return False
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Error saving preferences:\n{e}")
+            return False
+    
+    def _reset_to_defaults(self):
+        """Reset all settings to defaults."""
+        result = messagebox.askyesno(
+            "Reset to Defaults",
+            "This will reset all preferences to their default values.\n\nAre you sure?"
+        )
+        
+        if result:
+            self.prefs_manager.reset_to_defaults()
+            self._load_current_settings()
+            messagebox.showinfo("Reset Complete", "All preferences have been reset to defaults.")
+    
+    def _on_ok(self):
+        """Handle OK button."""
+        if self._apply_settings():
+            self.result = "ok"
+            self._persist_window_geometry()
+            self.root.destroy()
+    
+    def _on_apply(self):
+        """Handle Apply button."""
+        self._apply_settings()
+    
+    def _on_color_space_change(self):
+        """Require at least one selected color space; use RGB as fallback."""
+        selected = (
+            self.export_include_lab_var.get(),
+            self.export_include_lch_var.get(),
+            self.export_include_rgb_var.get(),
+            self.export_include_cmy_var.get(),
+        )
+        if not any(selected):
+            self.export_include_rgb_var.set(True)
+            messagebox.showwarning(
+                "Color Space Required",
+                "At least one color space must be selected.\n\n"
+                "RGB has been re-enabled."
+            )
+
+    def _create_debug_tab(self, notebook):
+        """Create the debug preferences tab."""
+        debug_frame = ttk.Frame(notebook, padding="10")
+        notebook.add(debug_frame, text="Debug")
+        
+        # Debug logging section
+        logging_frame = ttk.LabelFrame(debug_frame, text="Debug Logging", padding="10")
+        logging_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Description
+        ttk.Label(
+            logging_frame,
+            text="Enable debug logging to troubleshoot issues and report problems.",
+            wraplength=600,
+            justify=tk.LEFT
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Debug logging toggle
+        self.debug_logging_var = tk.BooleanVar()
+        debug_checkbox = ttk.Checkbutton(
+            logging_frame,
+            text="Enable debug logging (writes detailed information to terminal/console)",
+            variable=self.debug_logging_var
+        )
+        debug_checkbox.pack(anchor=tk.W, pady=(0, 10))
+        
+        # Info about what gets logged
+        info_frame = ttk.Frame(logging_frame)
+        info_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        info_text = (
+            "When enabled, StampZ will output detailed debug information including:\n"
+            "• Coordinate loading and transformation details\n"
+            "• Sample area calculations and positioning\n"
+            "• Image processing steps\n"
+            "• Color analysis progress\n"
+            "• File operations and database queries\n\n"
+            "This information is helpful for troubleshooting issues or reporting bugs.\n"
+            "Debug output appears in the Terminal (macOS/Linux) or Command Prompt (Windows)."
+        )
+        
+        ttk.Label(
+            info_frame,
+            text=info_text,
+            wraplength=600,
+            justify=tk.LEFT,
+            font=("TkDefaultFont", 9),
+            foreground="gray"
+        ).pack(anchor=tk.W)
+        
+        # Note about performance
+        note_frame = ttk.LabelFrame(debug_frame, text="Note", padding="10")
+        note_frame.pack(fill=tk.X)
+        
+        note_text = (
+            "Debug logging may slightly reduce performance and produces verbose output. "
+            "It's recommended to enable this only when needed for troubleshooting.\n\n"
+            "Changes take effect immediately after clicking OK or Apply."
+        )
+        
+        ttk.Label(
+            note_frame,
+            text=note_text,
+            wraplength=600,
+            justify=tk.LEFT,
+            font=("TkDefaultFont", 9),
+            foreground="orange"
+        ).pack(anchor=tk.W)
+    
+    def _create_workspaces_tab(self, notebook):
+        """Create the workspaces management tab."""
+        # Create outer frame and add to notebook
+        outer_frame = ttk.Frame(notebook)
+        notebook.add(outer_frame, text="Workspaces")
+        
+        # Create canvas and scrollbar for scrolling
+        canvas = tk.Canvas(outer_frame, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(outer_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Pack canvas and scrollbar
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Enable mousewheel scrolling
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        
+        # Main content frame
+        workspace_frame = ttk.Frame(scrollable_frame, padding="10")
+        workspace_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Description
+        ttk.Label(
+            workspace_frame,
+            text="Workspaces let you organize your databases, libraries, and templates into focused groups.\n"
+                 "Select a workspace to see only the resources assigned to it, or use 'All Resources' to see everything.",
+            wraplength=600,
+            justify=tk.LEFT,
+            font=("TkDefaultFont", 9)
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Workspace selector section
+        selector_frame = ttk.LabelFrame(workspace_frame, text="Active Workspace", padding="10")
+        selector_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Workspace dropdown and buttons row
+        selector_row = ttk.Frame(selector_frame)
+        selector_row.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(selector_row, text="Workspace:").pack(side=tk.LEFT, padx=(0, 5))
+        
+        self.workspace_var = tk.StringVar()
+        self.workspace_combo = ttk.Combobox(
+            selector_row,
+            textvariable=self.workspace_var,
+            state="readonly",
+            width=25
+        )
+        self.workspace_combo.pack(side=tk.LEFT, padx=(0, 10))
+        self.workspace_combo.bind("<<ComboboxSelected>>", self._on_workspace_selected)
+        
+        ttk.Button(
+            selector_row,
+            text="New...",
+            command=self._create_new_workspace
+        ).pack(side=tk.LEFT, padx=(0, 5))
+        
+        ttk.Button(
+            selector_row,
+            text="Delete",
+            command=self._delete_workspace
+        ).pack(side=tk.LEFT)
+        
+        # Status label
+        self.workspace_status_var = tk.StringVar(value="No workspace selected - showing all resources")
+        ttk.Label(
+            selector_frame,
+            textvariable=self.workspace_status_var,
+            font=("TkDefaultFont", 9),
+            foreground="blue"
+        ).pack(anchor=tk.W)
+        
+        # Resources section - three columns for DBs, Libraries, Templates
+        resources_frame = ttk.LabelFrame(workspace_frame, text="Resources in Selected Workspace", padding="10")
+        resources_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        # Create three columns
+        columns_frame = ttk.Frame(resources_frame)
+        columns_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Databases column
+        db_frame = ttk.Frame(columns_frame)
+        db_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
+        
+        ttk.Label(db_frame, text="Databases", font=("TkDefaultFont", 10, "bold")).pack(anchor=tk.W)
+        
+        db_list_frame = ttk.Frame(db_frame)
+        db_list_frame.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
+        
+        self.db_listbox = tk.Listbox(
+            db_list_frame,
+            selectmode=tk.MULTIPLE,
+            height=10,
+            exportselection=False
+        )
+        db_scrollbar = ttk.Scrollbar(db_list_frame, orient="vertical", command=self.db_listbox.yview)
+        self.db_listbox.configure(yscrollcommand=db_scrollbar.set)
+        self.db_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        db_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.db_listbox.bind("<<ListboxSelect>>", self._on_resource_selection_changed)
+        
+        # Libraries column
+        lib_frame = ttk.Frame(columns_frame)
+        lib_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
+        
+        ttk.Label(lib_frame, text="Libraries", font=("TkDefaultFont", 10, "bold")).pack(anchor=tk.W)
+        
+        lib_list_frame = ttk.Frame(lib_frame)
+        lib_list_frame.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
+        
+        self.lib_listbox = tk.Listbox(
+            lib_list_frame,
+            selectmode=tk.MULTIPLE,
+            height=10,
+            exportselection=False
+        )
+        lib_scrollbar = ttk.Scrollbar(lib_list_frame, orient="vertical", command=self.lib_listbox.yview)
+        self.lib_listbox.configure(yscrollcommand=lib_scrollbar.set)
+        self.lib_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        lib_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.lib_listbox.bind("<<ListboxSelect>>", self._on_resource_selection_changed)
+        
+        # Templates column
+        tpl_frame = ttk.Frame(columns_frame)
+        tpl_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(5, 0))
+        
+        ttk.Label(tpl_frame, text="Sampling Templates", font=("TkDefaultFont", 10, "bold")).pack(anchor=tk.W)
+        
+        tpl_list_frame = ttk.Frame(tpl_frame)
+        tpl_list_frame.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
+        
+        self.tpl_listbox = tk.Listbox(
+            tpl_list_frame,
+            selectmode=tk.MULTIPLE,
+            height=10,
+            exportselection=False
+        )
+        tpl_scrollbar = ttk.Scrollbar(tpl_list_frame, orient="vertical", command=self.tpl_listbox.yview)
+        self.tpl_listbox.configure(yscrollcommand=tpl_scrollbar.set)
+        self.tpl_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        tpl_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tpl_listbox.bind("<<ListboxSelect>>", self._on_resource_selection_changed)
+        
+        # Selection info label
+        self.selection_info_var = tk.StringVar(value="Select items to include in the workspace")
+        ttk.Label(
+            resources_frame,
+            textvariable=self.selection_info_var,
+            font=("TkDefaultFont", 9),
+            foreground="gray"
+        ).pack(anchor=tk.W, pady=(10, 0))
+        
+        # Information section
+        info_frame = ttk.LabelFrame(workspace_frame, text="How Workspaces Work", padding="10")
+        info_frame.pack(fill=tk.X)
+        
+        info_text = (
+            "• Select 'All Resources' to see all databases, libraries, and templates\n"
+            "• Create workspaces to organize resources by project or stamp series\n"
+            "• Highlighted items in the lists are included in the current workspace\n"
+            "• Changes are saved when you click Apply or OK\n"
+            "• Deleting a workspace does not delete the actual files"
+        )
+        
+        ttk.Label(
+            info_frame,
+            text=info_text,
+            wraplength=600,
+            justify=tk.LEFT,
+            font=("TkDefaultFont", 9),
+            foreground="gray"
+        ).pack(anchor=tk.W)
+        
+        # Initialize workspace data
+        self._workspace_modified = False
+        self._load_workspace_preferences()
+    
+    def _load_workspace_preferences(self):
+        """Load workspace preferences and populate the UI."""
+        try:
+            # Get available workspaces
+            workspaces = self.prefs_manager.get_workspaces()
+            active_workspace = self.prefs_manager.get_active_workspace()
+            
+            # Populate workspace dropdown
+            workspace_names = ['All Resources'] + sorted(workspaces.keys())
+            self.workspace_combo['values'] = workspace_names
+            
+            # Set current selection
+            if active_workspace and active_workspace in workspaces:
+                self.workspace_var.set(active_workspace)
+            else:
+                self.workspace_var.set('All Resources')
+            
+            # Populate resource lists
+            self._populate_resource_lists()
+            
+            # Update selection based on workspace
+            self._update_workspace_selection()
+            
+        except Exception as e:
+            print(f"Error loading workspace preferences: {e}")
+    
+    def _populate_resource_lists(self):
+        """Populate the resource listboxes with available resources."""
+        # Clear existing items
+        self.db_listbox.delete(0, tk.END)
+        self.lib_listbox.delete(0, tk.END)
+        self.tpl_listbox.delete(0, tk.END)
+        
+        # Get available resources
+        databases = self.prefs_manager.get_available_databases()
+        libraries = self.prefs_manager.get_available_libraries()
+        templates = self.prefs_manager.get_available_templates()
+        
+        # Populate listboxes
+        for db in databases:
+            self.db_listbox.insert(tk.END, db)
+        
+        for lib in libraries:
+            # Display friendly name (remove _library.db suffix)
+            self.lib_listbox.insert(tk.END, lib)
+        
+        for tpl in templates:
+            self.tpl_listbox.insert(tk.END, tpl)
+    
+    def _update_workspace_selection(self):
+        """Update listbox selections based on current workspace."""
+        workspace_name = self.workspace_var.get()
+        
+        # Clear all selections first
+        self.db_listbox.selection_clear(0, tk.END)
+        self.lib_listbox.selection_clear(0, tk.END)
+        self.tpl_listbox.selection_clear(0, tk.END)
+        
+        if workspace_name == 'All Resources' or not workspace_name:
+            # Select all items
+            for i in range(self.db_listbox.size()):
+                self.db_listbox.selection_set(i)
+            for i in range(self.lib_listbox.size()):
+                self.lib_listbox.selection_set(i)
+            for i in range(self.tpl_listbox.size()):
+                self.tpl_listbox.selection_set(i)
+            self.workspace_status_var.set("Showing all resources (no workspace filter)")
+            self.selection_info_var.set("All items selected - create a workspace to filter")
+        else:
+            # Get workspace config
+            config = self.prefs_manager.get_workspace_config(workspace_name)
+            if config:
+                # Select items that are in the workspace
+                active_dbs = set(config.get('databases', []))
+                active_libs = set(config.get('libraries', []))
+                active_tpls = set(config.get('templates', []))
+                
+                for i in range(self.db_listbox.size()):
+                    if self.db_listbox.get(i) in active_dbs:
+                        self.db_listbox.selection_set(i)
+                
+                for i in range(self.lib_listbox.size()):
+                    if self.lib_listbox.get(i) in active_libs:
+                        self.lib_listbox.selection_set(i)
+                
+                for i in range(self.tpl_listbox.size()):
+                    if self.tpl_listbox.get(i) in active_tpls:
+                        self.tpl_listbox.selection_set(i)
+                
+                db_count = len(active_dbs)
+                lib_count = len(active_libs)
+                tpl_count = len(active_tpls)
+                self.workspace_status_var.set(f"Workspace '{workspace_name}': {db_count} DBs, {lib_count} libraries, {tpl_count} templates")
+                self.selection_info_var.set("Click items to add/remove from this workspace")
+    
+    def _on_workspace_selected(self, event=None):
+        """Handle workspace selection change."""
+        self._update_workspace_selection()
+    
+    def _on_resource_selection_changed(self, event=None):
+        """Handle resource selection change in listboxes."""
+        workspace_name = self.workspace_var.get()
+        if workspace_name and workspace_name != 'All Resources':
+            self._workspace_modified = True
+            # Update counts
+            db_count = len(self.db_listbox.curselection())
+            lib_count = len(self.lib_listbox.curselection())
+            tpl_count = len(self.tpl_listbox.curselection())
+            self.selection_info_var.set(f"Selected: {db_count} DBs, {lib_count} libraries, {tpl_count} templates (unsaved)")
+    
+    def _create_new_workspace(self):
+        """Create a new workspace."""
+        from tkinter import simpledialog
+        
+        name = simpledialog.askstring(
+            "New Workspace",
+            "Enter a name for the new workspace:",
+            parent=self.root
+        )
+        
+        if name:
+            name = name.strip()
+            if not name:
+                messagebox.showwarning("Invalid Name", "Workspace name cannot be empty.")
+                return
+            
+            # Check if name already exists
+            workspaces = self.prefs_manager.get_workspaces()
+            if name in workspaces:
+                messagebox.showwarning("Name Exists", f"A workspace named '{name}' already exists.")
+                return
+            
+            # Create the workspace with currently selected items
+            selected_dbs = [self.db_listbox.get(i) for i in self.db_listbox.curselection()]
+            selected_libs = [self.lib_listbox.get(i) for i in self.lib_listbox.curselection()]
+            selected_tpls = [self.tpl_listbox.get(i) for i in self.tpl_listbox.curselection()]
+            
+            if self.prefs_manager.create_workspace(name, selected_dbs, selected_libs, selected_tpls):
+                # Update dropdown and select new workspace
+                self._load_workspace_preferences()
+                self.workspace_var.set(name)
+                self._update_workspace_selection()
+                messagebox.showinfo("Workspace Created", f"Workspace '{name}' has been created.")
+            else:
+                messagebox.showerror("Error", f"Failed to create workspace '{name}'.")
+    
+    def _delete_workspace(self):
+        """Delete the selected workspace."""
+        workspace_name = self.workspace_var.get()
+        
+        if not workspace_name or workspace_name == 'All Resources':
+            messagebox.showwarning("Cannot Delete", "Please select a workspace to delete.")
+            return
+        
+        result = messagebox.askyesno(
+            "Delete Workspace",
+            f"Are you sure you want to delete the workspace '{workspace_name}'?\n\n"
+            "This will not delete any files, only the workspace configuration."
+        )
+        
+        if result:
+            if self.prefs_manager.delete_workspace(workspace_name):
+                self._load_workspace_preferences()
+                messagebox.showinfo("Workspace Deleted", f"Workspace '{workspace_name}' has been deleted.")
+            else:
+                messagebox.showerror("Error", f"Failed to delete workspace '{workspace_name}'.")
+    
+    def _save_workspace_preferences(self):
+        """Save workspace preferences from the UI."""
+        workspace_name = self.workspace_var.get()
+        
+        # Set active workspace
+        if workspace_name == 'All Resources':
+            self.prefs_manager.set_active_workspace('')
+        else:
+            self.prefs_manager.set_active_workspace(workspace_name)
+            
+            # Update workspace config if modified
+            if self._workspace_modified and workspace_name:
+                selected_dbs = [self.db_listbox.get(i) for i in self.db_listbox.curselection()]
+                selected_libs = [self.lib_listbox.get(i) for i in self.lib_listbox.curselection()]
+                selected_tpls = [self.tpl_listbox.get(i) for i in self.tpl_listbox.curselection()]
+                
+                self.prefs_manager.update_workspace(
+                    workspace_name,
+                    databases=selected_dbs,
+                    libraries=selected_libs,
+                    templates=selected_tpls
+                )
+        
+        self._workspace_modified = False
+    
+    def _on_cancel(self):
+        """Handle Cancel button."""
+        self.result = "cancel"
+        self._persist_window_geometry()
+        self.root.destroy()
+    
+    def _persist_window_geometry(self):
+        """Save the dialog's current geometry for next open. Safe to call anywhere."""
+        try:
+            if getattr(self, '_save_window_geometry', None) and getattr(self, '_window_geometry_key', None):
+                geom = getattr(self, '_last_good_geometry', None)
+                if geom:
+                    try:
+                        from utils.user_preferences import get_preferences_manager
+                        get_preferences_manager().set_window_geometry(
+                            self._window_geometry_key, geom
+                        )
+                        return
+                    except Exception:
+                        pass
+                self._save_window_geometry(self.root, self._window_geometry_key)
+        except Exception:
+            pass
+    
+    def show(self):
+        """Show the preferences dialog."""
+        self.root.focus_force()
+        return self.result
+
+
+def show_preferences_dialog(parent: tk.Tk, app=None) -> Optional[str]:
+    """Convenience function to show preferences dialog."""
+    dialog = PreferencesDialog(parent, app=app)
+    return dialog.show()
+
+
+if __name__ == "__main__":
+    # Test the dialog
+    root = tk.Tk()
+    root.withdraw()  # Hide the root window
+
+    result = show_preferences_dialog(root)
+    print(f"Dialog result: {result}")
+
+    root.destroy()
