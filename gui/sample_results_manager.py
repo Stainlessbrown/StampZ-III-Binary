@@ -2670,9 +2670,11 @@ class SampleResultsManager(tk.Frame):
         sample_measurements = []
         
         for i, sample in enumerate(samples, 1):
+            # Preserve original analytical RGB when saving.
+            # Calibration affects Lab, not the sampled RGB.
             sample_rgb_original = sample['rgb']
             sample_lab = analyzer.rgb_to_lab(sample_rgb_original)
-            sample_rgb = analyzer.calibrated_lab_to_rgb(sample_lab)
+            sample_rgb = sample_rgb_original
             
             rgb_stddev = sample.get('rgb_stddev', None)
             lab_stddev = sample.get('lab_stddev', None)
