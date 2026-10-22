@@ -382,6 +382,10 @@ class SampleResultsManager(tk.Frame):
             rgb_stddev = sample.get('rgb_stddev', None)
             lab_stddev = sample.get('lab_stddev', None)
             lab = analyzer.rgb_to_lab(rgb)  # always use calibrated converter
+            # Preserve the analytical Lab used by this Results rendering.
+            # Audit SAVE will capture it without recalculation.
+            sample['lab'] = tuple(lab)
+
             
             # Display-only values for this sample.
             # Analytical rgb / lab remain untouched for Delta E, QC, averaging, and saves.
@@ -609,6 +613,8 @@ class SampleResultsManager(tk.Frame):
         # Clear existing display
         for widget in self.average_frame.winfo_children():
             widget.destroy()
+
+        self._audit_display_averages = {}            
         
         enabled_ink = [s for s in self.sample_points
                        if s['enabled'].get() and not s['is_paper'].get()]
@@ -672,6 +678,12 @@ class SampleResultsManager(tk.Frame):
         )
         avg_rgb = averaging_result['avg_rgb']
         avg_lab = averaging_result['avg_lab']
+        group_key = "ink" if big else "paper"
+        self._audit_display_averages[group_key] = {
+            "rgb": tuple(avg_rgb),
+            "lab": tuple(avg_lab),
+            "marker_indices": tuple(s["index"] for s in samples),
+        }
         max_delta_e = averaging_result['max_delta_e']
         samples_used = averaging_result['samples_used']
         outliers_excluded = averaging_result['outliers_excluded']
@@ -2759,7 +2771,100 @@ class SampleResultsManager(tk.Frame):
         """Return the list of enabled paper-tagged samples (may be empty)."""
         return [s for s in self.sample_points
                 if s['enabled'].get() and s['is_paper'].get()]
-    
+
+    def _create_audit_snapshot(self):
+        """Capture the approved analytical Results without recalculation."""
+        from utils.audit_save_coordinator import create_analytical_snapshot
+
+        averages = getattr(self, "_audit_display_averages", {})
+
+        ink_samples = []
+        paper_samples = []
+        excluded_indices = []
+
+        for sample in self.sample_points:
+            index = sample["index"]
+
+            if not sample["enabled"].get():
+                excluded_indices.append(index)
+                continue
+
+            if "lab" not in sample:
+                raise ValueError(
+                    f"Marker {index} has no cached analytical Lab"
+                )
+
+            record = {
+                "index": index,
+                "rgb": sample["rgb"],
+                "lab": sample["lab"],
+                "position": sample["position"],
+                "type": sample["type"],
+                "size": sample["size"],
+                "anchor": sample["anchor"],
+                "rgb_stddev": sample.get("rgb_stddev"),
+                "lab_stddev": sample.get("lab_stddev"),
+            }
+
+            if sample["is_paper"].get():
+                paper_samples.append(record)
+            else:
+                ink_samples.append(record)
+
+        for group, samples in (
+            ("ink", ink_samples),
+            ("paper", paper_samples),
+        ):
+            cached = averages.get(group)
+
+            if samples:
+                if cached is None:
+                    raise ValueError(f"Missing {group} average")
+
+                indices = tuple(s["index"] for s in samples)
+
+                if indices != cached.get("marker_indices"):
+                    raise ValueError(
+                        f"{group} marker selection changed"
+                    )
+            elif cached is not None:
+                raise ValueError(f"Stale {group} average")
+
+        return create_analytical_snapshot(
+            ink_samples=ink_samples,
+            ink_average=averages.get("ink"),
+            paper_samples=paper_samples,
+            paper_average=averages.get("paper"),
+            metadata={
+                "source_image": getattr(
+                    self, "current_file_path", None
+                ),
+                "image_metadata": getattr(
+                    self, "current_image_metadata", {}
+                ),
+                "excluded_marker_indices": excluded_indices,
+            },
+        )
+
+    def _test_audit_snapshot(self):
+        """Diagnostic only: create and inspect an audit snapshot."""
+        snapshot = self._create_audit_snapshot()
+
+        print("AUDIT SNAPSHOT TEST")
+        print("Analysis ID:", snapshot["analysis_id"])
+        print("Timestamp:", snapshot["saved_at_utc"])
+        print("Ink markers:", [
+            s["index"] for s in snapshot["ink_samples"]
+        ])
+        print("Paper markers:", [
+            s["index"] for s in snapshot["paper_samples"]
+        ])
+        print("Ink AVG:", snapshot["ink_average"])
+        print("Paper AVG:", snapshot["paper_average"])
+        print("Excluded:", snapshot["metadata"]["excluded_marker_indices"])
+
+        return snapshot
+
     def _save_to_database(self, avg_rgb, avg_lab, enabled_samples):
         """Save results to database - checks for quick save preference first."""
         # Check if quick save is enabled
