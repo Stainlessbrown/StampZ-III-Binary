@@ -222,6 +222,26 @@ class SampleResultsManager(tk.Frame):
             
             # Process each sample
             self.sample_points = []
+
+
+            # Capture calibration provenance for this Results session.
+            from utils.scanner_calibration import get_active_calibration
+
+            calibration = get_active_calibration()
+            if calibration is not None and calibration.is_valid:
+                self._audit_calibration = {
+                    "enabled": True,
+                    "profile_name": calibration.profile_name,
+                    "created_date": calibration.created_date,
+                    "scanner_info": calibration.scanner_info,
+                }
+            else:
+                self._audit_calibration = {
+                    "enabled": False,
+                    "profile_name": None,
+                    "created_date": None,
+                    "scanner_info": None,
+                }
             
             for i, sample in enumerate(sample_data, 1):
                 try:
@@ -279,6 +299,8 @@ class SampleResultsManager(tk.Frame):
             # Show the precision actually used by the analyzer.
             bit_depth = getattr(analyzer, 'last_sampling_bit_depth', None)
             channels = getattr(analyzer, 'last_sampling_channels', None)
+            self._audit_sampling_bit_depth = bit_depth
+            self._audit_sampling_channels = channels
 
             if bit_depth in (8, 16):
                 channel_text = "RGBA" if channels == 4 else "RGB"
@@ -324,7 +346,7 @@ class SampleResultsManager(tk.Frame):
             get_conditional_color_values_text, get_conditional_stddev_text,
         )
         analyzer = ColorAnalyzer()
-        
+
         def _group_avg_lab(group_samples):
             """Quality-controlled Lab mean for a group, or None if empty."""
             if not group_samples:
@@ -2596,33 +2618,45 @@ class SampleResultsManager(tk.Frame):
             return []
     
     def _get_existing_databases(self):
-        """Get list of existing non-library databases."""
+        """List conventional database collections, excluding audit archives."""
         try:
             from utils.path_utils import get_color_analysis_dir
+
             analysis_dir = get_color_analysis_dir()
-            
-            if not os.path.exists(analysis_dir):
+
+            if not os.path.isdir(analysis_dir):
                 return []
-            
-            # Get all .db files in the analysis directory
-            db_files = [f for f in os.listdir(analysis_dir) if f.endswith('.db')]
-            
-            # Filter out library databases and system databases
-            non_library_dbs = []
-            for db_file in db_files:
-                db_name = os.path.splitext(db_file)[0]
-                # Skip library databases, average databases, and system databases
-                if not (db_name.endswith('_library') or 
-                       db_name.endswith('_averages') or
-                       db_name.endswith('_AVG') or
-                       db_name.startswith('system_') or
-                       db_name in ['coordinates', 'coordinate_sets']):
-                    non_library_dbs.append(db_name)
-            
-            return sorted(non_library_dbs)
-            
-        except Exception as e:
-            print(f"Error getting existing databases: {e}")
+
+            collections = set()
+
+            for filename in os.listdir(analysis_dir):
+                if not filename.endswith(".db"):
+                    continue
+
+                name = os.path.splitext(filename)[0]
+
+                # Exclude permanent audit archives.
+                if name.endswith("_AUDIT"):
+                    continue
+
+                # Exclude libraries and system databases.
+                if (name.endswith("_library")
+                        or name.endswith("_averages")
+                        or name.startswith("system_")
+                        or name in ("coordinates", "coordinate_sets")):
+                    continue
+
+                # AVG-only databases still identify a valid collection.
+                if name.endswith("_AVG"):
+                    name = name[:-4]
+
+                if name:
+                    collections.add(name)
+
+            return sorted(collections)
+
+        except Exception as error:
+            print(f"Error getting existing databases: {error}")
             return []
     
     def _save_one_group_to_db(
@@ -2774,6 +2808,22 @@ class SampleResultsManager(tk.Frame):
 
     def _create_audit_snapshot(self):
         """Capture the approved analytical Results without recalculation."""
+
+        import hashlib
+
+        image_hash = None
+        image_path = getattr(self, "current_file_path", None)
+
+        if image_path:
+            try:
+                digest = hashlib.sha256()
+                with open(image_path, "rb") as source:
+                    for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                        digest.update(chunk)
+                image_hash = digest.hexdigest()
+            except OSError as error:
+                print(f"AUDIT: Could not hash source image: {error}")
+
         from utils.audit_save_coordinator import create_analytical_snapshot
 
         averages = getattr(self, "_audit_display_averages", {})
@@ -2843,12 +2893,31 @@ class SampleResultsManager(tk.Frame):
                     self, "current_image_metadata", {}
                 ),
                 "excluded_marker_indices": excluded_indices,
+                "calibration": getattr(self, "_audit_calibration", None),
+                "stampz_version": __import__("__init__").__version__,
+                "operating_system": __import__("platform").system(),
+                "os_version": __import__("platform").release(),
+                "architecture": __import__("platform").machine(),
+                "source_sha256": image_hash,
+
+                "sampling_bit_depth": getattr(
+                    self, "_audit_sampling_bit_depth", None
+                ),
+                "sampling_channels": getattr(
+                    self, "_audit_sampling_channels", None
+                ),
             },
         )
 
     def _test_audit_snapshot(self):
         """Diagnostic only: create and inspect an audit snapshot."""
         snapshot = self._create_audit_snapshot()
+
+        import json
+        from utils.audit_save_coordinator import _audit_json_default
+
+        json.dumps(snapshot, allow_nan=False, default=_audit_json_default)
+        print("AUDIT JSON SERIALIZATION: PASS")
 
         print("AUDIT SNAPSHOT TEST")
         print("Analysis ID:", snapshot["analysis_id"])
@@ -2862,8 +2931,95 @@ class SampleResultsManager(tk.Frame):
         print("Ink AVG:", snapshot["ink_average"])
         print("Paper AVG:", snapshot["paper_average"])
         print("Excluded:", snapshot["metadata"]["excluded_marker_indices"])
+        metadata = snapshot["metadata"]
+        print("Source SHA-256:", metadata.get("source_sha256"))
+        print("Calibration:", metadata.get("calibration"))
+        print("StampZ version:", metadata.get("stampz_version"))
+        print("Operating system:", metadata.get("operating_system"))
+        print("Sampling depth:", metadata.get("sampling_bit_depth"))
+        print("Sampling channels:", metadata.get("sampling_channels"))
 
         return snapshot
+
+    def _audit_original_dataid(self):
+        """Build the original DataID using StampZ naming conventions."""
+        import os
+
+        # User-supplied Sample Name takes precedence.
+        try:
+            sample_name = (
+                self.app.control_panel.sample_name.get().strip()
+            )
+        except (AttributeError, tk.TclError):
+            sample_name = ""
+
+        if sample_name:
+            dataid = sample_name
+        else:
+            image_path = getattr(self, "current_file_path", None)
+            if image_path:
+                dataid = os.path.splitext(
+                    os.path.basename(image_path)
+                )[0]
+            else:
+                dataid = "analysis_result"
+
+        # Preserve RAW-derived provenance.
+        metadata = getattr(self, "current_image_metadata", {}) or {}
+        if metadata.get("is_raw", False):
+            if not (
+                dataid.lower().endswith("-r")
+                or dataid.upper().endswith("_RAW")
+            ):
+                dataid = f"{dataid}-r"
+
+        return dataid
+
+    def _save_with_audit(self, db_name, image_name,
+                        save_individual, save_average):
+        """Save one complete immutable analytical audit record."""
+        import os
+
+        from utils.audit_database import audit_database_path
+        from utils.audit_save_coordinator import save_complete_audit
+        from utils.naming_utils import standardize_name
+        from utils.color_analysis_db import ColorAnalysisDB
+
+        if not save_individual and not save_average:
+            raise ValueError(
+                "Select individual measurements, averages, or both"
+            )
+
+        snapshot = self._create_audit_snapshot()
+
+        # Match StampZ's existing database naming and location rules
+        # without instantiating database classes or creating files.
+        name = standardize_name(db_name)
+        if not name:
+            raise ValueError("Invalid database name")
+
+        clean_name = ColorAnalysisDB._clean_filename(None, name)
+        audit_path = audit_database_path(db_name)
+        directory = os.path.dirname(audit_path)
+
+        individual_path = (
+            os.path.join(directory, f"{clean_name}.db")
+            if save_individual else None
+        )
+
+        average_path = (
+            os.path.join(directory, f"{clean_name}_AVG.db")
+            if save_average else None
+        )
+
+        return save_complete_audit(
+            audit_db_path=audit_path,
+            individual_db_path=individual_path,
+            average_db_path=average_path,
+            original_dataid=image_name,
+            snapshot=snapshot,
+    )
+
 
     def _save_to_database(self, avg_rgb, avg_lab, enabled_samples):
         """Save results to database - checks for quick save preference first."""
@@ -2883,119 +3039,69 @@ class SampleResultsManager(tk.Frame):
             self._show_save_results_dialog(avg_rgb, avg_lab, enabled_samples)
     
     def _perform_quick_save(self, avg_rgb, avg_lab, enabled_samples):
-        """Quick save using preference settings without showing a dialog.
-        
-        Saves the ink samples to ``<final_db_name>``/``<image_name>``, and
-        if any paper samples are enabled, saves them to the same DB under
-        ``<image_name>-p`` so they stay associated with the stamp but
-        never mix into ink plots.
-        """
+        """Quick Save: preserve one complete, immutable audit analysis."""
         try:
             from utils.user_preferences import get_preferences_manager
             from utils.dismissible_message import showsuccess_dismissible
-            
+
             prefs = get_preferences_manager()
-            
-            # Get preferences
             default_db_name = prefs.get_default_database_name()
             save_individual = prefs.get_save_individual_default()
             save_average = prefs.get_save_average_default()
-            use_averages_suffix = prefs.get_use_averages_suffix()
-            
-            # Resolve DB name + image name from current file
-            if hasattr(self, 'current_file_path'):
-                filename = os.path.basename(self.current_file_path)
-                file_base = os.path.splitext(filename)[0]
-                if default_db_name in ["ColorAnalysis", "Results_Analysis"]:
-                    final_db_name = f"Results_{file_base}"
+
+            if not save_individual and not save_average:
+                raise ValueError("Select individual measurements, averages, or both")
+
+            image_name = self._audit_original_dataid()
+
+            if default_db_name in ("ColorAnalysis", "Results_Analysis"):
+                source_path = getattr(self, "current_file_path", None)
+                if source_path:
+                    source_name = os.path.splitext(
+                        os.path.basename(source_path)
+                    )[0]
                 else:
-                    final_db_name = default_db_name
-                image_name = file_base
+                    source_name = "analysis_result"
+
+                final_db_name = f"Results_{source_name}"
             else:
                 final_db_name = default_db_name
-                image_name = "analysis_result"
-            
-            # --- ink (primary) save ----------------------------------------- #
-            ink_result = self._save_one_group_to_db(
-                samples=enabled_samples,
+
+            result = self._save_with_audit(
                 db_name=final_db_name,
                 image_name=image_name,
                 save_individual=save_individual,
                 save_average=save_average,
-                use_averages_suffix=use_averages_suffix,
-                notes_label="Results Manager (Quick Save)",
             )
-            
-            # --- paper (optional) save -------------------------------------- #
-            paper_samples = self._enabled_paper_samples()
-            paper_result = None
-            if paper_samples:
-                paper_result = self._save_one_group_to_db(
-                    samples=paper_samples,
-                    db_name=final_db_name,
-                    image_name=f"{image_name}-p",
-                    save_individual=save_individual,
-                    save_average=save_average,
-                    use_averages_suffix=use_averages_suffix,
-                    notes_label="Results Manager (Quick Save) [paper]",
-                )
-            
-            # --- evaluate combined success/error and report ----------------- #
-            ok_ink = ((not save_individual or ink_result['success_individual'])
-                      and (not save_average or ink_result['success_average']))
-            ok_paper = (
-                paper_result is None or (
-                    (not save_individual or paper_result['success_individual'])
-                    and (not save_average or paper_result['success_average'])
-                )
+
+            try:
+                prefs.set("last_used_database", final_db_name)
+            except Exception as error:
+                print(f"AUDIT: Could not update database preference: {error}")
+
+            success_msg = (
+                "Results and audit record saved successfully!\n\n"
+                f"Database: {final_db_name}\n"
+                f"DataID: {result['dataid']}\n"
+                f"Analysis ID: {result['analysis_id']}\n\n"
+                f"Individual measurements: {result['individual_count']}\n"
+                f"Averages: {result['average_count']}"
             )
-            
-            if ok_ink and ok_paper:
-                prefs.set('last_used_database', final_db_name)
-                
-                success_msg = "Results saved successfully!\n\n"
-                if save_individual:
-                    success_msg += (
-                        f"✓ {ink_result['measurements_count']} ink samples saved\n"
-                    )
-                    if paper_result:
-                        success_msg += (
-                            f"✓ {paper_result['measurements_count']} "
-                            f"paper samples saved (set '{image_name}-p')\n"
-                        )
-                if save_average:
-                    success_msg += "✓ 1 averaged ink result saved\n"
-                    if paper_result:
-                        success_msg += "✓ 1 averaged paper result saved\n"
-                # De-dup file list (preserve order)
-                saved_files = list(dict.fromkeys(
-                    ink_result['saved_files']
-                    + (paper_result['saved_files'] if paper_result else [])
-                ))
-                success_msg += "\nSaved to:\n"
-                for f in saved_files:
-                    success_msg += f"• {f}\n"
-                
-                showsuccess_dismissible(
-                    title="Quick Save Complete",
-                    message=success_msg,
-                    message_id="quick_save_success",
-                    parent=self.winfo_toplevel(),
-                )
-            else:
-                error_msg = "Some save operations failed:\n\n"
-                if save_individual and not ink_result['success_individual']:
-                    error_msg += "✗ Ink individual samples failed to save\n"
-                if save_average and not ink_result['success_average']:
-                    error_msg += "✗ Ink average failed to save\n"
-                if paper_result and save_individual and not paper_result['success_individual']:
-                    error_msg += "✗ Paper individual samples failed to save\n"
-                if paper_result and save_average and not paper_result['success_average']:
-                    error_msg += "✗ Paper average failed to save\n"
-                messagebox.showerror("Quick Save Error", error_msg)
-        
-        except Exception as e:
-            messagebox.showerror("Error", f"Quick save failed: {str(e)}")
+
+            showsuccess_dismissible(
+                title="Quick Save Complete",
+                message=success_msg,
+                message_id="quick_save_success",
+                parent=self.winfo_toplevel(),
+            )
+
+        except Exception as error:
+            print(f"AUDIT: Quick Save failed: {error}")
+            messagebox.showerror(
+                "Quick Save Error",
+                f"Nothing was committed by the audit transaction.\n\n{error}",
+            )
+
     
     def _show_save_results_dialog(self, avg_rgb, avg_lab, enabled_samples):
         """Show dialog to save results to database."""
@@ -3173,125 +3279,64 @@ class SampleResultsManager(tk.Frame):
                      foreground="gray", justify=tk.LEFT).pack(anchor='w')
             
             def save_results():
-                # Check that at least one save option is selected
+                """Save the entire analysis through one audit transaction."""
                 if not save_individual.get() and not save_average.get():
-                    messagebox.showerror("Error", "Please select at least one save option")
+                    messagebox.showerror(
+                        "Save Error",
+                        "Please select at least one save option",
+                        parent=dialog,
+                    )
                     return
-                
-                # Determine which database to use
+
                 if db_choice.get() == "existing" and existing_databases:
                     final_db_name = db_var.get().strip()
                 else:
                     final_db_name = new_db_var.get().strip()
-                
+
                 if not final_db_name:
                     messagebox.showerror(
-                        "Error", "Please select or enter a database name")
+                        "Save Error",
+                        "Please select or enter a database name",
+                        parent=dialog,
+                    )
                     return
-                
-                # Image (= measurement-set) name from the current file
-                image_name = "analysis_result"
-                if hasattr(self, 'current_file_path'):
-                    image_name = os.path.splitext(
-                        os.path.basename(self.current_file_path))[0]
-                
+
                 try:
-                    try:
-                        from utils.user_preferences import get_preferences_manager
-                        use_averages_suffix = (
-                            get_preferences_manager().get_use_averages_suffix()
-                        )
-                    except Exception:
-                        use_averages_suffix = True
-                    
-                    # --- ink save (existing behaviour) ---------------------- #
-                    ink_result = self._save_one_group_to_db(
-                        samples=enabled_samples,
+                    result = self._save_with_audit(
                         db_name=final_db_name,
-                        image_name=image_name,
+                        image_name=self._audit_original_dataid(),
                         save_individual=save_individual.get(),
                         save_average=save_average.get(),
-                        use_averages_suffix=use_averages_suffix,
                     )
-                    
-                    # --- paper save (if any paper samples are enabled) ------ #
-                    paper_samples = self._enabled_paper_samples()
-                    paper_result = None
-                    if paper_samples:
-                        paper_result = self._save_one_group_to_db(
-                            samples=paper_samples,
-                            db_name=final_db_name,
-                            image_name=f"{image_name}-p",
-                            save_individual=save_individual.get(),
-                            save_average=save_average.get(),
-                            use_averages_suffix=use_averages_suffix,
-                            notes_label="Results Manager [paper]",
-                        )
-                    
-                    ok_ink = (
-                        (not save_individual.get() or ink_result['success_individual'])
-                        and (not save_average.get() or ink_result['success_average'])
-                    )
-                    ok_paper = (
-                        paper_result is None or (
-                            (not save_individual.get() or paper_result['success_individual'])
-                            and (not save_average.get() or paper_result['success_average'])
-                        )
-                    )
-                    
-                    saved_files = list(dict.fromkeys(
-                        ink_result['saved_files']
-                        + (paper_result['saved_files'] if paper_result else [])
-                    ))
-                    
-                    if ok_ink and ok_paper and saved_files:
-                        try:
-                            from utils.user_preferences import get_preferences_manager
-                            get_preferences_manager().set(
-                                'last_used_database', final_db_name)
-                        except Exception as e:
-                            print(f"Warning: Could not save last_used_database preference: {e}")
-                        
-                        success_msg = "Results saved successfully!\n\n"
-                        if save_individual.get():
-                            success_msg += (
-                                f"✓ {ink_result['measurements_count']} ink samples saved\n"
-                            )
-                            if paper_result:
-                                success_msg += (
-                                    f"✓ {paper_result['measurements_count']} "
-                                    f"paper samples saved (set '{image_name}-p')\n"
-                                )
-                        if save_average.get():
-                            success_msg += "✓ 1 averaged ink result saved\n"
-                            if paper_result:
-                                success_msg += "✓ 1 averaged paper result saved\n"
-                        success_msg += "\nSaved to:\n"
-                        for f in saved_files:
-                            success_msg += f"• {f}\n"
-                        
-                        messagebox.showinfo("Success", success_msg)
-                        dialog.destroy()
-                    else:
-                        error_msg = "Some save operations failed:\n\n"
-                        if save_individual.get() and not ink_result['success_individual']:
-                            error_msg += "✗ Ink individual samples failed to save\n"
-                        if save_average.get() and not ink_result['success_average']:
-                            error_msg += "✗ Ink average failed to save\n"
-                        if paper_result and save_individual.get() and not paper_result['success_individual']:
-                            error_msg += "✗ Paper individual samples failed to save\n"
-                        if paper_result and save_average.get() and not paper_result['success_average']:
-                            error_msg += "✗ Paper average failed to save\n"
-                        if saved_files:
-                            error_msg += "\nPartially saved to:\n"
-                            for f in saved_files:
-                                error_msg += f"• {f}\n"
-                        messagebox.showerror("Save Error", error_msg)
-                        
-                except Exception as e:
+                except Exception as error:
+                    print(f"AUDIT: Normal Save failed: {error}")
                     messagebox.showerror(
-                        "Error", f"Failed to save results: {str(e)}")
-            
+                        "Save Error",
+                        f"Audit save failed.\\n\\n{error}",
+                        parent=dialog,
+                    )
+                    return
+
+                try:
+                    from utils.user_preferences import get_preferences_manager
+                    get_preferences_manager().set(
+                        "last_used_database", final_db_name
+                    )
+                except Exception as error:
+                    print(f"AUDIT: Could not update preference: {error}")
+
+                messagebox.showinfo(
+                    "Save Complete",
+                    "Results and permanent audit record saved.\\n\\n"
+                    f"Database: {final_db_name}\\n"
+                    f"DataID: {result['dataid']}\\n"
+                    f"Analysis ID: {result['analysis_id']}\\n\\n"
+                    f"Individual measurements: {result['individual_count']}\\n"
+                    f"Averages: {result['average_count']}",
+                    parent=dialog,
+                )
+                dialog.destroy()
+
             # Buttons frame
             button_frame = ttk.Frame(content_frame)
             button_frame.pack(fill=tk.X, pady=(15, 0))

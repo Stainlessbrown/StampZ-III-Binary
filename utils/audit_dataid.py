@@ -1,81 +1,55 @@
+"""DataID allocation for StampZ-III permanent audit saves.
 
-"""Audit-trail DataID naming utilities for StampZ-III.
+The original DataID is literal and is never rewritten.
+Subsequent saves use _(2), _(3), etc., before RAW/paper suffixes.
 
-This module handles duplicate DataID numbering while preserving
-RAW (-r) and paper (-p) suffixes.
-
-No database modifications are performed here.
+Sequence allocation occurs inside the caller's SQLite transaction.
 """
-
-import re
-
-
-def split_dataid(dataid):
-    """Separate the base DataID from its RAW/paper suffixes."""
-    suffix = ""
-
-    if dataid.endswith("-r-p"):
-        suffix = "-r-p"
-    elif dataid.endswith("-r"):
-        suffix = "-r"
-    elif dataid.endswith("-p"):
-        suffix = "-p"
-
-    return dataid[:-len(suffix)] if suffix else dataid, suffix
-
-
-def numbered_dataid(dataid, number):
-    """Insert a sequence number before the RAW/paper suffix."""
-    base, suffix = split_dataid(dataid)
-
-    # Remove an existing trailing sequence number, if present.
-    base = re.sub(r"\(\d+\)$", "", base)
-
-    if number <= 1:
-        return f"{base}{suffix}"
-
-    return f"{base}({number}){suffix}"
-
-
-def next_dataid(dataid, existing_names):
-    """Return the next DataID using the highest existing number plus one.
-
-    This function only examines names supplied to it.
-    Persistent tracking of deleted numbers will be added separately.
-    """
-    base, suffix = split_dataid(dataid)
-    base = re.sub(r"\(\d+\)$", "", base)
-
-    highest = 0
-
-    for existing in existing_names:
-        existing_base, existing_suffix = split_dataid(existing)
-        if existing_suffix != suffix:
-            continue
-
-        if existing_base == base:
-            highest = max(highest, 1)
-            continue
-
-        match = re.fullmatch(re.escape(base) + r"\((\d+)\)", existing_base)
-        if match:
-            highest = max(highest, int(match.group(1)))
-
-    return numbered_dataid(dataid, highest + 1)
-
-
-# ------------------------------------------------------------
-# Persistent DataID sequence tracking
-# ------------------------------------------------------------
 
 import sqlite3
 
 
-def initialize_audit_sequences(conn, existing_names):
-    """Create sequence table and reconcile it with existing DataIDs.
+def split_dataid(dataid):
+    """Separate recognized RAW/paper suffixes."""
+    if dataid.endswith("-r-p"):
+        return dataid[:-4], "-r-p"
+    if dataid.endswith("-r"):
+        return dataid[:-2], "-r"
+    if dataid.endswith("-p"):
+        return dataid[:-2], "-p"
+    return dataid, ""
 
-    The counter is never reduced, even if records have been deleted.
-    Caller controls the transaction.
+
+def numbered_dataid(dataid, number):
+    """Number a literal original DataID without stripping its text."""
+    base, suffix = split_dataid(dataid)
+
+    if number < 1:
+        raise ValueError("DataID sequence must be positive")
+
+    if number == 1:
+        return dataid
+
+    return f"{base}_({number}){suffix}"
+
+
+def next_dataid(dataid, existing_names):
+    """Find the next available identifier in a supplied collection."""
+    existing = set(existing_names)
+    number = 1
+
+    while True:
+        candidate = numbered_dataid(dataid, number)
+        if candidate not in existing:
+            return candidate
+        number += 1
+
+
+def initialize_audit_sequences(conn, existing_names=None):
+    """Initialize persistent sequence storage.
+
+    Do not infer families by parsing historical filenames.
+    Existing counters are preserved.
     """
     conn.execute("""
         CREATE TABLE IF NOT EXISTS audit_sequences (
@@ -84,63 +58,88 @@ def initialize_audit_sequences(conn, existing_names):
         )
     """)
 
-    families = {}
 
-    for dataid in existing_names:
-        base, suffix = split_dataid(dataid)
+def _paper_variant(dataid):
+    """Return the companion paper DataID."""
+    if dataid.endswith("-r-p") or dataid.endswith("-p"):
+        return dataid
+    if dataid.endswith("-r"):
+        return dataid[:-2] + "-r-p"
+    return dataid + "-p"
 
-        # Remove an existing sequence number.
-        match = re.fullmatch(r"(.*)\((\d+)\)", base)
 
-        if match:
-            base = match.group(1)
-            number = int(match.group(2))
-        else:
-            number = 1
+def _name_exists(conn, candidate):
+    """Check the audit archive and any attached measurement databases."""
+    names = {candidate, _paper_variant(candidate)}
 
-        # RAW and paper variants share one numbering family.
-        family = f"{base}{'-r' if '-r' in suffix else ''}"
+    # The permanent audit database is the primary connection.
+    for name in names:
+        row = conn.execute(
+            "SELECT 1 FROM main.audit_records "
+            "WHERE dataid = ? LIMIT 1",
+            (name,)
+        ).fetchone()
+        if row:
+            return True
 
-        families[family] = max(
-            families.get(family, 0), number
-        )
+    # Only inspect conventional databases actually attached.
+    attached = {
+        row[1] for row in conn.execute("PRAGMA database_list")
+    }
 
-    for family, highest in families.items():
-        conn.execute("""
-            INSERT INTO audit_sequences (base_dataid, highest_number)
-            VALUES (?, ?)
-            ON CONFLICT(base_dataid) DO UPDATE SET
-                highest_number = MAX(
-                    highest_number,
-                    excluded.highest_number
-                )
-        """, (family, highest))
+    for schema in ("individual", "avg"):
+        if schema not in attached:
+            continue
+
+        for name in names:
+            row = conn.execute(
+                f"SELECT 1 FROM {schema}.measurement_sets "
+                "WHERE image_name = ? LIMIT 1",
+                (name,)
+            ).fetchone()
+            if row:
+                return True
+
+    return False
 
 
 def allocate_audit_dataid(conn, dataid):
-    """Allocate the next DataID within an active transaction.
+    """Allocate a unique DataID inside an active audit transaction.
 
-    Caller must COMMIT or ROLLBACK.
+    The input is the exact original family name.
+    No existing measurement or audit row is modified.
     """
-    base, suffix = split_dataid(dataid)
-    base = re.sub(r"\(\d+\)$", "", base)
+    if not conn.in_transaction:
+        raise RuntimeError("DataID allocation requires a transaction")
 
-    family = f"{base}{'-r' if '-r' in suffix else ''}"
+    if not isinstance(dataid, str) or not dataid.strip():
+        raise ValueError("Original DataID cannot be empty")
+
+    initialize_audit_sequences(conn)
+
+    family = dataid
 
     row = conn.execute("""
-        SELECT highest_number
-        FROM audit_sequences
+        SELECT highest_number FROM audit_sequences
         WHERE base_dataid = ?
     """, (family,)).fetchone()
 
-    highest = row[0] if row else 0
-    next_number = highest + 1
+    number = (row[0] if row else 0) + 1
+
+    while True:
+        candidate = numbered_dataid(family, number)
+        if not _name_exists(conn, candidate):
+            break
+        number += 1
 
     conn.execute("""
         INSERT INTO audit_sequences (base_dataid, highest_number)
         VALUES (?, ?)
         ON CONFLICT(base_dataid) DO UPDATE SET
-            highest_number = excluded.highest_number
-    """, (family, next_number))
+            highest_number = MAX(
+                audit_sequences.highest_number,
+                excluded.highest_number
+            )
+    """, (family, number))
 
-    return numbered_dataid(dataid, next_number)
+    return candidate
