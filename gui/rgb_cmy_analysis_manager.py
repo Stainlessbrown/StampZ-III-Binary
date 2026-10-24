@@ -859,6 +859,7 @@ class RGBCMYAnalysisManager:
                        db_name.endswith('_AVG') or
                        db_name.endswith('_RGBCMY') or
                        db_name.endswith('_RGBCMY_AVG') or
+                       db_name.endswith('_AUDIT') or
                        db_name.startswith('system_') or
                        db_name in ['coordinates', 'coordinate_sets']):
                     non_library_dbs.append(db_name)

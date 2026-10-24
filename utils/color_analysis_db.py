@@ -1060,9 +1060,21 @@ class ColorAnalysisDB:
         
         sample_sets = []
         for filename in os.listdir(data_dir):
-            if filename.endswith('.db'):
-                sample_sets.append(filename[:-3])  # Remove .db extension
-        
+            if not filename.endswith('.db'):
+                continue
+
+            name = filename[:-3]
+
+            # Audit archives and the central registry are not
+            # conventional measurement databases.
+            if name.endswith('_AUDIT'):
+                continue
+
+            if name == 'StampZ_DataID_Registry':
+                continue
+
+            sample_sets.append(name)
+
         return sorted(sample_sets)
 
 

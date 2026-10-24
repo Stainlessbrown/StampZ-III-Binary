@@ -10,14 +10,11 @@ analytical snapshot. Existing records must not be modified.
 
 import sqlite3
 import uuid
+import os
 from datetime import datetime, timezone
 from copy import deepcopy
 from math import isfinite
 
-from utils.audit_dataid import (
-    initialize_audit_sequences,
-    allocate_audit_dataid,
-)
 
 def execute_audit_transaction(
     audit_db_path,
@@ -38,9 +35,13 @@ def execute_audit_transaction(
     if not individual_db_path and not average_db_path:
         raise ValueError("Select individual measurements, averages, or both")
 
+    from utils.audit_dataid_registry import registry_database_path
+
+    registry_path = registry_database_path()
+
     paths = [
         path for path in
-        (audit_db_path, individual_db_path, average_db_path)
+        (audit_db_path, individual_db_path, average_db_path, registry_path)
         if path is not None
     ]
 
@@ -54,16 +55,21 @@ def execute_audit_transaction(
     conn = sqlite3.connect(audit_db_path)
 
     try:
+        conn.execute(
+            "ATTACH DATABASE ? AS registry",
+            (registry_path,),
+        )
+
         if individual_db_path:
             conn.execute(
                 "ATTACH DATABASE ? AS individual",
-                (individual_db_path,),
+                (os.fspath(individual_db_path),),
             )
 
         if average_db_path:
             conn.execute(
                 "ATTACH DATABASE ? AS avg",
-                (average_db_path,),
+                (os.fspath(average_db_path),),
             )
 
         # SQLite rollback journals permit coordinated commits
@@ -106,18 +112,22 @@ def audit_timestamp():
     """Return an unambiguous UTC timestamp."""
     return datetime.now(timezone.utc).isoformat()
 
-def allocate_shared_dataid(conn, original_dataid):
-    """Allocate one DataID using the permanent AUDIT database.
+def allocate_shared_dataid(
+    conn, original_dataid, database_name, analysis_id, saved_at_utc
+):
+    """Allocate one installation-wide DataID in the shared transaction."""
+    from utils.audit_dataid_registry import allocate_registry_dataid
 
-    The audit database is main. Optional measurement databases
-    are attached as individual and/or avg.
-    """
     if not conn.in_transaction:
         raise RuntimeError("Audit allocation requires a transaction")
 
-    return allocate_audit_dataid(conn, original_dataid)
-
-
+    return allocate_registry_dataid(
+        conn,
+        original_dataid=original_dataid,
+        database_name=database_name,
+        analysis_id=analysis_id,
+        saved_at_utc=saved_at_utc,
+    )
 
 def create_analytical_snapshot(
     ink_samples,
@@ -441,7 +451,15 @@ def save_complete_audit(
             prepare_average_schema(conn)
 
         # Allocate one identifier for this entire analytical save.
-        dataid = allocate_shared_dataid(conn, original_dataid)
+        dataid = allocate_shared_dataid(
+            conn,
+            original_dataid=original_dataid,
+            database_name=os.path.basename(
+                audit_db_path
+            ).removesuffix("_AUDIT.db"),
+            analysis_id=snapshot["analysis_id"],
+            saved_at_utc=snapshot["saved_at_utc"],
+        )
 
         # Always preserve the complete frozen snapshot.
         insert_permanent_audit(
