@@ -70,26 +70,55 @@ def initialize_registry(conn):
             source_kind TEXT NOT NULL,
             PRIMARY KEY (dataid, database_name, source_kind)
         )
-    """)    
+    """)
+
+    # Reserve paper companion DataIDs independently of primary
+    # assignments, while retaining their common analysis UUID.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS registry.companion_assignments (
+            assigned_dataid TEXT PRIMARY KEY,
+            primary_dataid TEXT NOT NULL,
+            analysis_id TEXT NOT NULL,
+            saved_at_utc TEXT NOT NULL
+        )
+    """)
 
 def allocate_registry_dataid(
     conn, original_dataid, database_name,
-    analysis_id, saved_at_utc
+    analysis_id, saved_at_utc, needs_paper=False
 ):
-    """Allocate and register one globally unique DataID.
+    """Allocate globally unique primary and optional paper DataIDs.
 
-    Must run within a transaction with the registry
-    attached as 'registry'. Does not commit.
+    Both identifiers are checked and registered within the
+    caller's existing transaction. This function does not commit.
     """
-    from utils.audit_dataid import numbered_dataid
+    from utils.audit_dataid import numbered_dataid, _paper_variant
 
     if not conn.in_transaction:
         raise RuntimeError("Registry allocation requires a transaction")
 
-    if not original_dataid or not original_dataid.strip():
+    if not isinstance(original_dataid, str) or not original_dataid.strip():
         raise ValueError("Original DataID is required")
 
     initialize_registry(conn)
+
+    def identifier_exists(identifier):
+        """Check every authoritative registry reservation."""
+        for table, column in (
+            ("dataid_assignments", "assigned_dataid"),
+            ("companion_assignments", "assigned_dataid"),
+            ("historical_reservations", "dataid"),
+        ):
+            row = conn.execute(
+                f"SELECT 1 FROM registry.{table} "
+                f"WHERE {column} = ? LIMIT 1",
+                (identifier,),
+            ).fetchone()
+
+            if row:
+                return True
+
+        return False
 
     row = conn.execute("""
         SELECT highest_number
@@ -102,25 +131,25 @@ def allocate_registry_dataid(
     while True:
         candidate = numbered_dataid(original_dataid, number)
 
-        # Check permanent assignments made by the new registry.
-        assigned = conn.execute("""
-            SELECT 1
-            FROM registry.dataid_assignments
-            WHERE assigned_dataid = ?
-        """, (candidate,)).fetchone()
+        paper_candidate = (
+            _paper_variant(candidate)
+            if needs_paper else None
+        )
 
-        # Also protect identifiers found during historical inventory.
-        historical = conn.execute("""
-            SELECT 1
-            FROM registry.historical_reservations
-            WHERE dataid = ?
-        """, (candidate,)).fetchone()
+        primary_collision = identifier_exists(candidate)
 
-        if not assigned and not historical:
+        paper_collision = (
+            paper_candidate is not None
+            and paper_candidate != candidate
+            and identifier_exists(paper_candidate)
+        )
+
+        if not primary_collision and not paper_collision:
             break
 
         number += 1
 
+    # Record the primary identifier.
     conn.execute("""
         INSERT INTO registry.dataid_assignments (
             assigned_dataid, original_dataid,
@@ -131,12 +160,30 @@ def allocate_registry_dataid(
         database_name, analysis_id, saved_at_utc
     ))
 
+    # Reserve the paper companion only when required.
+    # A paper-only identifier already ending in -p is the
+    # primary assignment and must not be registered twice.
+    if paper_candidate and paper_candidate != candidate:
+        conn.execute("""
+            INSERT INTO registry.companion_assignments (
+                assigned_dataid, primary_dataid,
+                analysis_id, saved_at_utc
+            ) VALUES (?, ?, ?, ?)
+        """, (
+            paper_candidate, candidate,
+            analysis_id, saved_at_utc
+        ))
+
+    # The sequence counter may advance but never decrease.
     conn.execute("""
         INSERT INTO registry.dataid_sequences (
             original_dataid, highest_number
         ) VALUES (?, ?)
         ON CONFLICT(original_dataid) DO UPDATE SET
-            highest_number = excluded.highest_number
+            highest_number = MAX(
+                dataid_sequences.highest_number,
+                excluded.highest_number
+            )
     """, (original_dataid, number))
 
     return candidate
@@ -181,7 +228,7 @@ def read_historical_dataids(database_path, source_kind):
             dataid for (dataid,) in rows
             if isinstance(dataid, str) and dataid
         )
-    
+
 def inventory_historical_database(
     conn, database_path, database_name, source_kind, inventory_at_utc
 ):
@@ -308,6 +355,9 @@ def inventory_analysis_directory(conn, analysis_dir, inventory_at_utc):
     total = 0
 
     for path in sorted(folder.glob("*.db")):
+        # The central registry is not a measurement collection.
+        if path.name == "StampZ_DataID_Registry.db":
+            continue
         if path.stem.endswith("_AUDIT"):
             kind = "AUDIT"
             collection = path.stem[:-6]
@@ -343,4 +393,4 @@ def inventory_analysis_directory(conn, analysis_dir, inventory_at_utc):
             conn, historical, collection, kind, inventory_at_utc
         )
 
-    return total  
+    return total

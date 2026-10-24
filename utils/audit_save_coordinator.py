@@ -113,9 +113,10 @@ def audit_timestamp():
     return datetime.now(timezone.utc).isoformat()
 
 def allocate_shared_dataid(
-    conn, original_dataid, database_name, analysis_id, saved_at_utc
+    conn, original_dataid, database_name,
+    analysis_id, saved_at_utc, needs_paper=False
 ):
-    """Allocate one installation-wide DataID in the shared transaction."""
+    """Allocate installation-wide DataIDs in the shared transaction."""
     from utils.audit_dataid_registry import allocate_registry_dataid
 
     if not conn.in_transaction:
@@ -127,6 +128,7 @@ def allocate_shared_dataid(
         database_name=database_name,
         analysis_id=analysis_id,
         saved_at_utc=saved_at_utc,
+        needs_paper=needs_paper,
     )
 
 def create_analytical_snapshot(
@@ -449,6 +451,18 @@ def save_complete_audit(
 
         if average_db_path:
             prepare_average_schema(conn)
+        # Reserve historical DataIDs before allocating a new one.
+        from utils.audit_dataid_registry import inventory_analysis_directory
+        from utils.path_utils import get_color_analysis_dir
+
+        inventory_analysis_directory(
+            conn,
+            get_color_analysis_dir(),
+            snapshot["saved_at_utc"],
+        )
+
+        # Reserve a paper companion only when paper samples exist.
+        needs_paper = bool(snapshot.get("paper_samples"))
 
         # Allocate one identifier for this entire analytical save.
         dataid = allocate_shared_dataid(
@@ -459,6 +473,7 @@ def save_complete_audit(
             ).removesuffix("_AUDIT.db"),
             analysis_id=snapshot["analysis_id"],
             saved_at_utc=snapshot["saved_at_utc"],
+            needs_paper=needs_paper,
         )
 
         # Always preserve the complete frozen snapshot.

@@ -182,6 +182,11 @@ class DatabaseViewer:
         ttk.Button(top_row, text="Columns...", command=self._toggle_columns).pack(side=tk.LEFT, padx=5)
         ttk.Button(top_row, text="Refresh", command=self._refresh_data).pack(side=tk.LEFT, padx=5)
         ttk.Button(top_row, text="Export CSV", command=self._export_to_csv).pack(side=tk.LEFT, padx=5)
+        ttk.Button(
+            top_row,
+            text="Audit Report...",
+            command=self._open_audit_report_dialog
+        ).pack(side=tk.LEFT, padx=5)
         ttk.Button(top_row, text="Import CSV", command=self._import_from_csv).pack(side=tk.LEFT, padx=5)
         self.resample_btn = ttk.Button(top_row, text="Resample...", command=self._resample_measurements)
         self.resample_btn.pack(side=tk.LEFT, padx=5)
@@ -1483,6 +1488,202 @@ class DatabaseViewer:
                 
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to delete colors: {str(e)}")
+
+    def _open_audit_report_dialog(self):
+        """Export a read-only report for a saved set or database."""
+        from pathlib import Path
+        from tkinter import filedialog, messagebox
+        from utils.audit_report import (
+            export_audit_csv,
+            export_database_audit_txt,
+        )
+
+        if self.data_source.get() != "color_analysis":
+            messagebox.showinfo(
+                "Audit Report",
+                "Audit Reports are available for color-analysis databases."
+            )
+            return
+
+        database_path = self._get_current_database_path()
+
+        if not database_path or not Path(database_path).is_file():
+            messagebox.showerror(
+                "Audit Report",
+                "Please select an existing analysis database."
+            )
+            return
+
+        # Identify complete saved sets, not individual markers.
+        selected_sets = set()
+        for item in self.tree.selection():
+            values = self.tree.item(item, "values")
+            if values:
+                selected_sets.add(int(values[0]))
+
+        dialog = tk.Toplevel(self.dialog)
+        dialog.title("Audit Report")
+        dialog.transient(self.dialog)
+        dialog.resizable(False, False)
+
+        frame = ttk.Frame(dialog, padding=18)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(
+            frame,
+            text=f"Database: {Path(database_path).name}"
+        ).pack(anchor=tk.W, pady=(0, 12))
+
+        report_scope = tk.StringVar(value="database")
+        selected_set_id = None
+
+        if len(selected_sets) == 1:
+            selected_set_id = next(iter(selected_sets))
+            report_scope.set("selected")
+
+            ttk.Radiobutton(
+                frame,
+                text=f"Complete selected measurement set (Set ID {selected_set_id})",
+                variable=report_scope,
+                value="selected"
+            ).pack(anchor=tk.W, pady=3)
+
+        ttk.Radiobutton(
+            frame,
+            text="Entire selected database",
+            variable=report_scope,
+            value="database"
+        ).pack(anchor=tk.W, pady=3)
+
+        if len(selected_sets) > 1:
+            ttk.Label(
+                frame,
+                text="Multiple saved sets selected; entire database report available."
+            ).pack(anchor=tk.W, pady=(6, 0))
+
+        report_format = tk.StringVar(value="txt")
+
+        format_row = ttk.Frame(frame)
+        format_row.pack(anchor=tk.W, pady=(14, 8))
+
+        ttk.Label(format_row, text="Format:").pack(side=tk.LEFT)
+
+        ttk.Radiobutton(
+            format_row, text="TXT",
+            variable=report_format, value="txt"
+        ).pack(side=tk.LEFT, padx=10)
+
+        ttk.Radiobutton(
+            format_row, text="CSV",
+            variable=report_format, value="csv"
+        ).pack(side=tk.LEFT, padx=10)
+
+        def save_report():
+            extension = report_format.get()
+            chosen_set = (
+                selected_set_id
+                if report_scope.get() == "selected"
+                else None
+            )
+
+            stem = Path(database_path).stem
+            if chosen_set is not None:
+                stem += f"_Set_{chosen_set}"
+
+            filename = f"{stem}_Audit_Report.{extension}"
+
+            initial_dir = getattr(
+                self.app,
+                "_audit_report_last_directory",
+                str(Path.home() / "Desktop")
+            )
+
+            output = filedialog.asksaveasfilename(
+                parent=dialog,
+                title="Save Audit Report",
+                initialdir=initial_dir,
+                initialfile=filename,
+                defaultextension=f".{extension}",
+                filetypes=[
+                    (extension.upper() + " files", f"*.{extension}")
+                ],
+            )
+
+            if not output:
+                return
+
+            output_path = Path(output)
+
+            # Exporters use exclusive creation; never silently replace.
+            if output_path.exists():
+                messagebox.showerror(
+                    "Audit Report",
+                    "That report file already exists.\n"
+                    "Please choose a new filename.",
+                    parent=dialog,
+                )
+                return
+
+            try:
+                if extension == "txt":
+                    export_database_audit_txt(
+                        database_path,
+                        output_path,
+                        set_id=chosen_set,
+                    )
+                else:
+                    export_audit_csv(
+                        database_path,
+                        output_path,
+                        set_id=chosen_set,
+                    )
+
+                # Audit reports are reference documents, not editable exports.
+                # Remove ordinary write permissions after successful creation.
+                output_path.chmod(0o444)
+
+                if output_path.stat().st_mode & 0o222:
+                    raise PermissionError(
+                        "Audit Report was created but could not be "
+                        "made read-only."
+                    )
+
+                self.app._audit_report_last_directory = str(
+                    output_path.parent
+                )
+
+                messagebox.showinfo(
+                    "Audit Report",
+                    f"Report saved successfully:\n\n{output_path}",
+                    parent=dialog,
+                )
+                dialog.destroy()
+
+            except Exception as exc:
+                messagebox.showerror(
+                    "Audit Report Error",
+                    str(exc),
+                    parent=dialog,
+                )
+
+        buttons = ttk.Frame(frame)
+        buttons.pack(fill=tk.X, pady=(12, 0))
+
+        ttk.Button(
+            buttons,
+            text="Cancel",
+            command=dialog.destroy
+        ).pack(side=tk.RIGHT, padx=(8, 0))
+
+        ttk.Button(
+            buttons,
+            text="Save Report",
+            command=save_report
+        ).pack(side=tk.RIGHT)
+
+        dialog.grab_set()
+        dialog.wait_window()
+
     
     def _export_to_csv(self):
         """Export current database view to CSV file."""
