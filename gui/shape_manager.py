@@ -21,6 +21,8 @@ class ShapeType(Enum):
     POLYGON = auto()
     CIRCLE = auto()
     OVAL = auto()
+    RECTANGLE = auto()
+    SQUARE = auto()
 
 
 class ShapeManager:
@@ -254,7 +256,33 @@ class ShapeManager:
         self.shape_width = max(self.MIN_SHAPE_SIZE, abs(image_x - self.shape_center.x) * 2)
         self.shape_height = max(self.MIN_SHAPE_SIZE, abs(image_y - self.shape_center.y) * 2)
         self.update_display()
-    
+
+    def start_rectangle(self, image_x: float, image_y: float) -> None:
+        """Start a Rectangle or Square crop."""
+        if self.current_shape_type not in (ShapeType.RECTANGLE, ShapeType.SQUARE):
+            return
+
+        self.shape_center = Point(image_x, image_y)
+        self.shape_width = 0
+        self.shape_height = 0
+        self.update_display()
+
+    def update_rectangle(self, image_x: float, image_y: float) -> None:
+        """Update Rectangle or Square dimensions."""
+        if not self.shape_center:
+            return
+
+        width = max(self.MIN_SHAPE_SIZE, abs(image_x - self.shape_center.x) * 2)
+        height = max(self.MIN_SHAPE_SIZE, abs(image_y - self.shape_center.y) * 2)
+
+        if self.current_shape_type == ShapeType.SQUARE:
+            side = max(width, height)
+            width = side
+            height = side
+
+        self.shape_width = width
+        self.shape_height = height
+        self.update_display()
     def find_vertex_at_point(self, screen_x: int, screen_y: int) -> Optional[int]:
         """Find a vertex near the given screen coordinates.
         
@@ -309,23 +337,35 @@ class ShapeManager:
         
         # Create mask
         mask = Image.new('L', self.core.original_image.size, 0)
-        
+
         if isinstance(current_shape, (Circle, Oval)):
             mask = current_shape.generate_mask(self.core.original_image.size)
+
+        elif self.current_shape_type in (ShapeType.RECTANGLE, ShapeType.SQUARE):
+            left, top, right, bottom = current_shape
+            draw = ImageDraw.Draw(mask)
+            draw.rectangle(
+                (left, top, right - 1, bottom - 1),
+                fill=255
+            )
+
         else:
             # Handle polygon
-            # Convert vertices from Cartesian (y=0 at bottom) to image coordinates (y=0 at top)
+            # Convert vertices from Cartesian to image coordinates
             image_height = self.core.original_image.height
-            vertices_xy = [(v.x, image_height - v.y) for v in current_shape]
+            vertices_xy = [
+                (v.x, image_height - v.y) for v in current_shape
+            ]
             draw = ImageDraw.Draw(mask)
             draw.polygon(vertices_xy, fill=255)
             print(f"DEBUG: Crop mask vertices: {vertices_xy}")
-        
+
         # Get bounding box
         if isinstance(current_shape, (Circle, Oval)):
             bbox = get_shape_bbox(current_shape)
-        else:
-            bbox = self._get_polygon_bbox()
+
+        elif self.current_shape_type in (ShapeType.RECTANGLE, ShapeType.SQUARE):
+            bbox = tuple(int(v) for v in current_shape)
         
         # Handle 16-bit images specially to preserve precision
         if has_16bit:
@@ -394,6 +434,21 @@ class ShapeManager:
             if not self.shape_center or self.shape_width is None or self.shape_height is None:
                 return None
             return Oval(self.shape_center, self.shape_width, self.shape_height)
+        elif self.current_shape_type in (ShapeType.RECTANGLE, ShapeType.SQUARE):
+            if (self.shape_center is None or
+                    self.shape_width is None or
+                    self.shape_height is None):
+                return None
+
+            if self.shape_width <= 0 or self.shape_height <= 0:
+                return None
+
+            return (
+                self.shape_center.x - self.shape_width / 2,
+                self.shape_center.y - self.shape_height / 2,
+                self.shape_center.x + self.shape_width / 2,
+                self.shape_center.y + self.shape_height / 2,
+            )      
         return None
     
     def _get_polygon_bbox(self) -> Tuple[int, int, int, int]:
@@ -434,6 +489,8 @@ class ShapeManager:
             self._draw_circle()
         elif self.current_shape_type == ShapeType.OVAL:
             self._draw_oval()
+        elif self.current_shape_type in (ShapeType.RECTANGLE, ShapeType.SQUARE):
+            self._draw_rectangle()
         
         # Update mask
         self._update_mask()
@@ -537,6 +594,30 @@ class ShapeManager:
             center_screen[1] + height_screen,
             outline=self.current_color, width=2, tags='shape'
         )
+
+    def _draw_rectangle(self) -> None:
+        """Draw Rectangle or Square crop selection."""
+        if (not self.shape_center or
+                self.shape_width is None or
+                self.shape_height is None):
+            return
+
+        center_screen = self.core.image_to_screen_coords(
+            self.shape_center.x, self.shape_center.y
+        )
+
+        half_width = self.shape_width * self.core.image_scale / 2
+        half_height = self.shape_height * self.core.image_scale / 2
+
+        self.canvas.create_rectangle(
+            center_screen[0] - half_width,
+            center_screen[1] - half_height,
+            center_screen[0] + half_width,
+            center_screen[1] + half_height,
+            outline=self.current_color,
+            width=2,
+            tags='shape'
+        )
     
     def _update_mask(self) -> None:
         """Update the mask overlay."""
@@ -547,8 +628,47 @@ class ShapeManager:
         try:
             # Create mask based on shape type
             if isinstance(current_shape, (Circle, Oval)):
-                mask_color = MaskColor(0, 0, 0, self.mask_alpha)
-                mask_pil = create_shape_mask(self.core.original_image.size, current_shape, mask_color)
+                image_height = self.core.original_image.height
+                image_center = Point(
+                    current_shape.center.x,
+                    image_height - current_shape.center.y
+                )
+
+                if isinstance(current_shape, Circle):
+                    mask_shape = Circle(image_center, current_shape.radius)
+                else:
+                    mask_shape = Oval(
+                        image_center,
+                        current_shape.width,
+                        current_shape.height
+                    )
+
+                mask_pil = create_shape_mask(
+                    self.core.original_image,
+                    mask_shape,
+                    alpha=self.mask_alpha,
+                    highlight_vertices=False,
+                    highlight_color=MaskColor.BLACK
+                )
+                
+            elif self.current_shape_type in (ShapeType.RECTANGLE, ShapeType.SQUARE):
+                mask_pil = Image.new(
+                    'RGBA', self.core.original_image.size, (0, 0, 0, 0)
+                )
+                draw = ImageDraw.Draw(mask_pil)
+
+                # Convert Cartesian Y to Pillow image coordinates
+                left, bottom, right, top = current_shape
+                image_height = self.core.original_image.height
+
+                image_top = image_height - top
+                image_bottom = image_height - bottom
+
+                draw.rectangle(
+                    (left, image_top, right - 1, image_bottom - 1),
+                    fill=(0, 0, 0, self.mask_alpha)
+                )
+
             else:
                 # Polygon mask
                 mask_pil = Image.new('RGBA', self.core.original_image.size, (0, 0, 0, 0))
@@ -598,6 +718,12 @@ class ShapeManager:
             elif self.current_shape_type == ShapeType.OVAL and self.shape_center and self.shape_width is not None and self.shape_height is not None:
                 width = int(self.shape_width)
                 height = int(self.shape_height)
+            elif self.current_shape_type in (ShapeType.RECTANGLE, ShapeType.SQUARE):
+                if (self.shape_center is not None and
+                        self.shape_width is not None and
+                        self.shape_height is not None):
+                    width = int(self.shape_width)
+                    height = int(self.shape_height)
             
             self.dimensions_callback(width, height)
         

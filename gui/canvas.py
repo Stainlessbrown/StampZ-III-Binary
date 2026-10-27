@@ -582,7 +582,12 @@ class CropCanvas(tk.Canvas):
             self.shape_manager.start_oval(image_x, image_y)
             self.tool_manager.set_dragging(True)
                 
-    
+        elif self.shape_manager.current_shape_type in (
+            ShapeType.RECTANGLE, ShapeType.SQUARE
+        ):
+            self.shape_manager.start_rectangle(image_x, image_y)
+            self.tool_manager.set_dragging(True)
+
     def _handle_crop_drag(self, screen_x: int, screen_y: int) -> None:
         """Handle dragging in crop mode."""
         if not self.tool_manager.is_dragging():
@@ -602,6 +607,11 @@ class CropCanvas(tk.Canvas):
         
         elif self.shape_manager.current_shape_type == ShapeType.OVAL:
             self.shape_manager.update_oval(image_x, image_y)
+
+        elif self.shape_manager.current_shape_type in (
+            ShapeType.RECTANGLE, ShapeType.SQUARE
+        ):
+            self.shape_manager.update_rectangle(image_x, image_y)
     
     def _handle_crop_motion(self, screen_x: int, screen_y: int) -> None:
         """Handle mouse motion in crop mode."""

@@ -264,6 +264,8 @@ class ReorganizedControlPanel(ttk.Frame):
             ("Polygon", "polygon"),
             ("Circle", "circle"),
             ("Oval", "oval"),
+            ("Rectangle", "rectangle"),
+            ("Square", "square"),
         ]:
             ttk.Radiobutton(
                 shape_frame,
@@ -1151,6 +1153,8 @@ class ReorganizedControlPanel(ttk.Frame):
             "polygon": ShapeType.POLYGON,
             "circle": ShapeType.CIRCLE,
             "oval": ShapeType.OVAL,
+            "rectangle": ShapeType.RECTANGLE,
+            "square": ShapeType.SQUARE,
         }
 
         shape_type = shape_map[self.shape_type.get()]
