@@ -469,6 +469,7 @@ class CropCanvas(tk.Canvas):
         # Reset all drag states
         self.tool_manager.set_dragging(False)
         self.shape_manager.active_vertex = None
+        self.shape_manager.moving_shape = False       
         
         # Clear active marker index for coordinate tool
         if hasattr(self, '_active_marker_index'):
@@ -554,9 +555,29 @@ class CropCanvas(tk.Canvas):
             self.update_display()
     
     # Tool-specific event handlers
+
     def _handle_crop_click(self, screen_x: int, screen_y: int, image_x: float, image_y: float) -> None:
         """Handle clicks in crop mode."""
         print(f"DEBUG: _handle_crop_click called with shape_type: {self.shape_manager.current_shape_type}")
+        # Begin moving an existing rounded or rectangular selection
+        if self.shape_manager.current_shape_type in (
+            ShapeType.CIRCLE,
+            ShapeType.OVAL,
+            ShapeType.RECTANGLE,
+            ShapeType.SQUARE
+        ):
+            if self.shape_manager.is_point_inside_shape(image_x, image_y):
+                center = self.shape_manager.shape_center
+
+                self.shape_manager.move_offset_x = image_x - center.x
+                self.shape_manager.move_offset_y = image_y - center.y
+                self.shape_manager.moving_shape = True
+
+                self.tool_manager.set_dragging(True)
+                return
+
+            # A click outside the selection starts a new shape
+            self.shape_manager.moving_shape = False
         
         if self.shape_manager.current_shape_type == ShapeType.POLYGON:
             print("DEBUG: Handling polygon click")
@@ -594,6 +615,10 @@ class CropCanvas(tk.Canvas):
             return
         
         image_x, image_y = self.core.screen_to_image_coords(screen_x, screen_y)
+        # Move an existing shape without changing its dimensions
+        if self.shape_manager.moving_shape:
+            self.shape_manager.move_shape(image_x, image_y)
+            return
         # Convert to Cartesian coordinates (y=0 at bottom)
         image_height = self.core.original_image.height
         cartesian_y = image_height - image_y

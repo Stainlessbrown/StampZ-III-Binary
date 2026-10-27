@@ -69,6 +69,11 @@ class ShapeManager:
         # Control point state for circles/ovals
         self.active_control_point: Optional[str] = None
         
+        # Whole-shape dragging state
+        self.moving_shape = False
+        self.move_offset_x = 0.0
+        self.move_offset_y = 0.0
+        
         # Dimensions callback
         self.dimensions_callback: Optional[Callable[[int, int], None]] = None
     
@@ -283,6 +288,51 @@ class ShapeManager:
         self.shape_width = width
         self.shape_height = height
         self.update_display()
+
+    def move_shape(self, image_x: float, image_y: float) -> None:
+        """Move a Circle, Oval, Rectangle, or Square without resizing."""
+        if not self.moving_shape or self.shape_center is None:
+            return
+
+        self.shape_center = Point(
+            image_x - self.move_offset_x,
+            image_y - self.move_offset_y
+        )
+
+        self.update_display()
+
+    def is_point_inside_shape(self, image_x: float, image_y: float) -> bool:
+        """Check whether a Cartesian image point is inside the current shape."""
+        if self.shape_center is None:
+            return False
+
+        dx = image_x - self.shape_center.x
+        dy = image_y - self.shape_center.y
+
+        if self.current_shape_type == ShapeType.CIRCLE:
+            return self.shape_radius is not None and (
+                dx * dx + dy * dy <= self.shape_radius * self.shape_radius
+            )
+
+        if self.current_shape_type in (
+            ShapeType.OVAL, ShapeType.RECTANGLE, ShapeType.SQUARE
+        ):
+            if not self.shape_width or not self.shape_height:
+                return False
+
+            half_width = self.shape_width / 2
+            half_height = self.shape_height / 2
+
+            if self.current_shape_type == ShapeType.OVAL:
+                return (
+                    (dx / half_width) ** 2 +
+                    (dy / half_height) ** 2 <= 1.0
+                )
+
+            return abs(dx) <= half_width and abs(dy) <= half_height
+
+        return False
+
     def find_vertex_at_point(self, screen_x: int, screen_y: int) -> Optional[int]:
         """Find a vertex near the given screen coordinates.
         

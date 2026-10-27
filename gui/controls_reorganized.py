@@ -283,18 +283,24 @@ class ReorganizedControlPanel(ttk.Frame):
         size_row.pack(fill=tk.X, pady=1)
         
         ttk.Label(size_row, text="Size:", font=('Arial', 12, 'bold')).pack(side=tk.LEFT)
-        ttk.Label(size_row, textvariable=self.crop_width, 
-                 font=('Arial', 12, 'bold'), foreground='#0066CC').pack(
-                     side=tk.LEFT, padx=(5, 2))
+        self.crop_width_entry = ttk.Entry(
+            size_row, textvariable=self.crop_width, width=7,
+            justify='center'
+        )
+        self.crop_width_entry.pack(side=tk.LEFT, padx=(5, 2))
+
         ttk.Label(size_row, text="×", font=('Arial', 12, 'bold')).pack(side=tk.LEFT)
-        ttk.Label(size_row, textvariable=self.crop_height, 
-                 font=('Arial', 12, 'bold'), foreground='#0066CC').pack(
-                     side=tk.LEFT, padx=(2, 5))
+
+        self.crop_height_entry = ttk.Entry(
+            size_row, textvariable=self.crop_height, width=7,
+            justify='center'
+        )
+        self.crop_height_entry.pack(side=tk.LEFT, padx=(2, 5))
         ttk.Label(size_row, text="pixels", font=('Arial', 12)).pack(side=tk.LEFT)
         
         # Vertex count control
         vertex_frame = ttk.Frame(self.crop_frame)
-        vertex_frame.pack(fill=tk.X, padx=5, pady=2)
+        # vertex_frame.pack(fill=tk.X, padx=5, pady=2)
         
         ttk.Label(vertex_frame, text="Vertices:").pack(side=tk.LEFT, padx=5)
         ttk.Button(vertex_frame, text="-", width=2, 
@@ -315,11 +321,9 @@ class ReorganizedControlPanel(ttk.Frame):
                      side=tk.LEFT, fill=tk.X, expand=True, padx=5)
         
         # Fine Square button (initially disabled, enabled when 4 vertices)
-        self.fine_square_btn = ttk.Button(self.crop_frame, text="Fine Square", 
-                  command=self._on_fine_square_click, state='disabled')
-        self.fine_square_btn.pack(fill=tk.X, padx=5, pady=2)
-        
-        
+        # Retired: Fine Square superseded by Rectangle and Square tools
+        # self.fine_square_btn.pack(fill=tk.X, padx=5, pady=2)
+               
         # STRAIGHTENING TOOL CONTROLS
         self.straightening_frame = ttk.LabelFrame(self, text="Leveling Tool Controls")
         
