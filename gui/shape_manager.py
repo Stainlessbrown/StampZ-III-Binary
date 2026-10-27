@@ -104,6 +104,10 @@ class ShapeManager:
         """
         self.mask_alpha = alpha
         self.update_display()
+
+    def set_crop_dimensions(self, width: int, height: int) -> None:
+        """Apply exact pixel dimensions to the current crop selection."""
+        self.shape_manager.set_shape_dimensions(width, height)
     
     def set_dimensions_callback(self, callback: Callable[[int, int], None]) -> None:
         """Set callback function to call when crop dimensions change.
@@ -298,6 +302,30 @@ class ShapeManager:
             image_x - self.move_offset_x,
             image_y - self.move_offset_y
         )
+
+        self.update_display()
+
+    def set_shape_dimensions(self, width: int, height: int) -> None:
+        """Set exact dimensions while preserving the selection center."""
+        if self.shape_center is None:
+            return
+
+        if self.current_shape_type == ShapeType.POLYGON:
+            return
+
+        if width < 1 or height < 1:
+            return
+
+        if self.current_shape_type == ShapeType.CIRCLE:
+            self.shape_radius = width / 2
+
+        elif self.current_shape_type == ShapeType.SQUARE:
+            self.shape_width = width
+            self.shape_height = width
+
+        elif self.current_shape_type in (ShapeType.OVAL, ShapeType.RECTANGLE):
+            self.shape_width = width
+            self.shape_height = height
 
         self.update_display()
 

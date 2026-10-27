@@ -874,6 +874,11 @@ class StampZApp:
         if self.control_panel:
             self.control_panel.update_crop_dimensions(width, height)
 
+    def _apply_crop_dimensions(self, width: int, height: int) -> None:
+        """Apply user-entered crop dimensions in pixels."""
+        if self.canvas:
+            self.canvas.set_crop_dimensions(width, height)
+
     def _apply_default_settings(self):
         """Apply default settings from user preferences on startup."""
         try:

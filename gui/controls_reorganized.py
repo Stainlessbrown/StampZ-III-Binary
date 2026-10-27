@@ -297,6 +297,12 @@ class ReorganizedControlPanel(ttk.Frame):
         )
         self.crop_height_entry.pack(side=tk.LEFT, padx=(2, 5))
         ttk.Label(size_row, text="pixels", font=('Arial', 12)).pack(side=tk.LEFT)
+
+        # Apply dimensions on Return or when leaving either field
+        for entry in (self.crop_width_entry, self.crop_height_entry):
+            entry.bind('<Return>', self._apply_entered_crop_dimensions)
+            entry.bind('<KP_Enter>', self._apply_entered_crop_dimensions)
+            entry.bind('<FocusOut>', self._apply_entered_crop_dimensions)      
         
         # Vertex count control
         vertex_frame = ttk.Frame(self.crop_frame)
@@ -1051,6 +1057,41 @@ class ReorganizedControlPanel(ttk.Frame):
     def update_image_status(self, status_text: str):
         """Update the technical status (mode • bits • ICC)."""
         self.image_status.set(status_text or "")
+
+    def _apply_entered_crop_dimensions(self, event=None):
+        """Apply entered pixel dimensions to the selected crop shape."""
+        print(
+            f"DEBUG: Dimension entry triggered: "
+            f"width={self.crop_width.get()}, "
+            f"height={self.crop_height.get()}, "
+            f"shape={self.shape_type.get()}"
+        )   
+        if not hasattr(self, 'main_app') or not self.main_app:
+            return
+
+        shape_type = self.shape_type.get()
+
+        # Polygon dimensions are informational only.
+        if shape_type == "polygon":
+            return
+
+        try:
+            width = int(self.crop_width.get())
+            height = int(self.crop_height.get())
+        except ValueError:
+            return
+
+        if width < 1 or height < 1:
+            return
+
+        # Circle and Square must have equal dimensions.
+        if shape_type in ("circle", "square"):
+            if event is not None and event.widget == self.crop_height_entry:
+                width = height
+            else:
+                height = width
+
+        self.main_app._apply_crop_dimensions(width, height)
 
     def update_crop_dimensions(self, width: int, height: int):
         """Update crop dimension display."""

@@ -230,6 +230,10 @@ class CropCanvas(tk.Canvas):
             alpha: Alpha value (0-255)
         """
         self.shape_manager.set_mask_alpha(alpha)  # Use direct value
+
+    def set_crop_dimensions(self, width: int, height: int) -> None:
+        """Apply exact pixel dimensions to the current crop selection."""
+        self.shape_manager.set_shape_dimensions(width, height)
     
     def set_dimensions_callback(self, callback: Callable[[int, int], None]) -> None:
         """Set callback function to call when crop dimensions change.
