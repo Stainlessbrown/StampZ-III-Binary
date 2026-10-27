@@ -252,10 +252,27 @@ class ReorganizedControlPanel(ttk.Frame):
 
     def _create_context_sensitive_sections(self):
         """Create tool-specific control sections (hidden by default)."""
-        
+                
         # CROP TOOL CONTROLS
         self.crop_frame = ttk.LabelFrame(self, text="Crop Tool Controls")
-        
+
+        # Shape selection
+        shape_frame = ttk.LabelFrame(self.crop_frame, text="Crop Shape")
+        shape_frame.pack(fill=tk.X, padx=5, pady=5)
+
+        for label, value in [
+            ("Polygon", "polygon"),
+            ("Circle", "circle"),
+            ("Oval", "oval"),
+        ]:
+            ttk.Radiobutton(
+                shape_frame,
+                text=label,
+                value=value,
+                variable=self.shape_type,
+                command=self._on_crop_shape_change
+            ).pack(side=tk.LEFT, padx=5)
+
         # Crop dimensions display
         dims_container = ttk.Frame(self.crop_frame)
         dims_container.pack(fill=tk.X, padx=5, pady=5)
@@ -1127,6 +1144,20 @@ class ReorganizedControlPanel(ttk.Frame):
         )
 
     # Callback methods that will be connected to main app functionality
+
+    def _on_crop_shape_change(self):
+        """Handle Crop tool shape selection."""
+        shape_map = {
+            "polygon": ShapeType.POLYGON,
+            "circle": ShapeType.CIRCLE,
+            "oval": ShapeType.OVAL,
+        }
+
+        shape_type = shape_map[self.shape_type.get()]
+
+        if self.on_shape_type_change:
+            self.on_shape_type_change(shape_type)
+
     def _on_fine_square_click(self):
         """Handle fine square button click."""
         print("DEBUG: Fine square button clicked")

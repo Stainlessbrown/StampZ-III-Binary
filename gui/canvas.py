@@ -574,6 +574,13 @@ class CropCanvas(tk.Canvas):
                 print(f"DEBUG: Adding new vertex at ({image_x:.1f}, {cartesian_y:.1f}) [Cartesian coords]")
                 # Add new vertex
                 self.shape_manager.add_vertex(image_x, cartesian_y)
+        elif self.shape_manager.current_shape_type == ShapeType.CIRCLE:
+            self.shape_manager.start_circle(image_x, image_y)
+            self.tool_manager.set_dragging(True)
+
+        elif self.shape_manager.current_shape_type == ShapeType.OVAL:
+            self.shape_manager.start_oval(image_x, image_y)
+            self.tool_manager.set_dragging(True)
                 
     
     def _handle_crop_drag(self, screen_x: int, screen_y: int) -> None:
