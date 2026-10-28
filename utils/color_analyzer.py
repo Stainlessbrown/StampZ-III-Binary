@@ -640,6 +640,12 @@ class ColorAnalyzer:
                 
                 try:
                     if use_16bit:
+                        # Cropped 16-bit images store transparency separately.
+                        alpha_mask = getattr(image, '_stampz_alpha_mask', None)
+
+                        if alpha_mask is not None and alpha_mask[y, x] == 0:
+                            continue
+
                         # Transparent pixels must not influence the sample.
                         if (
                             source_16bit.shape[2] >= 4

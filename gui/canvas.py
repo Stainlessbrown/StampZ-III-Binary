@@ -563,6 +563,13 @@ class CropCanvas(tk.Canvas):
     def _handle_crop_click(self, screen_x: int, screen_y: int, image_x: float, image_y: float) -> None:
         """Handle clicks in crop mode."""
         print(f"DEBUG: _handle_crop_click called with shape_type: {self.shape_manager.current_shape_type}")
+        # Do not start a crop outside the original image
+        image_width = self.core.original_image.width
+        image_height = self.core.original_image.height
+
+        if not (0 <= image_x <= image_width and
+                0 <= image_y <= image_height):
+            return      
         # Begin moving an existing rounded or rectangular selection
         if self.shape_manager.current_shape_type in (
             ShapeType.CIRCLE,

@@ -129,6 +129,28 @@ def _is_vuescan_linear_png(file_path) -> bool:
     except Exception:
         return False
 
+
+def _read_stampz_png_metadata(png_info):
+    """Read explicit StampZ encoding and RAW provenance from PNG metadata."""
+    encoding = png_info.get("StampZ-Encoding")
+    raw_text = png_info.get("StampZ-RAW-Derived")
+
+    if encoding is None and raw_text is None:
+        return None
+
+    if encoding not in ("linear", "srgb"):
+        raise ImageLoadError("Invalid StampZ PNG encoding metadata")
+
+    if raw_text not in ("Yes", "No"):
+        raise ImageLoadError("Invalid StampZ PNG provenance metadata")
+
+    return {
+        "encoding": encoding,
+        "is_raw": raw_text == "Yes",
+    }
+
+
+
 def _is_vuescan_raw_uncertain(file_path) -> bool:
     """Return True when a VueScan TIFF has ambiguous RAW metadata.
 
@@ -183,6 +205,21 @@ def _is_stampz_linear_raw_tiff(file_path) -> bool:
             return 'stampz linear raw' in description.lower()
     except Exception:
         return False
+
+
+def _is_stampz_raw_derived_tiff(file_path) -> bool:
+    """Identify explicit StampZ RAW-derived TIFF provenance."""
+    try:
+        import tifffile
+
+        with tifffile.TiffFile(str(file_path)) as tif:
+            description = tif.pages[0].description or ""
+
+        return "raw-derived=yes" in description.lower()
+
+    except Exception:
+        return False
+
 
 class ImageLoadError(Exception):
     """Exception raised when image loading fails."""
@@ -273,7 +310,16 @@ def load_image(file_path: Union[str, Path], display_only: bool = False) -> Tuple
                 icc_bytes = png_info.info.get('icc_profile')
                 png_info_dict = dict(png_info.info)
 
-            is_linear_raw = _is_vuescan_linear_png(file_path)
+            # Prefer explicit StampZ encoding and provenance metadata.
+            stampz_png = _read_stampz_png_metadata(png_info_dict)
+
+            if stampz_png is not None:
+                is_linear_raw = stampz_png["encoding"] == "linear"
+                raw_provenance = stampz_png["is_raw"]
+            else:
+                is_linear_raw = _is_vuescan_linear_png(file_path)
+                raw_provenance = is_linear_raw
+
             is_srgb = False
             profile_description = None
 
@@ -306,11 +352,20 @@ def load_image(file_path: Union[str, Path], display_only: bool = False) -> Tuple
                     png_array is not None
                     and png_array.dtype == np.uint16
                     and png_array.ndim == 3
-                    and png_array.shape[2] == 3
+                    and png_array.shape[2] in (3, 4)
                 ):
-                    rgb16 = cv2.cvtColor(
-                        png_array, cv2.COLOR_BGR2RGB
-                    )
+                    # Separate alpha before any RGB gamma processing.
+                    if png_array.shape[2] == 4:
+                        rgba16 = cv2.cvtColor(
+                            png_array, cv2.COLOR_BGRA2RGBA
+                        )
+                        rgb16 = rgba16[:, :, :3].copy()
+                        alpha16 = rgba16[:, :, 3].copy()
+                    else:
+                        rgb16 = cv2.cvtColor(
+                            png_array, cv2.COLOR_BGR2RGB
+                        )
+                        alpha16 = None
 
                     if is_linear_raw and not display_only:
                         rgb16 = _apply_srgb_gamma_16bit(rgb16)
@@ -319,7 +374,21 @@ def load_image(file_path: Union[str, Path], display_only: bool = False) -> Tuple
                         rgb16.astype(np.float64) / 257.0
                     ).astype(np.uint8)
 
+                    # Preserve the original 16-bit analytical RGB.
+                    # Alpha is separate and must never receive gamma correction.
                     image = Image.fromarray(rgb8, mode='RGB')
+
+                    if alpha16 is not None:
+                        alpha8 = np.round(
+                            alpha16.astype(np.float64) / 257.0
+                        ).astype(np.uint8)
+
+                        image.putalpha(
+                            Image.fromarray(alpha8, mode='L')
+                        )
+
+                        image._stampz_alpha_mask = alpha8
+
                     image._stampz_16bit_data = rgb16
                     image._stampz_16bit_encoding = (
                         'linear'
@@ -327,7 +396,7 @@ def load_image(file_path: Union[str, Path], display_only: bool = False) -> Tuple
                         else 'srgb'
                     )
                     image._stampz_source_file = str(file_path)
-                    image._stampz_is_raw = is_linear_raw
+                    image._stampz_is_raw = raw_provenance
 
                     metadata.update({
                         'format_info': (
@@ -351,7 +420,7 @@ def load_image(file_path: Union[str, Path], display_only: bool = False) -> Tuple
                             if icc_bytes
                             else 'Assumed sRGB (no ICC profile)'
                         ),
-                        'is_raw': is_linear_raw,
+                        'is_raw': raw_provenance,
                         'linear_gamma_corrected': (
                             is_linear_raw and not display_only
                         ),
@@ -382,12 +451,26 @@ def load_image(file_path: Union[str, Path], display_only: bool = False) -> Tuple
                 
                 # Convert numpy array to PIL Image
                 if tiff_metadata.get('true_16bit', False):
+                    # Separate alpha before any color/gamma processing.
+                    # Keep the analytical data as three-channel RGB.
+                    if img_array.ndim == 3 and img_array.shape[2] == 4:
+                        alpha16 = img_array[:, :, 3].copy()
+                        img_array = img_array[:, :, :3].copy()
+                    else:
+                        alpha16 = None
                     # Detect VueScan linear RAW and apply sRGB gamma so the
                     # rest of the pipeline (Lab conversion, calibration) sees
                     # correctly gamma-encoded values.
                     is_vuescan_linear = _is_vuescan_linear_tiff(file_path)
                     is_stampz_linear = _is_stampz_linear_raw_tiff(file_path)
                     is_linear = is_vuescan_linear or is_stampz_linear
+
+                    # RAW provenance is independent of pixel encoding.
+                    is_stampz_raw_derived = _is_stampz_raw_derived_tiff(
+                        file_path
+                    )
+                    raw_provenance = is_linear or is_stampz_raw_derived
+                    metadata['is_raw'] = raw_provenance
 
                     # Flag VueScan TIFFs whose RAW status cannot be determined reliably.
                     vuescan_raw_uncertain = _is_vuescan_raw_uncertain(file_path)
@@ -426,6 +509,19 @@ def load_image(file_path: Union[str, Path], display_only: bool = False) -> Tuple
                     # Scale to 8-bit for display; preserve 16-bit for analysis
                     img_array_8bit = (img_array / 65535.0 * 255.0).astype(np.uint8)
                     image = Image.fromarray(img_array_8bit)
+
+                    # Restore transparency without altering analytical RGB.
+                    if alpha16 is not None:
+                        alpha8 = np.round(
+                            alpha16.astype(np.float64) / 257.0
+                        ).astype(np.uint8)
+
+                        image.putalpha(
+                            Image.fromarray(alpha8, mode='L')
+                        )
+
+                        image._stampz_alpha_mask = alpha8
+
                     image._stampz_16bit_data = img_array
                     image._stampz_16bit_encoding = (
                         "linear"
@@ -433,7 +529,7 @@ def load_image(file_path: Union[str, Path], display_only: bool = False) -> Tuple
                         else "srgb"
                     )                   
                     image._stampz_source_file = str(file_path)
-                    image._stampz_is_raw = bool(metadata.get('is_raw', False))
+                    image._stampz_is_raw = raw_provenance
                     logger.info(f"Loaded 16-bit TIFF with full precision, attached _stampz_16bit_data: {file_path}")
                 else:
                     image = Image.fromarray(img_array)
@@ -594,6 +690,14 @@ def copy_image_preserve_16bit(image: Image.Image) -> Image.Image:
     # Preserve RAW provenance if present
     if hasattr(image, '_stampz_is_raw'):
         copied._stampz_is_raw = image._stampz_is_raw
+
+    # Preserve crop transparency separately from analytical RGB.
+    if hasattr(image, '_stampz_alpha_mask'):
+        copied._stampz_alpha_mask = image._stampz_alpha_mask.copy()
+
+    # Preserve actual 16-bit pixel encoding.
+    if hasattr(image, '_stampz_16bit_encoding'):
+        copied._stampz_16bit_encoding = image._stampz_16bit_encoding
 
     return copied
 

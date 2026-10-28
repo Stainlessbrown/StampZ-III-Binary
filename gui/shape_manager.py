@@ -232,10 +232,28 @@ class ShapeManager:
         if not self.shape_center:
             return
         
-        # Calculate radius
+        # Calculate radius from mouse position
         dx = image_x - self.shape_center.x
         dy = image_y - self.shape_center.y
-        self.shape_radius = max(self.MIN_SHAPE_SIZE, (dx * dx + dy * dy) ** 0.5)
+        requested_radius = (dx * dx + dy * dy) ** 0.5
+
+        # Maximum radius that fits within all four image boundaries
+        image_width = self.core.original_image.width
+        image_height = self.core.original_image.height
+
+        max_radius = max(0.0, min(
+            self.shape_center.x,
+            image_width - self.shape_center.x,
+            self.shape_center.y,
+            image_height - self.shape_center.y
+        ))
+
+        # Keep the center fixed and limit the radius
+        self.shape_radius = min(
+            max(self.MIN_SHAPE_SIZE, requested_radius),
+            max_radius
+        )
+
         self.update_display()
     
     def start_oval(self, image_x: float, image_y: float) -> None:
@@ -294,15 +312,43 @@ class ShapeManager:
         self.update_display()
 
     def move_shape(self, image_x: float, image_y: float) -> None:
-        """Move a Circle, Oval, Rectangle, or Square without resizing."""
+        """Move a crop selection while keeping it inside the image."""
         if not self.moving_shape or self.shape_center is None:
             return
 
-        self.shape_center = Point(
-            image_x - self.move_offset_x,
-            image_y - self.move_offset_y
+        # Calculate the selection's half-dimensions
+        if self.current_shape_type == ShapeType.CIRCLE:
+            half_width = self.shape_radius
+            half_height = self.shape_radius
+        elif self.current_shape_type in (
+            ShapeType.OVAL, ShapeType.RECTANGLE, ShapeType.SQUARE
+        ):
+            half_width = self.shape_width / 2
+            half_height = self.shape_height / 2
+        else:
+            return
+
+        if half_width is None or half_height is None:
+            return
+
+        image_width = self.core.original_image.width
+        image_height = self.core.original_image.height
+
+        # Calculate the requested new center
+        center_x = image_x - self.move_offset_x
+        center_y = image_y - self.move_offset_y
+
+        # Keep the entire shape within image boundaries
+        center_x = max(
+            half_width,
+            min(center_x, image_width - half_width)
+        )
+        center_y = max(
+            half_height,
+            min(center_y, image_height - half_height)
         )
 
+        self.shape_center = Point(center_x, center_y)
         self.update_display()
 
     def set_shape_dimensions(self, width: int, height: int) -> None:
@@ -315,6 +361,41 @@ class ShapeManager:
 
         if width < 1 or height < 1:
             return
+
+        # Determine the actual requested dimensions
+        if self.current_shape_type in (ShapeType.CIRCLE, ShapeType.SQUARE):
+            height = width
+
+        image_width = self.core.original_image.width
+        image_height = self.core.original_image.height
+        print(
+            f"DEBUG: Crop boundary check: "
+            f"requested={width}x{height}, "
+            f"image={image_width}x{image_height}, "
+            f"center=({self.shape_center.x:.1f}, "
+            f"{self.shape_center.y:.1f})"
+        )
+        
+
+        # Reject dimensions larger than the source image
+        if width > image_width or height > image_height:
+            self._update_dimensions_display()
+            return
+
+        # Preserve exact dimensions while keeping the selection inside
+        half_width = width / 2
+        half_height = height / 2
+
+        center_x = max(
+            half_width,
+            min(self.shape_center.x, image_width - half_width)
+        )
+        center_y = max(
+            half_height,
+            min(self.shape_center.y, image_height - half_height)
+        )
+
+        self.shape_center = Point(center_x, center_y)    
 
         if self.current_shape_type == ShapeType.CIRCLE:
             self.shape_radius = width / 2
@@ -417,13 +498,70 @@ class ShapeManager:
         mask = Image.new('L', self.core.original_image.size, 0)
 
         if isinstance(current_shape, (Circle, Oval)):
-            mask = current_shape.generate_mask(self.core.original_image.size)
+            image_height = self.core.original_image.height
+
+            image_center = Point(
+                current_shape.center.x,
+                image_height - current_shape.center.y
+            )
+
+            if isinstance(current_shape, Circle):
+                mask_shape = Circle(image_center, current_shape.radius)
+            else:
+                mask_shape = Oval(
+                    image_center,
+                    current_shape.width,
+                    current_shape.height
+                )
+
+            # Generate the rounded mask using exact integer pixel bounds
+            if isinstance(current_shape, Circle):
+                crop_width = round(current_shape.radius * 2)
+                crop_height = crop_width
+            else:
+                crop_width = round(current_shape.width)
+                crop_height = round(current_shape.height)
+
+            crop_left = round(mask_shape.center.x - crop_width / 2)
+            crop_top = round(mask_shape.center.y - crop_height / 2)
+
+            draw = ImageDraw.Draw(mask)
+            draw.ellipse(
+                (
+                    crop_left,
+                    crop_top,
+                    crop_left + crop_width - 1,
+                    crop_top + crop_height - 1
+                ),
+                fill=255
+            )
 
         elif self.current_shape_type in (ShapeType.RECTANGLE, ShapeType.SQUARE):
-            left, top, right, bottom = current_shape
+            # Convert Cartesian coordinates to Pillow image coordinates
+            left, bottom, right, top = current_shape
+            image_height = self.core.original_image.height
+
+            image_top = image_height - top
+            image_bottom = image_height - bottom
+
             draw = ImageDraw.Draw(mask)
+            crop_width = round(self.shape_width)
+            crop_height = round(self.shape_height)
+
+            crop_left = round(self.shape_center.x - crop_width / 2)
+            crop_top = round(
+                self.core.original_image.height
+                - self.shape_center.y
+                - crop_height / 2
+            )
+
             draw.rectangle(
-                (left, top, right - 1, bottom - 1),
+                (
+                    crop_left,
+                    crop_top,
+                    crop_left + crop_width - 1,
+                    crop_top + crop_height - 1
+                ),
                 fill=255
             )
 
@@ -438,49 +576,89 @@ class ShapeManager:
             draw.polygon(vertices_xy, fill=255)
             print(f"DEBUG: Crop mask vertices: {vertices_xy}")
 
-        # Get bounding box
+        # Get bounding box in Pillow image coordinates
         if isinstance(current_shape, (Circle, Oval)):
-            bbox = get_shape_bbox(current_shape)
+            if isinstance(current_shape, Circle):
+                crop_width = round(current_shape.radius * 2)
+                crop_height = crop_width
+            else:
+                crop_width = round(current_shape.width)
+                crop_height = round(current_shape.height)
+
+            crop_left = round(mask_shape.center.x - crop_width / 2)
+            crop_top = round(mask_shape.center.y - crop_height / 2)
+
+            bbox = (
+                crop_left,
+                crop_top,
+                crop_left + crop_width,
+                crop_top + crop_height
+            )
 
         elif self.current_shape_type in (ShapeType.RECTANGLE, ShapeType.SQUARE):
-            bbox = tuple(int(v) for v in current_shape)
-        
+            crop_width = round(self.shape_width)
+            crop_height = round(self.shape_height)
+
+            crop_left = round(self.shape_center.x - crop_width / 2)
+            crop_top = round(
+                self.core.original_image.height
+                - self.shape_center.y
+                - crop_height / 2
+            )
+
+            bbox = (
+                crop_left,
+                crop_top,
+                crop_left + crop_width,
+                crop_top + crop_height
+            )
+
+        else:
+            bbox = self._get_polygon_bbox()
+
         # Handle 16-bit images specially to preserve precision
         if has_16bit:
             # Crop the 16-bit numpy array directly
             img_16bit = self.core.original_image._stampz_16bit_data
             mask_array = np.array(mask)
             
-            # Apply mask to 16-bit data (set masked areas to white background)
-            # Create a white background (65535 for 16-bit)
-            result_16bit = np.full_like(img_16bit, 65535, dtype=np.uint16)
-            
-            # Copy pixels where mask is non-zero
-            mask_bool = mask_array > 0
-            if len(img_16bit.shape) == 3:  # RGB
-                for c in range(img_16bit.shape[2]):
-                    result_16bit[:, :, c] = np.where(mask_bool, img_16bit[:, :, c], 65535)
-            else:  # Grayscale
-                result_16bit = np.where(mask_bool, img_16bit, 65535)
-            
-            # Crop the 16-bit array
+            # Preserve original 16-bit analytical RGB values.
+            # Transparency is stored separately from the RGB array.
             left, top, right, bottom = bbox
-            cropped_16bit = result_16bit[top:bottom, left:right]
-                        
-            # Create 8-bit display version
-            cropped_8bit = (cropped_16bit / 256).astype(np.uint8)
-            cropped = Image.fromarray(cropped_8bit)
-            
-            # Attach cropped 16-bit data
-            cropped._stampz_16bit_data = cropped_16bit
+
+            cropped_16bit = np.array(
+                img_16bit[top:bottom, left:right],
+                copy=True
+            )
+
+            cropped_mask = np.array(
+                mask.crop(bbox),
+                dtype=np.uint8
+            )
+
+            # Construct an RGBA display image with transparent areas.
+            # This is display-only; analytical values remain 16-bit.
+            cropped_rgb8 = np.round(
+                cropped_16bit[:, :, :3].astype(np.float64) / 257.0
+            ).astype(np.uint8)
+
+            cropped = Image.fromarray(cropped_rgb8, mode='RGB')
+            cropped.putalpha(Image.fromarray(cropped_mask, mode='L'))
+
+            # Preserve the analytical RGB data and separate alpha mask.
+            cropped._stampz_16bit_data = cropped_16bit[:, :, :3]
+            cropped._stampz_alpha_mask = cropped_mask
             cropped._stampz_is_raw = getattr(
                 self.core.original_image, '_stampz_is_raw', False
             )
-
             cropped._stampz_16bit_encoding = getattr(
                 self.core.original_image, '_stampz_16bit_encoding', None
             )
-            print(f"DEBUG get_cropped_image: preserved 16-bit data, shape: {cropped_16bit.shape}")
+
+            print(
+                f"DEBUG get_cropped_image: preserved 16-bit RGB "
+                f"{cropped_16bit.shape}, alpha {cropped_mask.shape}"
+            )
             
             return cropped
         
