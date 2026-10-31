@@ -553,7 +553,7 @@ class SaveManager:
                 try:
                     import tifffile
                     logger.info("Saving as 16-bit TIFF using tifffile to preserve precision")
-                    tifffile_kwargs = {"photometric": "rgb"}
+                    tifffile_kwargs = {"photometric": "rgb", "metadata": None}
 
                     if output_16bit.shape[2] == 4:
                         # Straight alpha: RGB values are not premultiplied.

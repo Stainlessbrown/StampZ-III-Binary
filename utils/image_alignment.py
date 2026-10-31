@@ -326,82 +326,163 @@ class ImageAlignmentManager:
             return None, info
     
     def save_reference(self, filepath: str) -> bool:
-        """
-        Save reference template to file.
-        
-        Args:
-            filepath: Path to save reference data
-            
-        Returns:
-            True if successful
-        """
+        """Save a validated reference template and companion image."""
+        from pathlib import Path
+        import tempfile
+
         if not self.has_reference():
             return False
-        
+
+        reference_path = Path(filepath)
+        image_path = reference_path.with_name(
+            reference_path.stem + "_reference.png"
+        )
+
+        temp_image = None
+        temp_data = None
+
         try:
-            # Convert keypoints to serializable format
-            kp_data = [(kp.pt, kp.size, kp.angle, kp.response, kp.octave, kp.class_id) 
-                       for kp in self.reference_keypoints]
-            
+            reference_path.parent.mkdir(parents=True, exist_ok=True)
+
+            kp_data = [
+                (kp.pt, kp.size, kp.angle, kp.response,
+                 kp.octave, kp.class_id)
+                for kp in self.reference_keypoints
+            ]
+
             data = {
-                'keypoints': kp_data,
-                'descriptors': self.reference_descriptors,
-                'size': self.reference_size
+                "keypoints": kp_data,
+                "descriptors": self.reference_descriptors,
+                "size": self.reference_size
             }
-            
-            # Save reference image separately
-            image_path = filepath.replace('.pkl', '_reference.png')
-            self.reference_image.save(image_path)
-            
-            # Save feature data
-            with open(filepath, 'wb') as f:
-                pickle.dump(data, f)
-            
-            print(f"✓ Reference saved to {filepath}")
+
+            # Stage the companion PNG.
+            with tempfile.NamedTemporaryFile(
+                suffix=".png",
+                prefix=".stampz_ref_",
+                dir=reference_path.parent,
+                delete=False
+            ) as tmp:
+                temp_image = Path(tmp.name)
+
+            self.reference_image.save(temp_image, format="PNG")
+
+            # Confirm the image is fully readable.
+            with Image.open(temp_image) as check:
+                check.load()
+                if check.size != self.reference_size:
+                    raise ValueError(
+                        "Saved reference image dimensions do not match"
+                    )
+
+            # Stage the feature data.
+            with tempfile.NamedTemporaryFile(
+                suffix=".pkl",
+                prefix=".stampz_ref_",
+                dir=reference_path.parent,
+                delete=False
+            ) as tmp:
+                temp_data = Path(tmp.name)
+                pickle.dump(data, tmp)
+
+            # Verify the serialized feature information.
+            with open(temp_data, "rb") as f:
+                check_data = pickle.load(f)
+
+            if (
+                tuple(check_data["size"]) != self.reference_size
+                or len(check_data["keypoints"]) != len(kp_data)
+                or check_data["descriptors"] is None
+            ):
+                raise ValueError("Reference feature verification failed")
+
+            # Publish the image first, then the feature data.
+            os.replace(temp_image, image_path)
+            temp_image = None
+
+            os.replace(temp_data, reference_path)
+            temp_data = None
+
+            print(f"Reference saved successfully: {reference_path}")
             return True
-            
+
         except Exception as e:
             print(f"Error saving reference: {e}")
             return False
-    
+
+        finally:
+            for temporary in (temp_image, temp_data):
+                if temporary is not None:
+                    try:
+                        temporary.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+
     def load_reference(self, filepath: str) -> bool:
-        """
-        Load reference template from file.
-        
-        Args:
-            filepath: Path to load reference data from
-            
-        Returns:
-            True if successful
-        """
+        """Load and validate a complete reference template."""
+        from pathlib import Path
+
+        self.clear_reference()
+
         try:
-            # Load feature data
-            with open(filepath, 'rb') as f:
+            reference_path = Path(filepath)
+            image_path = reference_path.with_name(
+                reference_path.stem + "_reference.png"
+            )
+
+            if not image_path.is_file():
+                raise FileNotFoundError(
+                    f"Missing reference image: {image_path.name}"
+                )
+
+            with open(reference_path, "rb") as f:
                 data = pickle.load(f)
-            
-            # Reconstruct keypoints
-            self.reference_keypoints = [
-                cv2.KeyPoint(x=pt[0], y=pt[1], size=size, angle=angle,
-                            response=response, octave=octave, class_id=class_id)
-                for pt, size, angle, response, octave, class_id in data['keypoints']
+
+            keypoints = [
+                cv2.KeyPoint(
+                    x=pt[0], y=pt[1], size=size,
+                    angle=angle, response=response,
+                    octave=octave, class_id=class_id
+                )
+                for pt, size, angle, response, octave, class_id
+                in data["keypoints"]
             ]
-            
-            self.reference_descriptors = data['descriptors']
-            self.reference_size = tuple(data['size'])
-            self.reference_filepath = filepath  # Store filepath
-            
-            # Load reference image
-            image_path = filepath.replace('.pkl', '_reference.png')
-            if os.path.exists(image_path):
-                self.reference_image = Image.open(image_path)
-            
-            print(f"✓ Reference loaded: {len(self.reference_keypoints)} features")
+
+            descriptors = data["descriptors"]
+            size = tuple(data["size"])
+
+            if (
+                len(keypoints) < self.min_matches
+                or descriptors is None
+                or len(descriptors) != len(keypoints)
+            ):
+                raise ValueError("Invalid reference feature data")
+
+            with Image.open(image_path) as image:
+                image.load()
+                if image.size != size:
+                    raise ValueError(
+                        "Reference image dimensions do not match template"
+                    )
+                reference_image = image.copy()
+
+            self.reference_keypoints = keypoints
+            self.reference_descriptors = descriptors
+            self.reference_size = size
+            self.reference_image = reference_image
+            self.reference_filepath = str(reference_path)
+
+            print(
+                f"Reference loaded successfully: "
+                f"{len(keypoints)} features"
+            )
             return True
-            
+
         except Exception as e:
+            self.clear_reference()
             print(f"Error loading reference: {e}")
             return False
-    
+
     def get_reference_info(self) -> Optional[Dict[str, Any]]:
         """
         Get information about the current reference.
