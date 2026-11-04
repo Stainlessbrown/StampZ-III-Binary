@@ -567,10 +567,19 @@ class SampleResultsManager(tk.Frame):
                             calibrated_rgb, source_encoding, bridge_enabled
                         )
                     else:
-                        swatch_rgb = analysis_rgb_to_raw_display_rgb(
-                            calibrated_rgb,
-                            bridge_enabled=bridge_enabled,
+                        encoding = getattr(
+                            self.current_image, "_stampz_16bit_encoding", None
                         )
+                        if encoding in ("linear", "srgb"):
+                            from utils.aligned_swatch_display import aligned_swatch_rgb
+                            swatch_rgb = aligned_swatch_rgb(
+                                calibrated_rgb, encoding, bridge_enabled
+                            )
+                        else:
+                            swatch_rgb = analysis_rgb_to_raw_display_rgb(
+                                calibrated_rgb,
+                                bridge_enabled=bridge_enabled,
+                            )
 
                     from utils.raw_display_bridge import display_rgb_to_lab
 
@@ -914,10 +923,19 @@ class SampleResultsManager(tk.Frame):
                         calibrated_rgb, source_encoding, bridge_enabled
                     )
                 else:
-                    swatch_rgb = analysis_rgb_to_raw_display_rgb(
-                        calibrated_rgb,
-                        bridge_enabled=bridge_enabled,
+                    encoding = getattr(
+                        self.current_image, "_stampz_16bit_encoding", None
                     )
+                    if encoding in ("linear", "srgb"):
+                        from utils.aligned_swatch_display import aligned_swatch_rgb
+                        swatch_rgb = aligned_swatch_rgb(
+                            calibrated_rgb, encoding, bridge_enabled
+                        )
+                    else:
+                        swatch_rgb = analysis_rgb_to_raw_display_rgb(
+                            calibrated_rgb,
+                            bridge_enabled=bridge_enabled,
+                        )
 
                 display_rgb = swatch_rgb
                 display_lab = display_rgb_to_lab(display_rgb)
