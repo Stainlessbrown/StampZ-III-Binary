@@ -45,6 +45,10 @@ class ColorMeasurement:
     rgb_stddev: Optional[Tuple[float, float, float]] = None  # RGB standard deviations
     lab_stddev: Optional[Tuple[float, float, float]] = None  # L*a*b* standard deviations
 
+class NativeAlignmentSamplingError(Exception):
+    """Authenticated native sampling failed; never use aligned pixels."""
+
+
 class ColorAnalyzer:
     """Analyze colors from coordinate sample areas."""
     
@@ -367,6 +371,9 @@ class ColorAnalyzer:
                     )
                     measurements.append(measurement)
                     
+            except NativeAlignmentSamplingError:
+                # Never silently omit a failed native-pixel sample.
+                raise
             except Exception as e:
                 print(f"Warning: Failed to sample color at {coord.x}, {coord.y}: {e}")
                 continue
@@ -440,6 +447,9 @@ class ColorAnalyzer:
                     )
                     measurements.append(measurement)
                     
+            except NativeAlignmentSamplingError:
+                # Native alignment failures invalidate the analysis.
+                raise
             except Exception as e:
                 print(f"Warning: Failed to sample color from canvas marker {i}: {e}")
                 continue
@@ -466,10 +476,27 @@ class ColorAnalyzer:
             if not bounds:
                 return None, None, None
             
-            # Extract pixels from the area with standard deviation
+            # Authenticated aligned images sample original native pixels.
+            # Ordinary images retain the established sampling pathway.
+            if hasattr(image, "_stampz_alignment_record"):
+                from utils.aligned_native_analysis import (
+                    analyze_aligned_region,
+                )
+                try:
+                    return analyze_aligned_region(
+                        self, image, bounds, coord.sample_type
+                    )
+                except Exception as exc:
+                    raise NativeAlignmentSamplingError(
+                        f"Native aligned-image sampling failed: {exc}"
+                    ) from exc
+
+            # Existing ordinary-image sampling pathway.
             pixels, rgb_stddev, lab_stddev = self._extract_pixels_from_bounds(image, bounds, coord.sample_type)
             return pixels, rgb_stddev, lab_stddev
             
+        except NativeAlignmentSamplingError:
+            raise
         except Exception as e:
             print(f"Error sampling area: {e}")
             return None, None, None
@@ -1058,6 +1085,9 @@ class ColorAnalyzer:
                     }
                     measurements.append(measurement)
                     
+            except NativeAlignmentSamplingError:
+                # Native alignment failures invalidate the analysis.
+                raise
             except Exception as e:
                 print(f"Warning: Failed to sample color from canvas marker {i}: {e}")
                 continue

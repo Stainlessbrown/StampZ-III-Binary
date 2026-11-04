@@ -60,6 +60,11 @@ class FileManager:
         if filename:
             try:
                 image, metadata = load_image(filename, display_only=True)
+                from utils.native_layer_preparation import prepare_native_layer
+                image = prepare_native_layer(image, filename)
+                if getattr(image, "_stampz_authenticated_native_layer", False):
+                    metadata["native_layer_authenticated"] = True
+                    metadata["is_raw"] = image._stampz_is_raw
 
                 # Prepare authenticated aligned images before Canvas receives them.
                 # Ordinary images pass through unchanged.
@@ -88,7 +93,11 @@ class FileManager:
                 # "Treat all images as RAW" override.
                 detected_as_raw = metadata.get('is_raw', False)
 
-                if prefs_manager.get_treat_all_images_as_raw():
+                if (
+                    prefs_manager.get_treat_all_images_as_raw()
+                    and not getattr(image, "_stampz_authenticated_native_layer", False)
+                    and not hasattr(image, "_stampz_alignment_record")
+                ):
                     # If this image was not independently identified as RAW, warn before
                     # allowing the RAW Display Bridge to affect its appearance.
                     if (
@@ -176,7 +185,7 @@ class FileManager:
                 # Show format information to user
                 self._show_format_info(filename, metadata)
                 
-            except ImageLoadError as e:
+            except (ImageLoadError, ValueError) as e:
                 messagebox.showerror("Error", str(e))
     
     def _show_format_info(self, filename, metadata):
@@ -371,6 +380,37 @@ class FileManager:
                 if replace_response:
                     try:
                         new_image, new_metadata = load_image(filepath, display_only=True)
+                        from utils.native_layer_preparation import prepare_native_layer
+                        new_image = prepare_native_layer(new_image, filepath)
+                        if getattr(new_image, "_stampz_authenticated_native_layer", False):
+                            new_metadata["native_layer_authenticated"] = True
+                            new_metadata["is_raw"] = new_image._stampz_is_raw
+
+                        # Use the same authenticated preparation as Open Image.
+                        from utils.aligned_image_preparation import (
+                            prepare_aligned_image,
+                        )
+                        new_image = prepare_aligned_image(
+                            new_image, filepath
+                        )
+
+                        if hasattr(new_image, "_stampz_alignment_record"):
+                            source_metadata = (
+                                new_image._stampz_alignment_source_metadata
+                            )
+                            new_metadata["alignment_authenticated"] = True
+                            new_metadata["alignment_source"] = (
+                                new_image._stampz_alignment_record[
+                                    "source"
+                                ]["path"]
+                            )
+                            new_metadata["is_raw"] = bool(
+                                source_metadata.get("is_raw", False)
+                            )
+                            new_image._stampz_is_raw = (
+                                new_metadata["is_raw"]
+                            )
+
                         self.app.canvas.load_image(new_image)
                         self.app.current_file = filepath
                         self.app.current_image_metadata = new_metadata
@@ -384,7 +424,7 @@ class FileManager:
                             self.app.control_panel.update_image_status(status_text2)
                         except Exception:
                             pass
-                    except ImageLoadError as e:
+                    except (ImageLoadError, ValueError) as e:
                         messagebox.showerror("Error", f"Failed to load cropped image: {str(e)}")
 
         except (ImageSaveError, OSError) as e:

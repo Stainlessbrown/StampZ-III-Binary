@@ -238,6 +238,9 @@ class ColorComparisonManager(tk.Frame):
                 - size: (width, height) tuple
                 - anchor: anchor position string
         """
+        # Never carry previous comparison samples into a new session.
+        self.sample_points = []
+
         # Store the current file path for export functionality
         self.current_file_path = image_path
         try:
@@ -251,11 +254,76 @@ class ColorComparisonManager(tk.Frame):
             # Load via load_image() so format corrections (e.g. VueScan gamma) apply
             try:
                 from utils.image_processor import load_image as _load_image
-                self.current_image, _meta = _load_image(image_path)
+                self.current_image, _meta = _load_image(
+                    image_path, display_only=True
+                )
+                from utils.native_layer_preparation import prepare_native_layer
+                self.current_image = prepare_native_layer(
+                    self.current_image, image_path
+                )
+                if getattr(
+                    self.current_image, "_stampz_authenticated_native_layer", False
+                ):
+                    _meta["native_layer_authenticated"] = True
+                    _meta["is_raw"] = self.current_image._stampz_is_raw
+
+                # Apply the same alignment authentication as Results.
+                from utils.aligned_image_preparation import (
+                    prepare_aligned_image,
+                )
+                self.current_image = prepare_aligned_image(
+                    self.current_image, image_path
+                )
+
+                if hasattr(
+                    self.current_image, "_stampz_alignment_record"
+                ):
+                    original_metadata = (
+                        self.current_image
+                        ._stampz_alignment_source_metadata
+                    )
+                    _meta["alignment_authenticated"] = True
+                    _meta["alignment_source"] = (
+                        self.current_image
+                        ._stampz_alignment_record["source"]["path"]
+                    )
+                    if not _meta.get("native_layer_authenticated"):
+                        _meta["is_raw"] = bool(
+                            original_metadata.get("is_raw", False)
+                        )
+
                 self.current_image_metadata = _meta or {}
                 print(f"DEBUG: set_analyzed_data (compare) gamma_corrected={_meta.get('linear_gamma_corrected')}")
             except Exception as _le:
-                print(f"DEBUG: set_analyzed_data (compare) load_image failed ({_le}), using Image.open")
+                from pathlib import Path
+                from utils.alignment_provenance import companion_path
+                from utils.aligned_image_preparation import (
+                    AlignmentPreparationError,
+                )
+
+                from utils.native_layer_preparation import (
+                    NativeLayerPreparationError,
+                )
+
+                if isinstance(_le, NativeLayerPreparationError):
+                    raise
+
+                aligned_candidate = (
+                    Path(image_path).stem.lower().endswith("_aligned")
+                    or companion_path(image_path).exists()
+                )
+
+                if aligned_candidate or isinstance(
+                    _le, AlignmentPreparationError
+                ):
+                    raise AlignmentPreparationError(
+                        f"Compare cannot authenticate aligned image: {_le}"
+                    ) from _le
+
+                print(
+                    f"DEBUG: set_analyzed_data (compare) load_image "
+                    f"failed ({_le}), using Image.open"
+                )
                 self.current_image = Image.open(image_path)
                 self.current_image_metadata = {}               
             
@@ -295,6 +363,10 @@ class ColorComparisonManager(tk.Frame):
                     if result:
                         # Unpack the returned tuple (rgb_values, rgb_stddev, lab_stddev)
                         rgb_values, rgb_stddev, lab_stddev = result
+                        if not rgb_values:
+                            raise ValueError(
+                                f"Sample {i}: no eligible ink pixels"
+                            )
                         avg_rgb = analyzer._calculate_average_color(rgb_values)
                         
                         # Store the sample point data for comparison
@@ -310,7 +382,25 @@ class ColorComparisonManager(tk.Frame):
                         self.sample_points.append(sample_point)
                         print(f"DEBUG: Added sample {i} with RGB: {avg_rgb} for comparison")
                 except Exception as e:
-                    print(f"DEBUG: Error processing sample {i}: {str(e)}")
+                    from utils.color_analyzer import (
+                        NativeAlignmentSamplingError,
+                    )
+
+                    if (
+                        isinstance(e, NativeAlignmentSamplingError)
+                        or hasattr(
+                            self.current_image,
+                            "_stampz_alignment_record",
+                        )
+                    ):
+                        self.sample_points = []
+                        raise RuntimeError(
+                            f"Aligned comparison sample {i} failed: {e}"
+                        ) from e
+
+                    print(
+                        f"DEBUG: Error processing sample {i}: {e}"
+                    )
                     continue
             
             print(f"DEBUG: Processed {len(self.sample_points)} sample points for comparison")
@@ -319,6 +409,7 @@ class ColorComparisonManager(tk.Frame):
             self._initialize_comparison_ui()
             
         except Exception as e:
+            self.sample_points = []
             print(f"DEBUG: Error in set_analyzed_data: {str(e)}")
             messagebox.showerror(
                 "Comparison Error",

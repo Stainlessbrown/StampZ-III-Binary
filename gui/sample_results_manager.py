@@ -53,6 +53,7 @@ class SampleResultsManager(tk.Frame):
         self.library = None
         self.current_image = None
         self.sample_points = []
+        self._aligned_analysis_valid = False
         
         # Initialize current sizes dictionary
         self.current_sizes = {
@@ -174,6 +175,12 @@ class SampleResultsManager(tk.Frame):
                 - size: (width, height) tuple
                 - anchor: anchor position string
         """
+        # Invalidate the previous session before any loading or processing.
+        self._aligned_analysis_valid = False
+        self.sample_points = []
+        self._audit_sampling_bit_depth = None
+        self._audit_sampling_channels = None
+
         # Store the current file path 
         self.current_file_path = image_path
         
@@ -200,7 +207,45 @@ class SampleResultsManager(tk.Frame):
             # Load via load_image() so format corrections (e.g. VueScan gamma) apply
             try:
                 from utils.image_processor import load_image as _load_image
-                self.current_image, _meta = _load_image(image_path)
+                self.current_image, _meta = _load_image(
+                    image_path, display_only=True
+                )
+                from utils.native_layer_preparation import prepare_native_layer
+                self.current_image = prepare_native_layer(
+                    self.current_image, image_path
+                )
+                if getattr(
+                    self.current_image, "_stampz_authenticated_native_layer", False
+                ):
+                    _meta["native_layer_authenticated"] = True
+                    _meta["is_raw"] = self.current_image._stampz_is_raw
+
+                # Results must use the same authenticated preparation
+                # as Canvas. Never analyze unverified aligned pixels.
+                from utils.aligned_image_preparation import (
+                    prepare_aligned_image,
+                )
+
+                self.current_image = prepare_aligned_image(
+                    self.current_image, image_path
+                )
+
+                if hasattr(
+                    self.current_image, "_stampz_alignment_record"
+                ):
+                    source_metadata = (
+                        self.current_image
+                        ._stampz_alignment_source_metadata
+                    )
+                    _meta["alignment_authenticated"] = True
+                    _meta["alignment_source"] = (
+                        self.current_image
+                        ._stampz_alignment_record["source"]["path"]
+                    )
+                    if not _meta.get("native_layer_authenticated"):
+                        _meta["is_raw"] = bool(
+                            source_metadata.get("is_raw", False)
+                        )
 
                 # Preserve source metadata so Results swatches can make the same
                 # RAW/non-RAW display decision as the main image display pipeline.
@@ -212,7 +257,35 @@ class SampleResultsManager(tk.Frame):
                     f"gamma_corrected={_meta.get('linear_gamma_corrected')}"
                 )
             except Exception as _le:
-                print(f"DEBUG: set_analyzed_data load_image failed ({_le}), using Image.open")
+                from pathlib import Path
+                from utils.alignment_provenance import companion_path
+                from utils.aligned_image_preparation import (
+                    AlignmentPreparationError,
+                )
+
+                from utils.native_layer_preparation import (
+                    NativeLayerPreparationError,
+                )
+
+                if isinstance(_le, NativeLayerPreparationError):
+                    raise
+
+                aligned_candidate = (
+                    Path(image_path).stem.lower().endswith("_aligned")
+                    or companion_path(image_path).exists()
+                )
+
+                if aligned_candidate or isinstance(
+                    _le, AlignmentPreparationError
+                ):
+                    raise AlignmentPreparationError(
+                        f"Results cannot authenticate aligned image: {_le}"
+                    ) from _le
+
+                print(
+                    f"DEBUG: set_analyzed_data load_image failed "
+                    f"({_le}), using Image.open"
+                )
                 self.current_image = Image.open(image_path)
                 self.current_image_metadata = {}
             
@@ -222,6 +295,7 @@ class SampleResultsManager(tk.Frame):
             
             # Process each sample
             self.sample_points = []
+            self._aligned_analysis_valid = False
 
 
             # Capture calibration provenance for this Results session.
@@ -292,9 +366,39 @@ class SampleResultsManager(tk.Frame):
                         self.sample_points.append(sample_point)
                         print(f"DEBUG: Added sample {i} with RGB: {avg_rgb}, RGB StdDev: {rgb_stddev}, L*a*b* StdDev: {lab_stddev}, enabled: {sample_point['enabled'].get()}")
                 except Exception as e:
-                    print(f"DEBUG: Error processing sample {i}: {str(e)}")
+                    from utils.color_analyzer import (
+                        NativeAlignmentSamplingError,
+                    )
+
+                    if (
+                        isinstance(e, NativeAlignmentSamplingError)
+                        or hasattr(
+                            self.current_image,
+                            "_stampz_alignment_record",
+                        )
+                    ):
+                        # Reject the entire aligned-image analysis.
+                        self.sample_points = []
+                        raise RuntimeError(
+                            f"Aligned-image sample {i} failed; "
+                            f"analysis rejected: {e}"
+                        ) from e
+
+                    print(
+                        f"DEBUG: Error processing sample {i}: {str(e)}"
+                    )
                     continue
             
+            # An aligned-image analysis is valid only when every
+            # requested sample has been successfully collected.
+            if hasattr(self.current_image, "_stampz_alignment_record"):
+                if len(self.sample_points) != len(sample_data):
+                    raise RuntimeError(
+                        "Aligned-image analysis is incomplete"
+                    )
+
+            self._aligned_analysis_valid = True
+
             print(f"DEBUG: Processed {len(self.sample_points)} sample points")
             # Show the precision actually used by the analyzer.
             bit_depth = getattr(analyzer, 'last_sampling_bit_depth', None)
@@ -320,6 +424,11 @@ class SampleResultsManager(tk.Frame):
             self._update_average_display()
             
         except Exception as e:
+            # Failed initialization must never retain partial results.
+            self._aligned_analysis_valid = False
+            self.sample_points = []
+            self._audit_sampling_bit_depth = None
+            self._audit_sampling_channels = None
             print(f"DEBUG: Error in set_analyzed_data: {str(e)}")
             messagebox.showerror(
                 "Analysis Error",
@@ -448,10 +557,20 @@ class SampleResultsManager(tk.Frame):
                     # Use the same calibrated RAW rendering path
                     # for individual samples and AVG.
                     # Analytical RGB and Lab remain unchanged.
-                    swatch_rgb = analysis_rgb_to_raw_display_rgb(
-                        calibrated_rgb,
-                        bridge_enabled=bridge_enabled,
-                    )
+                    if hasattr(self.current_image, "_stampz_alignment_record"):
+                        from utils.aligned_swatch_display import aligned_swatch_rgb
+                        source_image = self.current_image._stampz_alignment_source_image
+                        source_encoding = getattr(
+                            source_image, "_stampz_16bit_encoding", None
+                        )
+                        swatch_rgb = aligned_swatch_rgb(
+                            calibrated_rgb, source_encoding, bridge_enabled
+                        )
+                    else:
+                        swatch_rgb = analysis_rgb_to_raw_display_rgb(
+                            calibrated_rgb,
+                            bridge_enabled=bridge_enabled,
+                        )
 
                     from utils.raw_display_bridge import display_rgb_to_lab
 
@@ -785,10 +904,20 @@ class SampleResultsManager(tk.Frame):
                 # Reconstruct the native RAW appearance from calibrated RGB.
                 # Apply RAW Bridge only when enabled.
                 # Analytical RGB and Lab remain unchanged.
-                swatch_rgb = analysis_rgb_to_raw_display_rgb(
-                    calibrated_rgb,
-                    bridge_enabled=bridge_enabled,
-                )
+                if hasattr(self.current_image, "_stampz_alignment_record"):
+                    from utils.aligned_swatch_display import aligned_swatch_rgb
+                    source_image = self.current_image._stampz_alignment_source_image
+                    source_encoding = getattr(
+                        source_image, "_stampz_16bit_encoding", None
+                    )
+                    swatch_rgb = aligned_swatch_rgb(
+                        calibrated_rgb, source_encoding, bridge_enabled
+                    )
+                else:
+                    swatch_rgb = analysis_rgb_to_raw_display_rgb(
+                        calibrated_rgb,
+                        bridge_enabled=bridge_enabled,
+                    )
 
                 display_rgb = swatch_rgb
                 display_lab = display_rgb_to_lab(display_rgb)
@@ -2826,6 +2955,27 @@ class SampleResultsManager(tk.Frame):
 
         from utils.audit_save_coordinator import create_analytical_snapshot
 
+        # Reauthenticate aligned images before creating a permanent audit.
+        alignment_record = None
+        current_image = getattr(self, "current_image", None)
+
+        if current_image is not None and hasattr(
+            current_image, "_stampz_alignment_record"
+        ):
+            from utils.alignment_provenance import (
+                read_alignment_provenance,
+            )
+
+            alignment_record = read_alignment_provenance(image_path)
+
+            if (
+                alignment_record
+                != current_image._stampz_alignment_record
+            ):
+                raise ValueError(
+                    "Alignment provenance changed during analysis"
+                )
+
         averages = getattr(self, "_audit_display_averages", {})
 
         ink_samples = []
@@ -2900,6 +3050,11 @@ class SampleResultsManager(tk.Frame):
                 "architecture": __import__("platform").machine(),
                 "source_sha256": image_hash,
 
+                # None for ordinary images. For aligned images this
+                # preserves the complete verified acquisition-to-
+                # derivative relationship without changing legacy fields.
+                "alignment_provenance": alignment_record,
+
                 "sampling_bit_depth": getattr(
                     self, "_audit_sampling_bit_depth", None
                 ),
@@ -2967,10 +3122,9 @@ class SampleResultsManager(tk.Frame):
         # Preserve RAW-derived provenance.
         metadata = getattr(self, "current_image_metadata", {}) or {}
         if metadata.get("is_raw", False):
-            if not (
-                dataid.lower().endswith("-r")
-                or dataid.upper().endswith("_RAW")
-            ):
+            # RAW-derived provenance is independent of filename wording.
+            # _RAW is a temporary acquisition label, not a DataID suffix.
+            if not dataid.lower().endswith("-r"):
                 dataid = f"{dataid}-r"
 
         return dataid
@@ -2988,6 +3142,11 @@ class SampleResultsManager(tk.Frame):
         if not save_individual and not save_average:
             raise ValueError(
                 "Select individual measurements, averages, or both"
+            )
+
+        if not getattr(self, "_aligned_analysis_valid", False):
+            raise ValueError(
+                "Results analysis is incomplete or invalid; saving blocked"
             )
 
         snapshot = self._create_audit_snapshot()

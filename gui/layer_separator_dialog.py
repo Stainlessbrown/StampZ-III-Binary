@@ -12,6 +12,7 @@ Each step locks its result before proceeding to the next.
 """
 
 import os
+from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from PIL import Image, ImageTk
@@ -32,6 +33,40 @@ class LayerSeparatorDialog:
             "DEBUG LAYER INPUT RAW:",
             getattr(pil_image, '_stampz_is_raw', False)
         )        
+        # Preserve authenticated native-source provenance before RGB conversion.
+        # The aligned display pixels are never authoritative source pixels.
+        from utils.alignment_provenance import companion_path
+
+        self._alignment_record = getattr(
+            pil_image, '_stampz_alignment_record', None
+        )
+        self._alignment_source_image = getattr(
+            pil_image, '_stampz_alignment_source_image', None
+        )
+        self._alignment_source_metadata = getattr(
+            pil_image, '_stampz_alignment_source_metadata', None
+        )
+
+        if image_filename:
+            candidate = Path(image_filename)
+            alignment_expected = (
+                candidate.stem.lower().endswith('_aligned')
+                or companion_path(candidate).exists()
+            )
+        else:
+            alignment_expected = False
+
+        if alignment_expected and (
+            self._alignment_record is None
+            or self._alignment_source_image is None
+        ):
+            raise ValueError(
+                "Aligned Layer Separator input lacks authenticated "
+                "original-source provenance"
+            )
+
+        self._authenticated_alignment = alignment_expected
+
         self._16bit_source = getattr(pil_image, '_stampz_16bit_data', None)
         self.original_image = pil_image.convert('RGB'
                                                 )
@@ -691,6 +726,31 @@ class LayerSeparatorDialog:
         if layer:
             self._show_layer(layer)
 
+    def _export_authenticated_layer(self, layer_name, mask, output_path):
+        """Export an aligned layer using authenticated original RGB16 pixels."""
+        if not self._authenticated_alignment:
+            raise ValueError(
+                "Native-layer export requires authenticated alignment"
+            )
+
+        if (
+            self._alignment_record is None
+            or self._alignment_source_image is None
+            or not self._source_filename
+        ):
+            raise ValueError("Authenticated alignment information missing")
+
+        from utils.native_layer_export import export_native_layer
+
+        output, companion = export_native_layer(
+            aligned_path=self._source_filename,
+            output_path=output_path,
+            layer_type=layer_name,
+            aligned_mask=mask,
+        )
+
+        return output, companion
+
     def _open_layer_in_stampz(self):
         """Save the currently viewed layer and open it in StampZ's main window."""
         if self._result is None or self._separator is None:
@@ -711,6 +771,45 @@ class LayerSeparatorDialog:
                          else None}.get(layer)
         if mask is None:
             return
+
+        if self._authenticated_alignment:
+            try:
+                from tempfile import mkdtemp
+
+                # Each Open operation gets a unique directory.
+                # Never overwrite an existing analytical layer.
+                temp_dir = mkdtemp(prefix="stampz_native_layer_")
+                native_path = os.path.join(
+                    temp_dir, f"{base}_{layer}.tif"
+                )
+
+                output, companion = (
+                    self._export_authenticated_layer(
+                        layer, mask, native_path
+                    )
+                )
+
+                if self._app and hasattr(self._app, 'open_image'):
+                    self._app.open_image(str(output))
+                    self.status_label.configure(
+                        text=f"Opened authenticated {layer} layer in StampZ."
+                    )
+                else:
+                    messagebox.showinfo(
+                        "Native Layer Saved",
+                        f"Authenticated layer saved to:\\n{output}\\n\\n"
+                        f"Provenance:\\n{companion}"
+                    )
+
+            except Exception as exc:
+                messagebox.showerror(
+                    "Native Layer Open Failed",
+                    f"Could not open authenticated {layer} layer:\\n\\n"
+                    f"{exc}\\n\\nNo 8-bit fallback was performed."
+                )
+
+            return
+
         if self._16bit_source is not None:
             # Preserve 16-bit depth — save as TIFF so StampZ can use full precision
             try:
@@ -839,6 +938,31 @@ class LayerSeparatorDialog:
                              if self._result.ink_mask is not None and self._result.paper_mask is not None
                              else None}.get(ln)
             if mask is not None:
+                if self._authenticated_alignment:
+                    try:
+                        out_path = os.path.join(
+                            d, f"{base}_{ln}.tif"
+                        )
+
+                        output, companion = (
+                            self._export_authenticated_layer(
+                                ln, mask, out_path
+                            )
+                        )
+
+                        saved_as.append(
+                            f"{ln}: authenticated native RGB16 TIFF"
+                        )
+                        continue
+
+                    except Exception as exc:
+                        messagebox.showerror(
+                            "Native Layer Export Failed",
+                            f"Could not export {ln}:\\n\\n{exc}\\n\\n"
+                            "No 8-bit fallback was performed."
+                        )
+                        return
+
                 if use_16bit:
                     # Preserve 16-bit depth from the original TIFF scan.
                     # tifffile handles uint16 RGBA natively; PNG 16-bit RGBA
