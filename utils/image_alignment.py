@@ -555,6 +555,112 @@ class ImageAlignmentManager:
         """Check if auto-crop is enabled."""
         return self.auto_crop_enabled
     
+
+    def align_image_progressive(self, pil_image):
+        """Test progressively denser ORB features on reference and source.
+
+        Retain the successful candidate with the most RANSAC inliers.
+        Preserve the original saved-reference descriptors and detector.
+        No changes are written to the reference files.
+        """
+        levels = (500, 1000, 1500, 2000, 3000)
+
+        original_orb = self.orb
+        original_keypoints = self.reference_keypoints
+        original_descriptors = self.reference_descriptors
+
+        best_image = None
+        best_info = None
+        best_inliers = -1
+        attempts = []
+
+        try:
+            if not self.has_reference():
+                return None, {
+                    "success": False,
+                    "num_matches": 0,
+                    "message": "No reference image set",
+                }
+
+            reference_gray = np.array(
+                self.reference_image.convert("L")
+            )
+
+            for count in levels:
+                self.orb = cv2.ORB_create(
+                    nfeatures=count,
+                    scaleFactor=1.2,
+                    nlevels=8,
+                    edgeThreshold=15,
+                    firstLevel=0,
+                    WTA_K=2,
+                    scoreType=cv2.ORB_HARRIS_SCORE,
+                    patchSize=31,
+                    fastThreshold=20,
+                )
+
+                ref_kp, ref_desc = self.orb.detectAndCompute(
+                    reference_gray, None
+                )
+
+                if ref_desc is None or len(ref_kp) < self.min_matches:
+                    attempts.append((count, 0, "Reference features insufficient"))
+                    continue
+
+                self.reference_keypoints = ref_kp
+                self.reference_descriptors = ref_desc
+
+                # Reuse the existing alignment function, including its
+                # 16-bit warp and crop-geometry preservation.
+                aligned, info = self.align_image(pil_image)
+
+                inliers = int(info.get("num_matches", 0))
+                attempts.append(
+                    (count, inliers, info.get("message", ""))
+                )
+
+                print(
+                    f"PROGRESSIVE ORB: {count} features, "
+                    f"{inliers} reported matches/inliers, "
+                    f"success={info.get('success', False)}"
+                )
+
+                if info.get("success") and inliers > best_inliers:
+                    best_inliers = inliers
+                    best_image = aligned
+                    best_info = dict(info)
+                    best_info["orb_feature_limit"] = count
+
+            if best_info is not None:
+                best_info["orb_attempts"] = attempts
+                best_info["message"] = (
+                    f"Progressive alignment successful: "
+                    f"{best_inliers} inliers at "
+                    f"{best_info['orb_feature_limit']} features"
+                )
+                print(
+                    "PROGRESSIVE ORB SELECTED:",
+                    best_info["message"]
+                )
+                return best_image, best_info
+
+            return None, {
+                "success": False,
+                "num_matches": 0,
+                "message": (
+                    "Progressive alignment failed at all feature levels: "
+                    + "; ".join(
+                        f"{n}: {msg}" for n, _, msg in attempts
+                    )
+                ),
+                "orb_attempts": attempts,
+            }
+
+        finally:
+            self.orb = original_orb
+            self.reference_keypoints = original_keypoints
+            self.reference_descriptors = original_descriptors
+
     def bulk_align_images(self, image_paths: list, output_dir: str, 
                          progress_callback=None) -> Tuple[list, list]:
         """
@@ -617,7 +723,7 @@ class ImageAlignmentManager:
                 print(f"DEBUG bulk_align: loaded {filename}, has _stampz_16bit_data: {hasattr(pil_image, '_stampz_16bit_data')}")
                 
                 # Align image
-                aligned_image, info = self.align_image(pil_image)
+                aligned_image, info = self.align_image_progressive(pil_image)
                 
                 if info['success']:
                     # Generate output filename
