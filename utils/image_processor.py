@@ -130,6 +130,64 @@ def _is_vuescan_linear_png(file_path) -> bool:
         return False
 
 
+
+def _is_vuescan_raw_provenance_png(file_path) -> bool:
+    """Recognize VueScan RAW-associated PNG provenance from XMP.
+
+    This establishes an acquisition designation, NOT linear encoding.
+    """
+    import xml.etree.ElementTree as ET
+
+    try:
+        with Image.open(file_path) as img:
+            if img.format != "PNG":
+                return False
+
+            exif = img.getexif()
+            software = str(exif.get(305, ""))
+
+            xmp = (
+                img.info.get("xmp")
+                or img.info.get("XML:com.adobe.xmp")
+            )
+
+            if not xmp:
+                return False
+
+            root = ET.fromstring(xmp)
+
+            creator = ""
+            color_space = ""
+
+            for element in root.iter():
+                for key, value in element.attrib.items():
+                    local = key.split("}")[-1].lower()
+
+                    if local == "creatortool":
+                        creator = str(value)
+                    elif local == "colorspace":
+                        color_space = str(value)
+
+                local_tag = element.tag.split("}")[-1].lower()
+                value = (element.text or "").strip()
+
+                if local_tag == "creatortool":
+                    creator = value
+                elif local_tag == "colorspace":
+                    color_space = value
+
+            return (
+                "vuescan" in software.lower()
+                and "vuescan" in creator.lower()
+                and color_space.lower() in (
+                    "uncalibrated", "65535"
+                )
+            )
+
+    except Exception:
+        return False
+
+
 def _read_stampz_png_metadata(png_info):
     """Read explicit StampZ encoding and RAW provenance from PNG metadata."""
     encoding = png_info.get("StampZ-Encoding")
@@ -318,7 +376,10 @@ def load_image(file_path: Union[str, Path], display_only: bool = False) -> Tuple
                 raw_provenance = stampz_png["is_raw"]
             else:
                 is_linear_raw = _is_vuescan_linear_png(file_path)
-                raw_provenance = is_linear_raw
+                raw_provenance = (
+                    is_linear_raw
+                    or _is_vuescan_raw_provenance_png(file_path)
+                )
 
             is_srgb = False
             profile_description = None
