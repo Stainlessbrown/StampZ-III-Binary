@@ -152,3 +152,133 @@ def write_alignment_provenance(
             temporary.unlink(missing_ok=True)
 
     return destination
+
+
+
+def read_alignment_provenance(aligned_path):
+    """
+    Read and authenticate an aligned image's provenance record.
+
+    Returns the verified record or raises an exception.
+    Never silently falls back to aligned-image pixels.
+    """
+    import numpy as np
+    from PIL import Image
+
+    aligned = Path(aligned_path).resolve(strict=True)
+    companion = companion_path(aligned)
+
+    with open(companion, "r", encoding="utf-8") as handle:
+        record = json.load(handle)
+
+    if not isinstance(record, dict):
+        raise ValueError("Invalid alignment provenance record")
+
+    if record.get("schema") != "stampz.alignment_provenance":
+        raise ValueError("Unknown alignment provenance schema")
+
+    if type(record.get("version")) is not int or record["version"] != PROVENANCE_VERSION:
+        raise ValueError("Unsupported alignment provenance version")
+
+    paths = {}
+
+    for role in ("source", "aligned", "reference"):
+        entry = record.get(role)
+
+        if not isinstance(entry, dict):
+            raise ValueError(f"Missing {role} provenance")
+
+        recorded_path = entry.get("path")
+        recorded_hash = entry.get("sha256")
+        recorded_size = entry.get("size")
+
+        if not isinstance(recorded_path, str) or not recorded_path:
+            raise ValueError(f"Invalid {role} path")
+
+        if (
+            not isinstance(recorded_hash, str)
+            or len(recorded_hash) != 64
+            or any(c not in "0123456789abcdef" for c in recorded_hash)
+        ):
+            raise ValueError(f"Invalid {role} SHA-256")
+
+        if (
+            not isinstance(recorded_size, list)
+            or len(recorded_size) != 2
+            or any(type(v) is not int or v <= 0 for v in recorded_size)
+        ):
+            raise ValueError(f"Invalid {role} dimensions")
+
+        path = Path(recorded_path).resolve(strict=True)
+
+        if role == "aligned" and path != aligned:
+            raise ValueError("Companion belongs to a different aligned image")
+
+        if not path.is_file():
+            raise ValueError(f"{role} is not a regular file")
+
+        if sha256_file(path) != recorded_hash:
+            raise ValueError(f"{role} SHA-256 mismatch")
+
+        with Image.open(path) as image:
+            actual_size = list(image.size)
+
+        if actual_size != recorded_size:
+            raise ValueError(f"{role} dimensions mismatch")
+
+        paths[role] = path
+
+    if len(set(paths.values())) != 3:
+        raise ValueError("Source, aligned and reference must be distinct files")
+
+    if record["aligned"]["size"] != record["reference"]["size"]:
+        raise ValueError("Aligned and reference dimensions differ")
+
+    geometry = record.get("geometry")
+
+    if not isinstance(geometry, dict):
+        raise ValueError("Missing alignment geometry")
+
+    if geometry.get("coordinate_origin") != "top-left":
+        raise ValueError("Unsupported coordinate origin")
+
+    if geometry.get("transform_direction") != "cropped-source-to-reference":
+        raise ValueError("Unsupported transform direction")
+
+    matrix = geometry.get("transform_matrix")
+
+    try:
+        M = np.asarray(matrix, dtype=np.float64)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("Invalid transformation matrix") from exc
+
+    if M.shape not in ((2, 3), (3, 3)):
+        raise ValueError("Invalid transformation matrix dimensions")
+
+    if not np.isfinite(M).all():
+        raise ValueError("Nonfinite transformation matrix")
+
+    H = np.vstack((M, [0, 0, 1])) if M.shape == (2, 3) else M
+
+    if abs(float(np.linalg.det(H))) < 1e-12:
+        raise ValueError("Singular transformation matrix")
+
+    crop = geometry.get("crop_box")
+    source_width, source_height = record["source"]["size"]
+
+    if (
+        not isinstance(crop, list)
+        or len(crop) != 4
+        or any(type(v) is not int for v in crop)
+    ):
+        raise ValueError("Invalid crop box")
+
+    left, top, right, bottom = crop
+
+    if not (
+        0 <= left < right <= source_width
+        and 0 <= top < bottom <= source_height
+    ):
+        raise ValueError("Crop box outside original image")
+
+    return record
