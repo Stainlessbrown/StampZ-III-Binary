@@ -145,6 +145,10 @@ class ImageAlignmentManager:
         Returns:
             True if successful, False otherwise
         """
+        # A newly supplied reference has no authenticated saved-file identity.
+        # Prevent reuse of a previously loaded reference path.
+        self.reference_filepath = None
+
         try:
             # Auto-crop reference image if enabled
             if self.auto_crop_enabled:
