@@ -208,6 +208,10 @@ class ImageAlignmentManager:
             return None, info
         
         try:
+            # Record crop geometry for native-pixel sampling.
+            # When cropping is disabled, use the complete source image.
+            info['crop_box'] = (0, 0, pil_image.width, pil_image.height)
+
             # Auto-crop input image if enabled
             if self.auto_crop_enabled:
                 print("Auto-cropping input image...")
