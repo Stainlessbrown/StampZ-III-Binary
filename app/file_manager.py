@@ -60,6 +60,26 @@ class FileManager:
         if filename:
             try:
                 image, metadata = load_image(filename, display_only=True)
+
+                # Prepare authenticated aligned images before Canvas receives them.
+                # Ordinary images pass through unchanged.
+                from utils.aligned_image_preparation import (
+                    prepare_aligned_image,
+                )
+                image = prepare_aligned_image(image, filename)
+
+                if hasattr(image, "_stampz_alignment_record"):
+                    source_metadata = (
+                        image._stampz_alignment_source_metadata
+                    )
+                    metadata["alignment_authenticated"] = True
+                    metadata["alignment_source"] = (
+                        image._stampz_alignment_record["source"]["path"]
+                    )
+                    metadata["is_raw"] = bool(
+                        source_metadata.get("is_raw", False)
+                    )
+                    image._stampz_is_raw = metadata["is_raw"]
                 # Global RAW-source override
                 from utils.user_preferences import get_preferences_manager
                 prefs_manager = get_preferences_manager()

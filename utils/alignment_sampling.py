@@ -146,3 +146,141 @@ def native_sample_pixels(source_rgb, *args, **kwargs):
     )
 
     return source_rgb[rows, cols, :3].copy()
+
+
+def native_sample_indices_from_bounds(
+    source_shape,
+    reference_size,
+    transform,
+    crop_box,
+    bounds,
+    sample_type="circle",
+):
+    """
+    Select original source pixels using existing StampZ sample bounds.
+
+    Bounds are top-left image coordinates in the aligned reference.
+    No image interpolation or resampling occurs.
+    """
+    source_h, source_w = map(int, source_shape[:2])
+    ref_w, ref_h = map(int, reference_size)
+
+    if min(source_h, source_w, ref_w, ref_h) <= 0:
+        raise ValueError("Invalid image dimensions")
+
+    if sample_type not in ("circle", "rectangle"):
+        raise ValueError("Unsupported sample type")
+
+    left, top, right, bottom = map(int, bounds)
+
+    if not (
+        0 <= left < right <= ref_w
+        and 0 <= top < bottom <= ref_h
+    ):
+        raise ValueError("Invalid sample bounds")
+
+    M = np.asarray(transform, dtype=np.float64)
+
+    if M.shape == (2, 3):
+        H = np.vstack((M, [0.0, 0.0, 1.0]))
+    elif M.shape == (3, 3):
+        H = M.copy()
+    else:
+        raise ValueError("Invalid transform dimensions")
+
+    if not np.isfinite(H).all():
+        raise ValueError("Nonfinite transform")
+
+    if abs(float(np.linalg.det(H))) < 1e-12:
+        raise ValueError("Singular transform")
+
+    if len(crop_box) != 4:
+        raise ValueError("Invalid crop box")
+
+    crop_left, crop_top, crop_right, crop_bottom = map(
+        int, crop_box
+    )
+
+    if not (
+        0 <= crop_left < crop_right <= source_w
+        and 0 <= crop_top < crop_bottom <= source_h
+    ):
+        raise ValueError("Invalid crop geometry")
+
+    inverse = np.linalg.inv(H)
+
+    corners = np.array([
+        [left, top, 1.0],
+        [right, top, 1.0],
+        [right, bottom, 1.0],
+        [left, bottom, 1.0],
+    ]).T
+
+    projected = inverse @ corners
+
+    if np.any(np.abs(projected[2]) < 1e-12):
+        raise ValueError("Invalid inverse projection")
+
+    positions = projected[:2] / projected[2]
+    positions[0] += crop_left
+    positions[1] += crop_top
+
+    sx0 = max(crop_left, int(np.floor(positions[0].min())) - 2)
+    sx1 = min(crop_right, int(np.ceil(positions[0].max())) + 3)
+    sy0 = max(crop_top, int(np.floor(positions[1].min())) - 2)
+    sy1 = min(crop_bottom, int(np.ceil(positions[1].max())) + 3)
+
+    empty = (
+        np.empty(0, dtype=np.intp),
+        np.empty(0, dtype=np.intp),
+    )
+
+    if sx0 >= sx1 or sy0 >= sy1:
+        return empty
+
+    yy, xx = np.mgrid[sy0:sy1, sx0:sx1]
+
+    cx = xx.astype(np.float64) - crop_left
+    cy = yy.astype(np.float64) - crop_top
+
+    denominator = (
+        H[2, 0] * cx
+        + H[2, 1] * cy
+        + H[2, 2]
+    )
+
+    valid = np.abs(denominator) > 1e-12
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        rx = (
+            H[0, 0] * cx
+            + H[0, 1] * cy
+            + H[0, 2]
+        ) / denominator
+
+        ry = (
+            H[1, 0] * cx
+            + H[1, 1] * cy
+            + H[1, 2]
+        ) / denominator
+
+    inside = (
+        valid
+        & (rx >= left)
+        & (rx < right)
+        & (ry >= top)
+        & (ry < bottom)
+    )
+
+    if sample_type == "circle":
+        center_x = (left + right) / 2.0
+        center_y = (top + bottom) / 2.0
+        radius = min(right - left, bottom - top) / 2.0
+
+        inside &= (
+            (rx - center_x) ** 2
+            + (ry - center_y) ** 2
+            <= radius ** 2
+        )
+
+    return yy[inside], xx[inside]
