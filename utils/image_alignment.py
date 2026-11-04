@@ -573,6 +573,29 @@ class ImageAlignmentManager:
         """
         if not self.has_reference():
             raise ValueError("No reference image set. Set reference before bulk processing.")
+
+        # Provenance requires an identifiable saved reference.
+        from pathlib import Path
+        from utils.alignment_provenance import (
+            companion_path,
+            write_alignment_provenance,
+        )
+
+        if not self.reference_filepath:
+            raise ValueError(
+                "Save and reload the reference before bulk alignment."
+            )
+
+        reference_data_path = Path(self.reference_filepath)
+        reference_image_path = reference_data_path.with_name(
+            reference_data_path.stem + "_reference.png"
+        )
+
+        if not reference_data_path.is_file() or not reference_image_path.is_file():
+            raise FileNotFoundError(
+                "Saved alignment reference is incomplete"
+            )
+
         
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
@@ -617,7 +640,21 @@ class ImageAlignmentManager:
                         output_path = output_path.replace(ext, '.tif')
                     
                     save_options = SaveOptions(format=save_format, optimize=True)
+                    # Remove any stale companion before replacing the image.
+                    companion_path(output_path).unlink(missing_ok=True)
+
                     save_manager.save_image(aligned_image, output_path, save_options)
+
+                    # Save provenance only after verified image publication.
+                    write_alignment_provenance(
+                        source_path=image_path,
+                        aligned_path=output_path,
+                        reference_path=reference_image_path,
+                        transform_matrix=info["transform_matrix"],
+                        crop_box=info["crop_box"],
+                        reference_size=self.reference_size,
+                        source_size=pil_image.size,
+                    )
                     
                     successful.append((image_path, output_path))
                     if progress_callback:
