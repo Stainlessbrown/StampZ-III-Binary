@@ -860,8 +860,7 @@ class PreferencesDialog:
         ttk.Label(size_frame, text="pixels", font=("TkDefaultFont", 9)).pack(side=tk.LEFT, padx=(10, 0))
 
         # Center anchoring is mandatory.
-        # Retain the variable for compatibility with existing preferences code.
-        self.sample_anchor_var = tk.StringVar(value='center')       
+        # Retain the variable for compatibility with existing preferences code.     
         
         # Maximum samples selection
         max_samples_frame = ttk.Frame(sample_controls_frame)
@@ -1583,7 +1582,6 @@ class PreferencesDialog:
         self.sample_shape_var.set(self.prefs_manager.get_default_sample_shape())
         self.sample_width_var.set(str(self.prefs_manager.get_default_sample_width()))
         self.sample_height_var.set(str(self.prefs_manager.get_default_sample_height()))
-        self.sample_anchor_var.set('center')
         self.max_samples_var.set(str(self.prefs_manager.get_max_samples()))
         
         # Analysis save preferences
@@ -1754,7 +1752,6 @@ class PreferencesDialog:
             except ValueError:
                 messagebox.showerror("Invalid Input", "Sample width and height must be valid numbers.")
                 return False
-            self.prefs_manager.set_default_sample_anchor(self.sample_anchor_var.get())
             
             # Maximum samples preference
             try:
