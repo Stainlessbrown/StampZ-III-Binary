@@ -80,30 +80,11 @@ class CoordinateManager:
             
             # Draw preview shape
             if self.sample_type == SampleAreaType.RECTANGLE:
-                # Calculate position based on anchor
-                if self.anchor_var.get() == 'center':
-                    x1 = x - screen_width/2
-                    y1 = y - screen_height/2
-                    x2 = x + screen_width/2
-                    y2 = y + screen_height/2
-                elif self.anchor_var.get() == 'top_left':
-                    x1, y1 = x, y + screen_height
-                    x2, y2 = x + screen_width, y
-                elif self.anchor_var.get() == 'top_right':
-                    x1 = x - screen_width
-                    y1 = y + screen_height
-                    x2 = x
-                    y2 = y
-                elif self.anchor_var.get() == 'bottom_left':
-                    x1 = x
-                    y1 = y
-                    x2 = x + screen_width
-                    y2 = y + screen_height
-                else:  # bottom_right
-                    x1 = x - screen_width
-                    y1 = y
-                    x2 = x
-                    y2 = y + screen_height
+                # All new sample markers use center anchoring
+                x1 = x - screen_width / 2
+                y1 = y - screen_height / 2
+                x2 = x + screen_width / 2
+                y2 = y + screen_height / 2
                 
                 # Draw rectangle with dashed outline
                 self.canvas.create_rectangle(
@@ -150,7 +131,7 @@ class CoordinateManager:
                 y=y,
                 sample_type=self.sample_type,
                 sample_size=(width, height),
-                anchor_position=self.anchor_var.get()
+                anchor_position='center'
             )
             
             self.current_coordinates.append(new_coord)
