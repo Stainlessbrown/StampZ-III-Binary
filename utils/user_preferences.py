@@ -556,7 +556,7 @@ class PreferencesManager:
             'shape': self.preferences.sample_area_prefs.default_shape,
             'width': self.preferences.sample_area_prefs.default_width,
             'height': self.preferences.sample_area_prefs.default_height,
-            'anchor': self.preferences.sample_area_prefs.default_anchor,
+            'anchor': 'center',
             'max_samples': self.preferences.sample_area_prefs.max_samples
         }
     

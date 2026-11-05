@@ -800,7 +800,7 @@ class PreferencesDialog:
         
         ttk.Label(
             sample_frame, 
-            text="Set default shape, size, and anchor for new sample areas:",
+            text="Set default shape and size for new sample areas:",
             font=("TkDefaultFont", 10, "bold")
         ).pack(anchor=tk.W, pady=(0, 10))
         
@@ -858,21 +858,10 @@ class PreferencesDialog:
         height_spin.pack(side=tk.LEFT, padx=(2, 0))
         
         ttk.Label(size_frame, text="pixels", font=("TkDefaultFont", 9)).pack(side=tk.LEFT, padx=(10, 0))
-        
-        # Anchor selection
-        anchor_frame = ttk.Frame(sample_controls_frame)
-        anchor_frame.pack(fill=tk.X)
-        
-        ttk.Label(anchor_frame, text="Anchor:", width=10).pack(side=tk.LEFT)
-        self.sample_anchor_var = tk.StringVar()
-        anchor_combo = ttk.Combobox(
-            anchor_frame,
-            textvariable=self.sample_anchor_var,
-            values=['center', 'top_left', 'top_right', 'bottom_left', 'bottom_right'],
-            state='readonly',
-            width=15
-        )
-        anchor_combo.pack(side=tk.LEFT, padx=(5, 0))
+
+        # Center anchoring is mandatory.
+        # Retain the variable for compatibility with existing preferences code.
+        self.sample_anchor_var = tk.StringVar(value='center')       
         
         # Maximum samples selection
         max_samples_frame = ttk.Frame(sample_controls_frame)
@@ -1594,7 +1583,7 @@ class PreferencesDialog:
         self.sample_shape_var.set(self.prefs_manager.get_default_sample_shape())
         self.sample_width_var.set(str(self.prefs_manager.get_default_sample_width()))
         self.sample_height_var.set(str(self.prefs_manager.get_default_sample_height()))
-        self.sample_anchor_var.set(self.prefs_manager.get_default_sample_anchor())
+        self.sample_anchor_var.set('center')
         self.max_samples_var.set(str(self.prefs_manager.get_max_samples()))
         
         # Analysis save preferences

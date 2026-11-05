@@ -1186,7 +1186,7 @@ class StampZApp:
                     control['shape'].set(defaults['shape'])
                     control['width'].set(str(defaults['width']))
                     control['height'].set(str(defaults['height']))
-                    control['anchor'].set(defaults['anchor'])
+                    control['anchor'].set('center')
             
             # Clear template and analysis names
             if hasattr(self.control_panel, 'sample_set_name'):

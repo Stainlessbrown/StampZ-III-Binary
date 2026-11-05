@@ -607,23 +607,9 @@ class ReorganizedControlPanel(ttk.Frame):
             width_var.set(str(default_settings['width']))
             height_var.set(str(default_settings['height']))
             
-            # Anchor position with default from preferences
-            anchor_var = tk.StringVar(value=default_settings['anchor'])
-            anchor_combo = ttk.Combobox(
-                control_container,
-                textvariable=anchor_var,
-                values=['center', 'top_left', 'top_right', 'bottom_left', 'bottom_right'],
-                state='readonly',
-                width=14  # Further increased width to show full text
-            )
-            anchor_combo.pack(side=tk.LEFT, padx=5)
-            
-            # Add proper event binding for anchor combobox
-            def on_anchor_select(event, idx=i):
-                selected_value = anchor_combo.get()
-                anchor_var.set(selected_value)
-                print(f"DEBUG: Sample {idx+1} anchor changed to: {selected_value}")
-            anchor_combo.bind('<<ComboboxSelected>>', on_anchor_select)
+            # Center anchoring is mandatory.
+            # Retain the variable for compatibility with existing sampling code.
+            anchor_var = tk.StringVar(value='center')
             
             # Add individual reset button for this sample - place on new line to avoid width issues
             def reset_single_sample(sample_idx=i):
@@ -1483,7 +1469,7 @@ class ReorganizedControlPanel(ttk.Frame):
                 else:
                     control['height'].set(str(int(coord.sample_size[1])))
                 
-                # Update anchor position
+                # Center anchoring is mandatory
                 control['anchor'].set(coord.anchor_position)
                 
                 print(f"DEBUG: Updated sample {i+1}: {shape_type} {coord.sample_size[0]}x{coord.sample_size[1]} {coord.anchor_position}")
@@ -1975,7 +1961,7 @@ class ReorganizedControlPanel(ttk.Frame):
                 control['shape'].set(default_settings['shape'])
                 control['width'].set(str(default_settings['width']))
                 control['height'].set(str(default_settings['height']))
-                control['anchor'].set(default_settings['anchor'])
+                control['anchor'].set('center')
                 print(f"DEBUG: Reset sample #{sample_idx + 1} UI controls to defaults")
             
             # Clear the corresponding marker from canvas if it exists
