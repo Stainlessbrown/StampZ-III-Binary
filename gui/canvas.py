@@ -1604,22 +1604,12 @@ class CropCanvas(tk.Canvas):
             x2 = screen_x + screen_width/2
             y2 = screen_y + screen_height/2
         
-        # Draw preview shape with dashed lines
-        if sample_type == "circle":
-            radius = screen_width/2
-            self.create_oval(
-                screen_x - radius, screen_y - radius,
-                screen_x + radius, screen_y + radius,
-                outline=self.shape_manager.current_color,
-                width=2, dash=(4, 4), tags="preview_marker"
-            )
-        else:  # rectangle
-            self.create_rectangle(
-                x1, y1, x2, y2,
-                outline=self.shape_manager.current_color,
-                width=2, dash=(4, 4), tags="preview_marker"
-            )
-        
+        # Preview shapes are always center-anchored
+        x1 = screen_x - screen_width / 2
+        y1 = screen_y - screen_height / 2
+        x2 = screen_x + screen_width / 2
+        y2 = screen_y + screen_height / 2
+                
         # Small center dot
         self.create_oval(
             screen_x - 2, screen_y - 2,
