@@ -504,22 +504,6 @@ class PreferencesManager:
             print(f"Error setting default sample height: {e}")
             return False
     
-    def get_default_sample_anchor(self) -> str:
-        """Center is the only supported default anchor."""
-        return 'center'
-
-    def set_default_sample_anchor(self, anchor: str) -> bool:
-        """Persist center anchoring; reject obsolete anchor choices."""
-        if anchor != 'center':
-            return False
-
-        try:
-            self.save_preferences()
-            return True
-        except Exception as e:
-            print(f"Error setting default sample anchor: {e}")
-            return False
-    
     def get_max_samples(self) -> int:
         """Get the maximum number of sample markers."""
         return self.preferences.sample_area_prefs.max_samples
