@@ -46,7 +46,6 @@ class SampleAreaPreferences:
     default_shape: str = "circle"  # Default shape: "circle" or "rectangle"
     default_width: int = 10  # Default width/diameter in pixels
     default_height: int = 10  # Default height in pixels (same as width for circles)
-    default_anchor: str = "center"  # Default anchor position
     max_samples: int = 6  # Maximum number of sample markers (1-6)
     save_individual_default: bool = True  # Save individual samples by default
     save_average_default: bool = True  # Save calculated average by default
@@ -506,22 +505,15 @@ class PreferencesManager:
             return False
     
     def get_default_sample_anchor(self) -> str:
-        """Get the default sample area anchor position."""
-        return self.preferences.sample_area_prefs.default_anchor
-    
+        """Center is the only supported default anchor."""
+        return 'center'
+
     def set_default_sample_anchor(self, anchor: str) -> bool:
-        """Set the default sample area anchor position.
-        
-        Args:
-            anchor: Anchor position ('center', 'top_left', 'top_right', 'bottom_left', 'bottom_right')
-        """
-        valid_anchors = ['center', 'top_left', 'top_right', 'bottom_left', 'bottom_right']
-        if anchor not in valid_anchors:
-            print(f"Error: Invalid anchor '{anchor}'. Use one of: {', '.join(valid_anchors)}")
+        """Persist center anchoring; reject obsolete anchor choices."""
+        if anchor != 'center':
             return False
-        
+
         try:
-            self.preferences.sample_area_prefs.default_anchor = anchor
             self.save_preferences()
             return True
         except Exception as e:
@@ -1191,7 +1183,6 @@ class PreferencesManager:
                         default_shape=sample_data.get('default_shape', 'circle'),
                         default_width=sample_data.get('default_width', 10),
                         default_height=sample_data.get('default_height', 10),
-                        default_anchor=sample_data.get('default_anchor', 'center'),
                         max_samples=sample_data.get('max_samples', 6),
                         save_individual_default=sample_data.get('save_individual_default', True),
                         save_average_default=sample_data.get('save_average_default', True),
