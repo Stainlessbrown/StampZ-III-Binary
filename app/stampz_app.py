@@ -537,41 +537,7 @@ class StampZApp:
             tag = f"coord_marker_{len(self.canvas._coord_markers)}"
             marker['tag'] = tag
             
-            line_color = self.control_panel.get_line_color()
-            if sample_type == 'circle':
-                radius = coord.sample_size[0] / 2
-                self.canvas.create_oval(
-                    canvas_x - radius, canvas_y - radius,
-                    canvas_x + radius, canvas_y + radius,
-                    outline=line_color, width=2, tags=tag
-                )
-            else:
-                half_w = coord.sample_size[0] / 2
-                half_h = coord.sample_size[1] / 2
-                self.canvas.create_rectangle(
-                    canvas_x - half_w, canvas_y - half_h,
-                    canvas_x + half_w, canvas_y + half_h,
-                    outline=line_color, width=2, tags=tag
-                )
-            
-            cross_size = 8
-            self.canvas.create_line(
-                canvas_x - cross_size, canvas_y,
-                canvas_x + cross_size, canvas_y,
-                fill=line_color, width=2, tags=tag
-            )
-            self.canvas.create_line(
-                canvas_x, canvas_y - cross_size,
-                canvas_x, canvas_y + cross_size,
-                fill=line_color, width=2, tags=tag
-            )
-            
-            self.canvas.create_text(
-                canvas_x + 12, canvas_y - 12,
-                text=str(i + 1),
-                fill=line_color, font=("Arial", 10, "bold"),
-                tags=tag
-            )
+            self.canvas._draw_coordinate_marker(marker)
             
             self.canvas._coord_markers.append(marker)
         
