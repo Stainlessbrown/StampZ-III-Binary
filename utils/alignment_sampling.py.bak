@@ -1,0 +1,176 @@
+"""
+Native-pixel sampling geometry for StampZ-III.
+
+Maps a sample region from a registered reference image to
+the original acquisition without resampling RGB pixels.
+
+Coordinate conventions:
+- Reference markers: Cartesian, origin at bottom-left.
+- OpenCV matrices: pixel coordinates, origin at top-left.
+- Source pixels: original, uncropped image coordinates.
+- Alignment matrix: cropped source -> reference.
+"""
+
+import numpy as np
+
+
+def native_sample_indices(
+    source_shape,
+    reference_size,
+    transform,
+    crop_box,
+    marker_xy,
+    sample_size,
+    sample_type="circle",
+):
+    """
+    Return source pixel row/column indices belonging to a
+    reference sampling region.
+
+    No source pixel values are read or changed.
+
+    source_shape: (height, width), or array shape (H,W,C)
+    reference_size: (width, height)
+    transform: 2x3 affine or 3x3 perspective matrix
+    crop_box: (left, top, right, bottom) from Auto-Crop
+    marker_xy: Cartesian reference marker center
+    sample_size: (width, height) in reference pixels
+    sample_type: 'circle' or 'rectangle'
+    """
+    source_h, source_w = map(int, source_shape[:2])
+    ref_w, ref_h = map(int, reference_size)
+    cx, cy = map(float, marker_xy)
+    sw, sh = map(float, sample_size)
+
+    if min(source_h, source_w, ref_h, ref_w) <= 0:
+        raise ValueError("Invalid image dimensions")
+
+    if sw <= 0 or sh <= 0:
+        raise ValueError("Invalid sample dimensions")
+
+    if sample_type not in ("circle", "rectangle"):
+        raise ValueError("Unsupported sample type")
+
+    if sample_type == "circle":
+        sh = sw
+
+    crop_x, crop_y = map(float, crop_box[:2])
+
+    M = np.asarray(transform, dtype=np.float64)
+    if M.shape == (2, 3):
+        H = np.vstack([M, [0.0, 0.0, 1.0]])
+    elif M.shape == (3, 3):
+        H = M.copy()
+    else:
+        raise ValueError("Transform must be 2x3 or 3x3")
+
+    if not np.all(np.isfinite(H)):
+        raise ValueError("Invalid transformation values")
+
+    if abs(np.linalg.det(H)) < 1e-12:
+        raise ValueError("Singular transformation")
+
+    inverse = np.linalg.inv(H)
+
+    # Convert Cartesian reference center into image coordinates.
+    ref_cx = cx
+    ref_cy = ref_h - cy
+
+    half_w = sw / 2.0
+    half_h = sh / 2.0
+
+    # Reference-region bounding rectangle, in image coordinates.
+    corners = np.array([
+        [ref_cx - half_w, ref_cy - half_h, 1.0],
+        [ref_cx + half_w, ref_cy - half_h, 1.0],
+        [ref_cx + half_w, ref_cy + half_h, 1.0],
+        [ref_cx - half_w, ref_cy + half_h, 1.0],
+    ]).T
+
+    # Inverse projection: reference -> cropped source.
+    projected = inverse @ corners
+    if np.any(np.abs(projected[2]) < 1e-12):
+        raise ValueError("Invalid inverse projection")
+
+    projected_xy = projected[:2] / projected[2]
+
+    # Restore Auto-Crop displacement.
+    projected_xy[0] += crop_x
+    projected_xy[1] += crop_y
+
+    # Search only the relevant original-image region.
+    # Two extra pixels allow for boundary rounding.
+    left = max(0, int(np.floor(projected_xy[0].min())) - 2)
+    right = min(source_w, int(np.ceil(projected_xy[0].max())) + 3)
+    top = max(0, int(np.floor(projected_xy[1].min())) - 2)
+    bottom = min(source_h, int(np.ceil(projected_xy[1].max())) + 3)
+
+    if left >= right or top >= bottom:
+        return np.empty(0, dtype=np.intp), np.empty(0, dtype=np.intp)
+
+    yy, xx = np.mgrid[top:bottom, left:right]
+
+    # Convert original coordinates back into cropped coordinates.
+    cropped_x = xx.astype(np.float64) - crop_x
+    cropped_y = yy.astype(np.float64) - crop_y
+
+    # Project each original pixel location into the reference.
+    denominator = (
+        H[2, 0] * cropped_x +
+        H[2, 1] * cropped_y +
+        H[2, 2]
+    )
+
+    valid = np.abs(denominator) > 1e-12
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        rx = (
+            H[0, 0] * cropped_x +
+            H[0, 1] * cropped_y +
+            H[0, 2]
+        ) / denominator
+
+        ry = (
+            H[1, 0] * cropped_x +
+            H[1, 1] * cropped_y +
+            H[1, 2]
+        ) / denominator
+
+    # Reference sampling boundaries.
+    # Use half-open bounds, matching existing StampZ loops.
+    inside = (
+        valid &
+        (rx >= ref_cx - half_w) &
+        (rx < ref_cx + half_w) &
+        (ry >= ref_cy - half_h) &
+        (ry < ref_cy + half_h)
+    )
+
+    if sample_type == "circle":
+        inside &= (
+            (rx - ref_cx) ** 2 +
+            (ry - ref_cy) ** 2
+            <= half_w ** 2
+        )
+
+    return yy[inside], xx[inside]
+
+
+def native_sample_pixels(source_rgb, *args, **kwargs):
+    """
+    Return actual source RGB values selected by the mapping.
+
+    The original NumPy array is never modified.
+    """
+    if (
+        not isinstance(source_rgb, np.ndarray)
+        or source_rgb.ndim != 3
+        or source_rgb.shape[2] < 3
+    ):
+        raise ValueError("Expected an H x W x C RGB array")
+
+    rows, cols = native_sample_indices(
+        source_rgb.shape, *args, **kwargs
+    )
+
+    return source_rgb[rows, cols, :3].copy()
