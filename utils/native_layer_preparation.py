@@ -25,6 +25,14 @@ def prepare_native_layer(image, image_path):
 
     companion = layer_companion_path(path)
 
+    # Ordinary cropped images are not native analytical layers.
+    # An existing layer companion always takes precedence.
+    if (
+        path.stem.lower().endswith(("-crp", "_crp"))
+        and not companion.exists()
+    ):
+        return image
+
     # A native-layer marker identifies an exported analytical layer
     # even if its companion has subsequently gone missing.
     with tifffile.TiffFile(path) as tif:
