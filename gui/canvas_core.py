@@ -107,7 +107,12 @@ class CanvasCore:
             self.update_display()
             return
 
-        if enabled:
+        if (
+            enabled
+            and getattr(
+                self.original_image, "_stampz_16bit_encoding", None
+            ) == "linear"
+        ):
             if self.original_image.mode == 'RGBA':
                 bg = Image.new('RGB', self.original_image.size, (255, 255, 255))
                 bg.paste(
@@ -144,7 +149,12 @@ class CanvasCore:
             bg.paste(source, mask=source.split()[3])
             source = bg
 
-        if self._raw_display_bridge_enabled:
+        if (
+            self._raw_display_bridge_enabled
+            and getattr(
+                self.original_image, "_stampz_16bit_encoding", None
+            ) == "linear"
+        ):
             return apply_raw_display_bridge(source)
 
         return source

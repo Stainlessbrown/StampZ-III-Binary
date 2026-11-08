@@ -720,6 +720,39 @@ class ImageAlignmentManager:
                 # Load image using load_image to preserve 16-bit data
                 from utils.image_processor import load_image
                 pil_image, metadata = load_image(image_path)
+
+                # Preserve the existing sRGB preview for ORB feature matching.
+                # For linear 16-bit RAW, restore native linear pixels for
+                # geometric alignment and output without gamma conversion.
+                native_image, native_metadata = load_image(
+                    image_path, display_only=True
+                )
+
+                if (
+                    getattr(native_image, '_stampz_16bit_encoding', None)
+                    == 'linear'
+                ):
+                    if not hasattr(native_image, '_stampz_16bit_data'):
+                        raise ValueError(
+                            "Linear RAW source lacks native 16-bit pixels"
+                        )
+
+                    if native_image.size != pil_image.size:
+                        raise ValueError(
+                            "RAW preview and native image dimensions differ"
+                        )
+
+                    pil_image._stampz_16bit_data = (
+                        native_image._stampz_16bit_data
+                    )
+                    pil_image._stampz_16bit_encoding = 'linear'
+                    pil_image._stampz_is_raw = True
+
+                    print(
+                        "BULK ALIGN: sRGB feature preview; "
+                        "native linear 16-bit pixels preserved"
+                    )
+
                 print(f"DEBUG bulk_align: loaded {filename}, has _stampz_16bit_data: {hasattr(pil_image, '_stampz_16bit_data')}")
                 
                 # Align image

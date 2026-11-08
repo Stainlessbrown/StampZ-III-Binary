@@ -557,29 +557,54 @@ class SampleResultsManager(tk.Frame):
                     # Use the same calibrated RAW rendering path
                     # for individual samples and AVG.
                     # Analytical RGB and Lab remain unchanged.
-                    if hasattr(self.current_image, "_stampz_alignment_record"):
-                        from utils.aligned_swatch_display import aligned_swatch_rgb
-                        source_image = self.current_image._stampz_alignment_source_image
+                    # Lab-derived swatches are already display-ready sRGB.
+                    # Do not reverse gamma when the Bridge is OFF.
+                    if not bridge_enabled:
+                        display_source = getattr(
+                            self.current_image,
+                            "_stampz_alignment_source_image",
+                            self.current_image,
+                        )
                         source_encoding = getattr(
-                            source_image, "_stampz_16bit_encoding", None
+                            display_source, "_stampz_16bit_encoding", None
                         )
-                        swatch_rgb = aligned_swatch_rgb(
-                            calibrated_rgb, source_encoding, bridge_enabled
+                        cid_enabled = getattr(
+                            self.app.canvas.core,
+                            "_calibrated_display_enabled", False
                         )
-                    else:
-                        encoding = getattr(
-                            self.current_image, "_stampz_16bit_encoding", None
-                        )
-                        if encoding in ("linear", "srgb"):
-                            from utils.aligned_swatch_display import aligned_swatch_rgb
-                            swatch_rgb = aligned_swatch_rgb(
-                                calibrated_rgb, encoding, bridge_enabled
+                        if source_encoding == "linear" and not cid_enabled:
+                            swatch_rgb = analysis_rgb_to_raw_display_rgb(
+                                rgb, bridge_enabled=False
                             )
                         else:
-                            swatch_rgb = analysis_rgb_to_raw_display_rgb(
-                                calibrated_rgb,
-                                bridge_enabled=bridge_enabled,
+                            swatch_rgb = tuple(
+                                max(0, min(255, int(round(c))))
+                                for c in calibrated_rgb
                             )
+                    else:
+                        if hasattr(self.current_image, "_stampz_alignment_record"):
+                            from utils.aligned_swatch_display import aligned_swatch_rgb
+                            source_image = self.current_image._stampz_alignment_source_image
+                            source_encoding = getattr(
+                                source_image, "_stampz_16bit_encoding", None
+                            )
+                            swatch_rgb = aligned_swatch_rgb(
+                                (rgb if source_encoding == "linear" and not getattr(self.app.canvas.core, "_calibrated_display_enabled", False) else calibrated_rgb), source_encoding, bridge_enabled
+                            )
+                        else:
+                            encoding = getattr(
+                                self.current_image, "_stampz_16bit_encoding", None
+                            )
+                            if encoding in ("linear", "srgb"):
+                                from utils.aligned_swatch_display import aligned_swatch_rgb
+                                swatch_rgb = aligned_swatch_rgb(
+                                    (rgb if encoding == "linear" and not getattr(self.app.canvas.core, "_calibrated_display_enabled", False) else calibrated_rgb), encoding, bridge_enabled
+                                )
+                            else:
+                                swatch_rgb = analysis_rgb_to_raw_display_rgb(
+                                    calibrated_rgb,
+                                    bridge_enabled=bridge_enabled,
+                                )
 
                     from utils.raw_display_bridge import display_rgb_to_lab
 
@@ -913,29 +938,54 @@ class SampleResultsManager(tk.Frame):
                 # Reconstruct the native RAW appearance from calibrated RGB.
                 # Apply RAW Bridge only when enabled.
                 # Analytical RGB and Lab remain unchanged.
-                if hasattr(self.current_image, "_stampz_alignment_record"):
-                    from utils.aligned_swatch_display import aligned_swatch_rgb
-                    source_image = self.current_image._stampz_alignment_source_image
+                # Calibrated Lab has already been converted to display sRGB.
+                # Do not reverse its gamma encoding when Bridge is OFF.
+                if not bridge_enabled:
+                    display_source = getattr(
+                        self.current_image,
+                        "_stampz_alignment_source_image",
+                        self.current_image,
+                    )
                     source_encoding = getattr(
-                        source_image, "_stampz_16bit_encoding", None
+                        display_source, "_stampz_16bit_encoding", None
                     )
-                    swatch_rgb = aligned_swatch_rgb(
-                        calibrated_rgb, source_encoding, bridge_enabled
+                    cid_enabled = getattr(
+                        self.app.canvas.core,
+                        "_calibrated_display_enabled", False
                     )
-                else:
-                    encoding = getattr(
-                        self.current_image, "_stampz_16bit_encoding", None
-                    )
-                    if encoding in ("linear", "srgb"):
-                        from utils.aligned_swatch_display import aligned_swatch_rgb
-                        swatch_rgb = aligned_swatch_rgb(
-                            calibrated_rgb, encoding, bridge_enabled
+                    if source_encoding == "linear" and not cid_enabled:
+                        swatch_rgb = analysis_rgb_to_raw_display_rgb(
+                            avg_rgb, bridge_enabled=False
                         )
                     else:
-                        swatch_rgb = analysis_rgb_to_raw_display_rgb(
-                            calibrated_rgb,
-                            bridge_enabled=bridge_enabled,
+                        swatch_rgb = tuple(
+                            max(0, min(255, int(round(c))))
+                            for c in calibrated_rgb
                         )
+                else:
+                    if hasattr(self.current_image, "_stampz_alignment_record"):
+                        from utils.aligned_swatch_display import aligned_swatch_rgb
+                        source_image = self.current_image._stampz_alignment_source_image
+                        source_encoding = getattr(
+                            source_image, "_stampz_16bit_encoding", None
+                        )
+                        swatch_rgb = aligned_swatch_rgb(
+                            (avg_rgb if source_encoding == "linear" and not getattr(self.app.canvas.core, "_calibrated_display_enabled", False) else calibrated_rgb), source_encoding, bridge_enabled
+                        )
+                    else:
+                        encoding = getattr(
+                            self.current_image, "_stampz_16bit_encoding", None
+                        )
+                        if encoding in ("linear", "srgb"):
+                            from utils.aligned_swatch_display import aligned_swatch_rgb
+                            swatch_rgb = aligned_swatch_rgb(
+                                (avg_rgb if encoding == "linear" and not getattr(self.app.canvas.core, "_calibrated_display_enabled", False) else calibrated_rgb), encoding, bridge_enabled
+                            )
+                        else:
+                            swatch_rgb = analysis_rgb_to_raw_display_rgb(
+                                calibrated_rgb,
+                                bridge_enabled=bridge_enabled,
+                            )
 
                 display_rgb = swatch_rgb
                 display_lab = display_rgb_to_lab(display_rgb)
