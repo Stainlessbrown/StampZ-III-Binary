@@ -343,8 +343,9 @@ def load_image(file_path: Union[str, Path], display_only: bool = False) -> Tuple
                 img_array_8bit = (img_array / 65535.0 * 255.0).astype(np.uint8)
                 image = Image.fromarray(img_array_8bit)
                 image._stampz_16bit_data = img_array
+                image._stampz_16bit_encoding = 'srgb'
                 image._stampz_source_file = str(file_path)
-                image._stampz_is_raw = bool(metadata.get('is_raw', False))
+                image._stampz_is_raw = True
                 metadata.update({
                     'format_info': f"Camera RAW ({suffix.upper()}) loaded via rawpy — 16-bit, sRGB",
                     'precision_preserved': True,

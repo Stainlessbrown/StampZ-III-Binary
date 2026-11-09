@@ -35,7 +35,8 @@ class FileManager:
             ('Recommended for Color Analysis', '*.tif *.png'),
             ('16-bit TIFF (Best)', '*.tif *.tiff'),
             ('PNG (Lossless)', '*.png'),
-            ('All Image files', '*.tif *.tiff *.png *.jpg *.jpeg'),
+            ('All Image files', '*.tif *.tiff *.png *.jpg *.jpeg *.cr3 *.cr2 *.nef *.arw *.orf *.rw2 *.dng'),
+            ('Camera RAW (CR3, CR2, etc.)', '*.cr3 *.cr2 *.nef *.arw *.orf *.rw2 *.dng'),
             ('JPEG (Not Recommended)', '*.jpg *.jpeg')
         ]
         
