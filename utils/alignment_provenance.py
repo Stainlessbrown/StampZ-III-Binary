@@ -220,8 +220,18 @@ def read_alignment_provenance(aligned_path):
         if sha256_file(path) != recorded_hash:
             raise ValueError(f"{role} SHA-256 mismatch")
 
-        with Image.open(path) as image:
-            actual_size = list(image.size)
+        if path.suffix.lower() in (
+            ".cr3", ".cr2", ".nef", ".arw",
+            ".orf", ".rw2", ".dng"
+        ):
+            from utils.image_processor import load_image
+            source_image, _ = load_image(
+                str(path), display_only=True
+            )
+            actual_size = list(source_image.size)
+        else:
+            with Image.open(path) as image:
+                actual_size = list(image.size)
 
         if actual_size != recorded_size:
             raise ValueError(f"{role} dimensions mismatch")

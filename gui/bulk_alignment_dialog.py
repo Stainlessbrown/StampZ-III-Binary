@@ -264,7 +264,8 @@ class BulkAlignmentDialog:
     def _select_files(self):
         """Open file dialog to select images."""
         filetypes = [
-            ("Image Files", "*.png *.jpg *.jpeg *.tif *.tiff *.bmp"),
+            ("Image Files", "*.png *.jpg *.jpeg *.tif *.tiff *.bmp *.cr3 *.cr2 *.nef *.arw *.orf *.rw2 *.dng"),
+            ("Camera RAW", "*.cr3 *.cr2 *.nef *.arw *.orf *.rw2 *.dng"),
             ("PNG Files", "*.png"),
             ("JPEG Files", "*.jpg *.jpeg"),
             ("TIFF Files", "*.tif *.tiff"),
