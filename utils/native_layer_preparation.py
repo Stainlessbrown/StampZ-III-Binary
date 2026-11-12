@@ -33,16 +33,23 @@ def prepare_native_layer(image, image_path):
     ):
         return image
 
-    # A native-layer marker identifies an exported analytical layer
-    # even if its companion has subsequently gone missing.
+    # Native-layer exports use RGBA16; ordinary RGB16 RAW-derived
+    # TIFFs must not be mistaken for authenticated native layers.
+    # An existing companion always requires authentication.
     with tifffile.TiffFile(path) as tif:
-        description = (tif.pages[0].description or "").lower()
+        page = tif.pages[0]
+        description = (page.description or "").lower()
+        samples_per_pixel = page.samplesperpixel
+
+    has_layer_marker = (
+        description.startswith("stampz linear raw; encoding=")
+        or description.startswith("stampz raw-derived; encoding=")
+        or description.startswith("stampz; encoding=")
+    )
 
     identified = (
         companion.exists()
-        or description.startswith("stampz linear raw; encoding=")
-        or description.startswith("stampz raw-derived; encoding=")
-        or description.startswith("stampz; encoding=")
+        or (has_layer_marker and samples_per_pixel == 4)
     )
 
     if not identified:
