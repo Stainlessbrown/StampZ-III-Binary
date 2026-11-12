@@ -289,6 +289,7 @@ class ScannerCalibration:
         self.scanner_black_floor = np.zeros(3, dtype=np.float64)
         self.scale_factor = 1.0
         self.is_valid = False
+        self.correction_variant = "standard"
         self.profile_name = ""
         self.created_date = ""
         self.scanner_info = ""
@@ -581,6 +582,9 @@ class ScannerCalibration:
         # Near-neutral colors increasingly use neutral anchors.
         # -------------------------------------------------------------
         alpha = C / (C + 4.0)
+        if (self.correction_variant == "neutral_dominant_c_lt_3"
+                and C < 3.0):
+            alpha = 0.0
     
         correction = (
         alpha * chromatic_correction
@@ -650,6 +654,7 @@ class ScannerCalibration:
             "type": "StampZ Scanner Calibration Profile",
             "calibration_model": "linear scanner RGB -> affine XYZ -> CIE Lab",
             "illuminant": "D65",
+            "correction_variant": self.correction_variant,
             "profile_name": self.profile_name,
             "scanner_info": self.scanner_info,
             "created_date": self.created_date,
@@ -699,6 +704,9 @@ class ScannerCalibration:
             )
             self.scale_factor = float(profile.get("scale_factor", 1.0))
             
+            self.correction_variant = profile.get(
+                "correction_variant", "standard"
+            )
             self.profile_name = profile.get("profile_name", "")
             self.scanner_info = profile.get("scanner_info", "")
             self.created_date = profile.get("created_date", "")
