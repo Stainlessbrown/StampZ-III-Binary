@@ -1,0 +1,660 @@
+{
+  "version": "2.0",
+  "type": "StampZ Scanner Calibration Profile",
+  "calibration_model": "CR30-anchored local Lab correction (matrix retained for StampZ profile compatibility)",
+  "illuminant": "D65",
+  "profile_name": "R50 Experimental Neutral v1",
+  "scanner_info": "Canon EOS R50; NorthLux 6500K; November 10, 2026; polarizer removed; CR3",
+  "created_date": "2026-11-12",
+  "source_target_path": "November 10 R50 target measurements (CSV export)",
+  "cr30_lab_targets": [
+    [
+      2.31,
+      0.35,
+      0.18
+    ],
+    [
+      25.86,
+      0.32,
+      -1.32
+    ],
+    [
+      46.79,
+      -0.64,
+      -1.13
+    ],
+    [
+      70.18,
+      -0.87,
+      -1.11
+    ],
+    [
+      93.12,
+      -1.53,
+      -3.11
+    ],
+    [
+      84.58,
+      2.43,
+      10.02
+    ],
+    [
+      36.72,
+      24.26,
+      42.02
+    ],
+    [
+      53.19,
+      35.13,
+      53.51
+    ],
+    [
+      42.96,
+      66.27,
+      54.54
+    ],
+    [
+      45.05,
+      72.49,
+      -6.24
+    ],
+    [
+      41.18,
+      69.38,
+      -9.54
+    ],
+    [
+      53.71,
+      -4.98,
+      -31.03
+    ],
+    [
+      61.91,
+      21.42,
+      -36.18
+    ],
+    [
+      72.17,
+      17.91,
+      -24.66
+    ],
+    [
+      34.56,
+      -28.25,
+      35.96
+    ],
+    [
+      69.38,
+      -0.43,
+      50.67
+    ],
+    [
+      30.39,
+      13.31,
+      -37.62
+    ],
+    [
+      54.35,
+      17.49,
+      38.19
+    ],
+    [
+      54.66,
+      -25.13,
+      -10.73
+    ],
+    [
+      67.02,
+      -52.42,
+      57.11
+    ]
+  ],
+  "calibration_matrix": [
+    [
+      0.4573997290279922,
+      0.23581706241353836,
+      0.07502954555910218
+    ],
+    [
+      0.23300913326182315,
+      0.557711444856782,
+      0.04776964260160699
+    ],
+    [
+      0.19796615491553282,
+      0.15728418364247176,
+      0.9109360797748983
+    ]
+  ],
+  "scanner_black_floor": [
+    0.004804742775928868,
+    0.004899212475012074,
+    0.006160477815968648
+  ],
+  "scale_factor": 1.0061986645514263,
+  "quality": null,
+  "patch_results": [
+    {
+      "name": "Black",
+      "grid_position": [
+        0,
+        0
+      ],
+      "reference_lab": [
+        2.31,
+        0.35,
+        0.18
+      ],
+      "scanned_rgb": [
+        15.07023478509773,
+        15.307241675705376,
+        18.24497576438756
+      ],
+      "scanned_lab": [
+        4.489521380501138,
+        0.4964340697834885,
+        -1.6012995140350317
+      ],
+      "corrected_lab": null,
+      "corrected_rgb": null,
+      "delta_e_before": 2.818649382870523,
+      "delta_e_after": 0.0
+    },
+    {
+      "name": "25% Gray",
+      "grid_position": [
+        0,
+        1
+      ],
+      "reference_lab": [
+        25.86,
+        0.32,
+        -1.32
+      ],
+      "scanned_rgb": [
+        55.62366611064235,
+        53.10013278422357,
+        57.0529261429466
+      ],
+      "scanned_lab": [
+        22.58834189014213,
+        2.010391413850537,
+        -2.082224841956193
+      ],
+      "corrected_lab": null,
+      "corrected_rgb": null,
+      "delta_e_before": 3.76060588595954,
+      "delta_e_after": 0.0
+    },
+    {
+      "name": "50% Gray",
+      "grid_position": [
+        0,
+        2
+      ],
+      "reference_lab": [
+        46.79,
+        -0.64,
+        -1.13
+      ],
+      "scanned_rgb": [
+        102.71648759357032,
+        100.32304175583096,
+        104.58962297918416
+      ],
+      "scanned_lab": [
+        42.84567825631304,
+        1.8226771023963084,
+        -2.072654565972365
+      ],
+      "corrected_lab": null,
+      "corrected_rgb": null,
+      "delta_e_before": 4.744581136321449,
+      "delta_e_after": 0.0
+    },
+    {
+      "name": "75% Gray",
+      "grid_position": [
+        0,
+        3
+      ],
+      "reference_lab": [
+        70.18,
+        -0.87,
+        -1.11
+      ],
+      "scanned_rgb": [
+        165.0012023259383,
+        164.28518794426174,
+        168.11709359424108
+      ],
+      "scanned_lab": [
+        67.63863324423188,
+        0.9887606660798908,
+        -1.8882265287495592
+      ],
+      "corrected_lab": null,
+      "corrected_rgb": null,
+      "delta_e_before": 3.243327416579884,
+      "delta_e_after": 0.0
+    },
+    {
+      "name": "White",
+      "grid_position": [
+        1,
+        0
+      ],
+      "reference_lab": [
+        93.12,
+        -1.53,
+        -3.11
+      ],
+      "scanned_rgb": [
+        248.5261207915471,
+        249.86485850085967,
+        254.79692929259463
+      ],
+      "scanned_lab": [
+        98.25186882412956,
+        0.4363707947839801,
+        -2.5103110128511075
+      ],
+      "corrected_lab": null,
+      "corrected_rgb": null,
+      "delta_e_before": 5.528319691548229,
+      "delta_e_after": 0.0
+    },
+    {
+      "name": "Buff",
+      "grid_position": [
+        1,
+        1
+      ],
+      "reference_lab": [
+        84.58,
+        2.43,
+        10.02
+      ],
+      "scanned_rgb": [
+        238.61308492332907,
+        221.2883523838478,
+        197.27645891869415
+      ],
+      "scanned_lab": [
+        89.01412099749435,
+        2.1060409607758235,
+        13.933505367505196
+      ],
+      "corrected_lab": null,
+      "corrected_rgb": null,
+      "delta_e_before": 5.9229977833025815,
+      "delta_e_after": 0.0
+    },
+    {
+      "name": "Brown",
+      "grid_position": [
+        1,
+        2
+      ],
+      "reference_lab": [
+        36.72,
+        24.26,
+        42.02
+      ],
+      "scanned_rgb": [
+        118.91296510032764,
+        59.79259743316037,
+        13.040621131801084
+      ],
+      "scanned_lab": [
+        32.15964944228244,
+        22.606925509031235,
+        37.61832473197117
+      ],
+      "corrected_lab": null,
+      "corrected_rgb": null,
+      "delta_e_before": 6.55012959010302,
+      "delta_e_after": 0.0
+    },
+    {
+      "name": "Orange",
+      "grid_position": [
+        1,
+        3
+      ],
+      "reference_lab": [
+        53.19,
+        35.13,
+        53.51
+      ],
+      "scanned_rgb": [
+        188.4422782745363,
+        90.56848481582888,
+        17.105504908856677
+      ],
+      "scanned_lab": [
+        49.738041645465,
+        35.5339062607829,
+        54.66808193756404
+      ],
+      "corrected_lab": null,
+      "corrected_rgb": null,
+      "delta_e_before": 3.663374199157882,
+      "delta_e_after": 0.0
+    },
+    {
+      "name": "Red",
+      "grid_position": [
+        2,
+        0
+      ],
+      "reference_lab": [
+        42.96,
+        66.27,
+        54.54
+      ],
+      "scanned_rgb": [
+        199.1836111765598,
+        15.415767713486726,
+        8.990799764968497
+      ],
+      "scanned_lab": [
+        42.068902862762215,
+        64.98962787886697,
+        52.98976252107828
+      ],
+      "corrected_lab": null,
+      "corrected_rgb": null,
+      "delta_e_before": 2.1992369398547353,
+      "delta_e_after": 0.0
+    },
+    {
+      "name": "Rose",
+      "grid_position": [
+        2,
+        1
+      ],
+      "reference_lab": [
+        45.05,
+        72.49,
+        -6.24
+      ],
+      "scanned_rgb": [
+        200.47329481588005,
+        0.6657031463220954,
+        98.08250029365315
+      ],
+      "scanned_lab": [
+        43.13220337299743,
+        70.37687947721932,
+        4.098977890671018
+      ],
+      "corrected_lab": null,
+      "corrected_rgb": null,
+      "delta_e_before": 10.725562272912475,
+      "delta_e_after": 0.0
+    },
+    {
+      "name": "Fuschia",
+      "grid_position": [
+        2,
+        2
+      ],
+      "reference_lab": [
+        41.18,
+        69.38,
+        -9.54
+      ],
+      "scanned_rgb": [
+        180.17581747036752,
+        1.2304997036623109,
+        94.82533984628544
+      ],
+      "scanned_lab": [
+        38.85908502129841,
+        65.5033378962829,
+        -0.5580933977190505
+      ],
+      "corrected_lab": null,
+      "corrected_rgb": null,
+      "delta_e_before": 10.05434242588026,
+      "delta_e_after": 0.0
+    },
+    {
+      "name": "Blue",
+      "grid_position": [
+        2,
+        3
+      ],
+      "reference_lab": [
+        53.71,
+        -4.98,
+        -31.03
+      ],
+      "scanned_rgb": [
+        80.5514814995673,
+        110.2282724038496,
+        179.6279858644454
+      ],
+      "scanned_lab": [
+        47.2483077082281,
+        9.934799234102954,
+        -40.14422551674806
+      ],
+      "corrected_lab": null,
+      "corrected_rgb": null,
+      "delta_e_before": 18.63528401278832,
+      "delta_e_after": 0.0
+    },
+    {
+      "name": "Violet",
+      "grid_position": [
+        3,
+        0
+      ],
+      "reference_lab": [
+        61.91,
+        21.42,
+        -36.18
+      ],
+      "scanned_rgb": [
+        151.32407410231022,
+        109.82038181619436,
+        215.98254631781003
+      ],
+      "scanned_lab": [
+        54.74146929236866,
+        38.3959005288248,
+        -48.73205489865073
+      ],
+      "corrected_lab": null,
+      "corrected_rgb": null,
+      "delta_e_before": 22.296257835106527,
+      "delta_e_after": 0.0
+    },
+    {
+      "name": "Mauve",
+      "grid_position": [
+        3,
+        1
+      ],
+      "reference_lab": [
+        72.17,
+        17.91,
+        -24.66
+      ],
+      "scanned_rgb": [
+        191.4804212104702,
+        151.09496449841595,
+        229.39374620305372
+      ],
+      "scanned_lab": [
+        68.73829261390321,
+        29.81087739619287,
+        -33.9605157620211
+      ],
+      "corrected_lab": null,
+      "corrected_rgb": null,
+      "delta_e_before": 15.4889344960397,
+      "delta_e_after": 0.0
+    },
+    {
+      "name": "Green",
+      "grid_position": [
+        3,
+        2
+      ],
+      "reference_lab": [
+        34.56,
+        -28.25,
+        35.96
+      ],
+      "scanned_rgb": [
+        47.50119502159912,
+        85.77483933527802,
+        15.119436989797208
+      ],
+      "scanned_lab": [
+        32.415126688849746,
+        -26.575051889582006,
+        34.307044507082274
+      ],
+      "corrected_lab": null,
+      "corrected_rgb": null,
+      "delta_e_before": 3.184053164607079,
+      "delta_e_after": 0.0
+    },
+    {
+      "name": "Yellow",
+      "grid_position": [
+        3,
+        3
+      ],
+      "reference_lab": [
+        69.38,
+        -0.43,
+        50.67
+      ],
+      "scanned_rgb": [
+        191.45463903530197,
+        170.7909517498167,
+        57.59883768636184
+      ],
+      "scanned_lab": [
+        69.81393879237741,
+        -5.203140653603056,
+        58.26194712389139
+      ],
+      "corrected_lab": null,
+      "corrected_rgb": null,
+      "delta_e_before": 8.97824235062581,
+      "delta_e_after": 0.0
+    },
+    {
+      "name": "Ultramarine",
+      "grid_position": [
+        4,
+        0
+      ],
+      "reference_lab": [
+        30.39,
+        13.31,
+        -37.62
+      ],
+      "scanned_rgb": [
+        46.64731250639623,
+        38.22787592163715,
+        120.55502794921964
+      ],
+      "scanned_lab": [
+        21.45400495661112,
+        29.33412167029448,
+        -45.82514014383031
+      ],
+      "corrected_lab": null,
+      "corrected_rgb": null,
+      "delta_e_before": 20.098477740858073,
+      "delta_e_after": 0.0
+    },
+    {
+      "name": "Bronze",
+      "grid_position": [
+        4,
+        1
+      ],
+      "reference_lab": [
+        54.35,
+        17.49,
+        38.19
+      ],
+      "scanned_rgb": [
+        167.17859225422083,
+        112.53648011811616,
+        48.689176558962906
+      ],
+      "scanned_lab": [
+        52.02116629214584,
+        15.544515076861442,
+        42.970673351118606
+      ],
+      "corrected_lab": null,
+      "corrected_rgb": null,
+      "delta_e_before": 5.662439025286966,
+      "delta_e_after": 0.0
+    },
+    {
+      "name": "Cyan/Teal",
+      "grid_position": [
+        4,
+        2
+      ],
+      "reference_lab": [
+        54.66,
+        -25.13,
+        -10.73
+      ],
+      "scanned_rgb": [
+        69.258203352141,
+        135.47661012077188,
+        146.5311433546702
+      ],
+      "scanned_lab": [
+        52.75892914127752,
+        -17.841048139994765,
+        -12.3962828969864
+      ],
+      "corrected_lab": null,
+      "corrected_rgb": null,
+      "delta_e_before": 7.714880966038748,
+      "delta_e_after": 0.0
+    },
+    {
+      "name": "Yellow-Green",
+      "grid_position": [
+        4,
+        3
+      ],
+      "reference_lab": [
+        67.02,
+        -52.42,
+        57.11
+      ],
+      "scanned_rgb": [
+        89.28580342009667,
+        193.28349661449684,
+        39.45402460619931
+      ],
+      "scanned_lab": [
+        69.86022293432636,
+        -55.58841644827528,
+        62.42573706750112
+      ],
+      "corrected_lab": null,
+      "corrected_rgb": null,
+      "delta_e_before": 6.809022666813512,
+      "delta_e_after": 0.0
+    }
+  ],
+  "correction_variant": "neutral_dominant_c_lt_3",
+  "calibration_notes": "EXPERIMENTAL. correction_variant is inert in unmodified StampZ. Do not replace Fred/Wilma. Original Lab sample values are retained from the R50 exported CSV."
+}
