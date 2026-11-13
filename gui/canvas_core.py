@@ -110,7 +110,9 @@ class CanvasCore:
         if (
             enabled
             and getattr(
-                self.original_image, "_stampz_16bit_encoding", None
+                self.original_image,
+                "_stampz_display_encoding",
+                getattr(self.original_image, "_stampz_16bit_encoding", None),
             ) == "linear"
         ):
             if self.original_image.mode == 'RGBA':
@@ -152,7 +154,9 @@ class CanvasCore:
         if (
             self._raw_display_bridge_enabled
             and getattr(
-                self.original_image, "_stampz_16bit_encoding", None
+                self.original_image,
+                "_stampz_display_encoding",
+                getattr(self.original_image, "_stampz_16bit_encoding", None),
             ) == "linear"
         ):
             return apply_raw_display_bridge(source)

@@ -759,6 +759,71 @@ class ImageAlignmentManager:
                 aligned_image, info = self.align_image_progressive(pil_image)
                 
                 if info['success']:
+                    # Camera CR3: create the saved aligned display from genuine
+                    # linear 16-bit RGB. Alignment geometry and authenticated
+                    # analytical source data remain unchanged.
+                    if Path(image_path).suffix.lower() == ".cr3":
+                        import rawpy
+
+                        with rawpy.imread(str(image_path)) as raw:
+                            linear_rgb = raw.postprocess(
+                                use_camera_wb=True,
+                                no_auto_bright=True,
+                                output_bps=16,
+                                output_color=rawpy.ColorSpace.sRGB,
+                                gamma=(1, 1),
+                            )
+
+                        if (
+                            linear_rgb.dtype != np.uint16
+                            or linear_rgb.ndim != 3
+                            or linear_rgb.shape[2] != 3
+                            or linear_rgb.shape[:2]
+                                != (pil_image.height, pil_image.width)
+                        ):
+                            raise ValueError(
+                                "CR3 linear RGB does not match original source dimensions"
+                            )
+
+                        left, top, right, bottom = map(
+                            int, info["crop_box"]
+                        )
+
+                        linear_cropped = linear_rgb[top:bottom, left:right]
+                        matrix = np.asarray(info["transform_matrix"])
+
+                        if matrix.shape == (2, 3):
+                            linear_aligned = cv2.warpAffine(
+                                linear_cropped, matrix, self.reference_size
+                            )
+                        elif matrix.shape == (3, 3):
+                            linear_aligned = cv2.warpPerspective(
+                                linear_cropped, matrix, self.reference_size
+                            )
+                        else:
+                            raise ValueError("Invalid CR3 alignment matrix")
+
+                        if (
+                            linear_aligned.dtype != np.uint16
+                            or linear_aligned.shape[:2]
+                                != (aligned_image.height, aligned_image.width)
+                        ):
+                            raise ValueError("Invalid aligned CR3 linear image")
+
+                        linear_preview = (
+                            linear_aligned >> 8
+                        ).astype(np.uint8)
+
+                        aligned_image = Image.fromarray(linear_preview)
+                        aligned_image._stampz_16bit_data = linear_aligned
+                        aligned_image._stampz_16bit_encoding = "linear"
+                        aligned_image._stampz_display_encoding = "linear"
+                        aligned_image._stampz_is_raw = True
+
+                        print(
+                            "CR3 ALIGN: linear 16-bit display output; "
+                            "original CR3 retained for authenticated analysis"
+                        )
                     # Generate output filename
                     base_name = os.path.splitext(filename)[0]
                     ext = os.path.splitext(filename)[1]

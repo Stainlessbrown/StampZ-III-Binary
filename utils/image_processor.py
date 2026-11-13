@@ -328,22 +328,39 @@ def load_image(file_path: Union[str, Path], display_only: bool = False) -> Tuple
                     "Install it with: pip install rawpy"
                 )
             try:
+                # Preserve the established analytical RAW conversion.
                 with rawpy.imread(str(file_path)) as raw:
-                    # Process with controlled settings for colorimetric accuracy:
-                    # • Camera-recorded white balance (consistent with stamp shots)
-                    # • No auto-brightness adjustment
-                    # • 16-bit output, sRGB gamma — matches scanner TIFF pipeline
                     img_array = raw.postprocess(
                         use_camera_wb=True,
                         no_auto_bright=True,
                         output_bps=16,
-                        gamma=(2.222, 4.5),   # sRGB standard
+                        gamma=(2.222, 4.5),
                     )
-                # img_array is uint16 RGB (H × W × 3)
-                img_array_8bit = (img_array / 65535.0 * 255.0).astype(np.uint8)
+
+                # The analytical array is never replaced by display data.
+                if display_only:
+                    with rawpy.imread(str(file_path)) as raw:
+                        display_array = raw.postprocess(
+                            use_camera_wb=True,
+                            no_auto_bright=True,
+                            output_bps=16,
+                            output_color=rawpy.ColorSpace.sRGB,
+                            gamma=(1, 1),
+                        )
+                    preview_array = display_array
+                    preview_encoding = 'linear'
+                else:
+                    preview_array = img_array
+                    preview_encoding = 'srgb'
+
+                img_array_8bit = (
+                    preview_array.astype(np.float64) / 65535.0 * 255.0
+                ).astype(np.uint8)
+
                 image = Image.fromarray(img_array_8bit)
                 image._stampz_16bit_data = img_array
                 image._stampz_16bit_encoding = 'srgb'
+                image._stampz_display_encoding = preview_encoding
                 image._stampz_source_file = str(file_path)
                 image._stampz_is_raw = True
                 metadata.update({

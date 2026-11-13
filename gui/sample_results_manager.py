@@ -566,7 +566,13 @@ class SampleResultsManager(tk.Frame):
                             self.current_image,
                         )
                         source_encoding = getattr(
-                            display_source, "_stampz_16bit_encoding", None
+                            display_source,
+                            "_stampz_display_encoding",
+                            getattr(
+                                display_source,
+                                "_stampz_16bit_encoding",
+                                None,
+                            ),
                         )
                         cid_enabled = getattr(
                             self.app.canvas.core,
@@ -588,12 +594,29 @@ class SampleResultsManager(tk.Frame):
                             source_encoding = getattr(
                                 source_image, "_stampz_16bit_encoding", None
                             )
+                            # Aligned R50: linear display, sRGB analytical source.
+                            if (
+                                source_encoding == "srgb"
+                                and getattr(
+                                    source_image, "_stampz_display_encoding", None
+                                ) == "linear"
+                                and getattr(
+                                    self.current_image, "_stampz_16bit_encoding", None
+                                ) == "linear"
+                            ):
+                                source_encoding = "linear"
                             swatch_rgb = aligned_swatch_rgb(
                                 (rgb if source_encoding == "linear" and not getattr(self.app.canvas.core, "_calibrated_display_enabled", False) else calibrated_rgb), source_encoding, bridge_enabled
                             )
                         else:
                             encoding = getattr(
-                                self.current_image, "_stampz_16bit_encoding", None
+                                self.current_image,
+                            "_stampz_display_encoding",
+                            getattr(
+                                self.current_image,
+                                "_stampz_16bit_encoding",
+                                None,
+                            ),
                             )
                             if encoding in ("linear", "srgb"):
                                 from utils.aligned_swatch_display import aligned_swatch_rgb
@@ -947,7 +970,13 @@ class SampleResultsManager(tk.Frame):
                         self.current_image,
                     )
                     source_encoding = getattr(
-                        display_source, "_stampz_16bit_encoding", None
+                        display_source,
+                            "_stampz_display_encoding",
+                            getattr(
+                                display_source,
+                                "_stampz_16bit_encoding",
+                                None,
+                            ),
                     )
                     cid_enabled = getattr(
                         self.app.canvas.core,
@@ -969,12 +998,29 @@ class SampleResultsManager(tk.Frame):
                         source_encoding = getattr(
                             source_image, "_stampz_16bit_encoding", None
                         )
+                        # Aligned R50: linear display, sRGB analytical source.
+                        if (
+                            source_encoding == "srgb"
+                            and getattr(
+                                source_image, "_stampz_display_encoding", None
+                            ) == "linear"
+                            and getattr(
+                                self.current_image, "_stampz_16bit_encoding", None
+                            ) == "linear"
+                        ):
+                            source_encoding = "linear"
                         swatch_rgb = aligned_swatch_rgb(
                             (avg_rgb if source_encoding == "linear" and not getattr(self.app.canvas.core, "_calibrated_display_enabled", False) else calibrated_rgb), source_encoding, bridge_enabled
                         )
                     else:
                         encoding = getattr(
-                            self.current_image, "_stampz_16bit_encoding", None
+                            self.current_image,
+                            "_stampz_display_encoding",
+                            getattr(
+                                self.current_image,
+                                "_stampz_16bit_encoding",
+                                None,
+                            ),
                         )
                         if encoding in ("linear", "srgb"):
                             from utils.aligned_swatch_display import aligned_swatch_rgb
