@@ -7,7 +7,7 @@ import unittest
 import numpy as np
 import tifffile
 
-from self_contained_tiff import (
+from utils.self_contained_tiff import (
     PortableTiffError, read_self_contained_tiff,
     write_self_contained_tiff, verify_self_contained_tiff,
 )

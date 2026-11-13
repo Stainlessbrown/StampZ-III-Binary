@@ -204,59 +204,86 @@ class SampleResultsManager(tk.Frame):
             self.filename_label.config(text=filename)
             print(f"DEBUG: Updated filename display: {filename}")
             
-            # Load via load_image() so format corrections (e.g. VueScan gamma) apply
+            # Portable TIFFs must retain authenticated native pixels and provenance.
+            from utils.self_contained_tiff import is_self_contained_tiff
+            portable_candidate = is_self_contained_tiff(image_path)
+
             try:
-                from utils.image_processor import load_image as _load_image
-                self.current_image, _meta = _load_image(
-                    image_path, display_only=True
-                )
-                from utils.native_layer_preparation import prepare_native_layer
-                self.current_image = prepare_native_layer(
-                    self.current_image, image_path
-                )
-                if getattr(
-                    self.current_image, "_stampz_authenticated_native_layer", False
-                ):
-                    _meta["native_layer_authenticated"] = True
-                    _meta["is_raw"] = self.current_image._stampz_is_raw
-
-                # Results must use the same authenticated preparation
-                # as Canvas. Never analyze unverified aligned pixels.
-                from utils.aligned_image_preparation import (
-                    prepare_aligned_image,
-                )
-
-                self.current_image = prepare_aligned_image(
-                    self.current_image, image_path
-                )
-
-                if hasattr(
-                    self.current_image, "_stampz_alignment_record"
-                ):
-                    source_metadata = (
-                        self.current_image
-                        ._stampz_alignment_source_metadata
+                if portable_candidate:
+                    from utils.portable_alignment_adapter import (
+                        load_portable_aligned_image,
                     )
-                    _meta["alignment_authenticated"] = True
-                    _meta["alignment_source"] = (
-                        self.current_image
-                        ._stampz_alignment_record["source"]["path"]
+                    self.current_image, _meta = load_portable_aligned_image(
+                        image_path
                     )
-                    if not _meta.get("native_layer_authenticated"):
-                        _meta["is_raw"] = bool(
-                            source_metadata.get("is_raw", False)
+                else:
+                    from utils.image_processor import load_image as _load_image
+                    self.current_image, _meta = _load_image(
+                        image_path, display_only=True
+                    )
+                    from utils.native_layer_preparation import prepare_native_layer
+                    self.current_image = prepare_native_layer(
+                        self.current_image, image_path
+                    )
+                    if getattr(
+                        self.current_image, "_stampz_authenticated_native_layer", False
+                    ):
+                        _meta["native_layer_authenticated"] = True
+                        _meta["is_raw"] = self.current_image._stampz_is_raw
+
+                    # Results must use the same authenticated preparation
+                    # as Canvas. Never analyze unverified aligned pixels.
+                    from utils.aligned_image_preparation import (
+                        prepare_aligned_image,
+                    )
+
+                    self.current_image = prepare_aligned_image(
+                        self.current_image, image_path
+                    )
+
+                    if hasattr(
+                        self.current_image, "_stampz_alignment_record"
+                    ):
+                        source_metadata = (
+                            self.current_image
+                            ._stampz_alignment_source_metadata
                         )
+                        _meta["alignment_authenticated"] = True
+                        _meta["alignment_source"] = (
+                            self.current_image
+                            ._stampz_alignment_record["source"]["path"]
+                        )
+                        if not _meta.get("native_layer_authenticated"):
+                            _meta["is_raw"] = bool(
+                                source_metadata.get("is_raw", False)
+                            )
 
-                # Preserve source metadata so Results swatches can make the same
-                # RAW/non-RAW display decision as the main image display pipeline.
-                self.current_image_metadata = _meta
+                    # Preserve source metadata so Results swatches can make the same
+                    # RAW/non-RAW display decision as the main image display pipeline.
+                    self.current_image_metadata = _meta
 
-                print(
-                    f"DEBUG: set_analyzed_data "
-                    f"is_raw={_meta.get('is_raw')} "
-                    f"gamma_corrected={_meta.get('linear_gamma_corrected')}"
-                )
+                    print(
+                        f"DEBUG: set_analyzed_data "
+                        f"is_raw={_meta.get('is_raw')} "
+                        f"gamma_corrected={_meta.get('linear_gamma_corrected')}"
+                    )
+                if portable_candidate:
+                    self.current_image_metadata = _meta or {}
+                    print(
+                        "DEBUG PORTABLE METADATA: "
+                        f"is_raw={self.current_image_metadata.get('is_raw')} "
+                        f"authenticated={self.current_image_metadata.get('alignment_authenticated')}"
+                    )
+
             except Exception as _le:
+                if portable_candidate:
+                    import logging
+                    logging.getLogger(__name__).exception(
+                        "Portable TIFF Results/Compare verification failed: %s",
+                        image_path,
+                    )
+                    raise
+
                 from pathlib import Path
                 from utils.alignment_provenance import companion_path
                 from utils.aligned_image_preparation import (

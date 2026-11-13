@@ -60,19 +60,31 @@ class FileManager:
 
         if filename:
             try:
-                image, metadata = load_image(filename, display_only=True)
-                from utils.native_layer_preparation import prepare_native_layer
-                image = prepare_native_layer(image, filename)
-                if getattr(image, "_stampz_authenticated_native_layer", False):
-                    metadata["native_layer_authenticated"] = True
-                    metadata["is_raw"] = image._stampz_is_raw
+                from utils.self_contained_tiff import is_self_contained_tiff
+                portable = is_self_contained_tiff(filename)
+                if portable:
+                    try:
+                        from utils.portable_alignment_adapter import load_portable_aligned_image
+                        image, metadata = load_portable_aligned_image(filename)
+                    except Exception as exc:
+                        logger.exception("Portable TIFF verification failed for %s", filename)
+                        raise ImageLoadError(
+                            "The image could not be verified. See Debug_Log for details."
+                        ) from exc
+                else:
+                    image, metadata = load_image(filename, display_only=True)
+                    from utils.native_layer_preparation import prepare_native_layer
+                    image = prepare_native_layer(image, filename)
+                    if getattr(image, "_stampz_authenticated_native_layer", False):
+                        metadata["native_layer_authenticated"] = True
+                        metadata["is_raw"] = image._stampz_is_raw
 
-                # Prepare authenticated aligned images before Canvas receives them.
-                # Ordinary images pass through unchanged.
-                from utils.aligned_image_preparation import (
-                    prepare_aligned_image,
-                )
-                image = prepare_aligned_image(image, filename)
+                    # Prepare authenticated aligned images before Canvas receives them.
+                    # Ordinary images pass through unchanged.
+                    from utils.aligned_image_preparation import (
+                        prepare_aligned_image,
+                    )
+                    image = prepare_aligned_image(image, filename)
 
                 if hasattr(image, "_stampz_alignment_record"):
                     source_metadata = (

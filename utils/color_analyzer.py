@@ -931,10 +931,29 @@ class ColorAnalyzer:
             # (e.g. sRGB gamma for VueScan linear RAW TIFFs) are applied
             # before pixel sampling.
             try:
-                from utils.image_processor import load_image as _load_image
-                image, meta = _load_image(image_path)
-            except Exception as _le:
-                image = Image.open(image_path)  # fallback
+                from utils.self_contained_tiff import is_self_contained_tiff
+
+                if is_self_contained_tiff(image_path):
+                    from utils.portable_alignment_adapter import (
+                        load_portable_aligned_image,
+                    )
+                    image, meta = load_portable_aligned_image(image_path)
+                else:
+                    from utils.image_processor import load_image as _load_image
+                    from utils.native_layer_preparation import prepare_native_layer
+                    from utils.aligned_image_preparation import prepare_aligned_image
+
+                    image, meta = _load_image(image_path, display_only=True)
+                    image = prepare_native_layer(image, image_path)
+                    image = prepare_aligned_image(image, image_path)
+
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception(
+                    "Authenticated analysis image loading failed: %s",
+                    image_path,
+                )
+                raise
 
             print(f"Loaded image: {image.size[0]}x{image.size[1]} pixels")
             

@@ -25,6 +25,7 @@ import tifffile
 
 SCHEMA = "stampz.self_contained_aligned_tiff"
 VERSION = 1
+PORTABLE_SOFTWARE = "StampZ-Portable-TIFF-v1"
 PAGE_ROLES = ("aligned_display", "native_analytical_source", "source_preview")
 
 
@@ -118,6 +119,8 @@ def _write_page(writer, array, description=None, icc_profile=None):
         kwargs["extrasamples"] = "UNASSALPHA"
     if icc_profile is not None:
         kwargs["iccprofile"] = icc_profile
+    if description is not None:
+        kwargs["software"] = PORTABLE_SOFTWARE
     writer.write(array, **kwargs)
 
 
@@ -223,6 +226,34 @@ def write_self_contained_tiff(
         return verified
     finally:
         tmp_path.unlink(missing_ok=True)
+
+
+def is_self_contained_tiff(path):
+    """Recognize a portable TIFF before any general-purpose TIFF decoding.
+
+    New files carry an independent TIFF Software marker. The schema check
+    additionally recognizes existing v1 prototypes written before this tag.
+    This is classification, not authentication: loading always verifies all
+    three pages and the manifest.
+    """
+    path = Path(path)
+    if path.suffix.lower() not in (".tif", ".tiff"):
+        return False
+    try:
+        with tifffile.TiffFile(path) as tif:
+            if not tif.pages:
+                return False
+            page = tif.pages[0]
+            tag = page.tags.get(305)
+            if tag is not None and str(tag.value) == PORTABLE_SOFTWARE:
+                return True
+            description = page.description or ""
+            return isinstance(description, str) and (
+                '"schema": "' + SCHEMA + '"' in description
+                or '"schema":"' + SCHEMA + '"' in description
+            )
+    except (OSError, ValueError, KeyError, IndexError, tifffile.TiffFileError):
+        return False
 
 
 def read_self_contained_tiff(path):
