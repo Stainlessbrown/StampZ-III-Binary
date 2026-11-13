@@ -223,7 +223,7 @@ jobs:
   cleanup:
     needs: build
     runs-on: ubuntu-24.04
-    if: always()
+    if: ${{ always() && github.ref != 'refs/heads/feature/camera-raw-linear-display' }}
     permissions:
       actions: write
     steps:
