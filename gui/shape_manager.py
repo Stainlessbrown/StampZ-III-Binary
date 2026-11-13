@@ -655,6 +655,20 @@ class ShapeManager:
                 self.core.original_image, '_stampz_16bit_encoding', None
             )
 
+            # Preserve camera decoding provenance independently
+            # of RAW status and actual 16-bit pixel encoding.
+            for attr in (
+                '_stampz_source_type',
+                '_stampz_transfer_function',
+                '_stampz_original_source_file',
+            ):
+                if hasattr(self.core.original_image, attr):
+                    setattr(
+                        cropped,
+                        attr,
+                        getattr(self.core.original_image, attr)
+                    )
+
             print(
                 f"DEBUG get_cropped_image: preserved 16-bit RGB "
                 f"{cropped_16bit.shape}, alpha {cropped_mask.shape}"

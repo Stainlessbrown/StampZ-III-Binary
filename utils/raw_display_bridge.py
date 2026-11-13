@@ -155,3 +155,29 @@ def display_rgb_to_lab(rgb):
         raise RuntimeError(
             "colorspacious is required for RAW display Lab conversion"
         )
+
+
+def libraw_encoded_to_linear_16bit(rgb16):
+    """Reconstruct linear display RGB from LibRaw-encoded RGB.
+
+    Display only. Input analytical pixels are not modified.
+    """
+    import numpy as np
+
+    values = np.asarray(rgb16)
+    if values.dtype != np.uint16:
+        raise ValueError("Expected uint16 data")
+    if values.ndim != 3 or values.shape[2] != 3:
+        raise ValueError("Expected H x W x 3 RGB array")
+
+    x = values.astype(np.float64) / 65535.0
+
+    linear = np.where(
+        x < 0.081,
+        x / 4.5,
+        ((x + 0.099) / 1.099) ** (1.0 / 0.45)
+    )
+
+    return np.rint(
+        np.clip(linear, 0, 1) * 65535
+    ).astype(np.uint16)

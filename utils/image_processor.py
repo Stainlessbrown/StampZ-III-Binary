@@ -279,6 +279,35 @@ def _is_stampz_raw_derived_tiff(file_path) -> bool:
         return False
 
 
+def _read_stampz_camera_tiff_provenance(file_path):
+    """Read explicit camera RAW provenance from a StampZ TIFF."""
+    import tifffile
+
+    with tifffile.TiffFile(str(file_path)) as tif:
+        description = tif.pages[0].description or ""
+
+    fields = {}
+    for item in description.split(";"):
+        if "=" in item:
+            key, value = item.strip().split("=", 1)
+            fields[key.strip().lower()] = value.strip()
+
+    if (
+        fields.get("encoding", "").lower() == "srgb"
+        and fields.get("raw-derived", "").lower() == "yes"
+        and fields.get("source-type") == "camera_raw"
+        and fields.get("transfer") == "libraw_2222_45"
+        and fields.get("original-file")
+    ):
+        return {
+            "source_type": "camera_raw",
+            "transfer_function": "libraw_2222_45",
+            "original_source_file": fields["original-file"],
+        }
+
+    return None
+
+
 class ImageLoadError(Exception):
     """Exception raised when image loading fails."""
     pass
@@ -363,6 +392,9 @@ def load_image(file_path: Union[str, Path], display_only: bool = False) -> Tuple
                 image._stampz_display_encoding = preview_encoding
                 image._stampz_source_file = str(file_path)
                 image._stampz_is_raw = True
+                image._stampz_source_type = 'camera_raw'
+                image._stampz_transfer_function = 'libraw_2222_45'
+                image._stampz_original_source_file = str(file_path)
                 metadata.update({
                     'format_info': f"Camera RAW ({suffix.upper()}) loaded via rawpy — 16-bit, sRGB",
                     'precision_preserved': True,
@@ -585,8 +617,36 @@ def load_image(file_path: Union[str, Path], display_only: bool = False) -> Tuple
                     else:
                         metadata['linear_gamma_corrected'] = False
 
-                    # Scale to 8-bit for display; preserve 16-bit for analysis
-                    img_array_8bit = (img_array / 65535.0 * 255.0).astype(np.uint8)
+                    # Preserve authoritative analytical pixels.
+                    # Reconstruct camera RAW preview separately, for display only.
+                    camera_provenance = _read_stampz_camera_tiff_provenance(
+                        file_path
+                    )
+
+                    preview_array = img_array
+                    preview_encoding = "linear" if is_linear else "srgb"
+
+                    if (
+                        display_only
+                        and not is_linear
+                        and camera_provenance
+                        and camera_provenance["source_type"] == "camera_raw"
+                        and camera_provenance["transfer_function"]
+                            == "libraw_2222_45"
+                    ):
+                        from utils.raw_display_bridge import (
+                            libraw_encoded_to_linear_16bit
+                        )
+                        preview_array = libraw_encoded_to_linear_16bit(
+                            img_array
+                        )
+                        preview_encoding = "linear"
+
+                    # Only the preview is reduced to 8-bit.
+                    img_array_8bit = (
+                        preview_array.astype(np.float64)
+                        / 65535.0 * 255.0
+                    ).astype(np.uint8)
                     image = Image.fromarray(img_array_8bit)
 
                     # Restore transparency without altering analytical RGB.
@@ -609,6 +669,18 @@ def load_image(file_path: Union[str, Path], display_only: bool = False) -> Tuple
                     )                   
                     image._stampz_source_file = str(file_path)
                     image._stampz_is_raw = raw_provenance
+                    image._stampz_display_encoding = preview_encoding
+
+                    # Restore camera decoding provenance, when explicit.
+                    camera_provenance = _read_stampz_camera_tiff_provenance(
+                        file_path
+                    )
+                    if camera_provenance:
+                        image._stampz_source_type = camera_provenance["source_type"]
+                        image._stampz_transfer_function = camera_provenance["transfer_function"]
+                        image._stampz_original_source_file = camera_provenance["original_source_file"]
+                        metadata["camera_provenance"] = camera_provenance
+
                     logger.info(f"Loaded 16-bit TIFF with full precision, attached _stampz_16bit_data: {file_path}")
                 else:
                     image = Image.fromarray(img_array)

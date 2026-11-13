@@ -310,6 +310,15 @@ class SaveManager:
             img._stampz_16bit_data = sixteen_bit_data
         img._stampz_is_raw = is_raw
 
+        # Preserve camera RAW decoding provenance through Save As.
+        for attr in (
+            '_stampz_source_type',
+            '_stampz_transfer_function',
+            '_stampz_original_source_file',
+        ):
+            if hasattr(image, attr):
+                setattr(img, attr, getattr(image, attr))
+
         # Preserve separate transparency mask for 16-bit crops.
         if hasattr(image, '_stampz_alpha_mask'):
             img._stampz_alpha_mask = image._stampz_alpha_mask.copy()
@@ -580,6 +589,29 @@ class SaveManager:
                             if raw_derived
                             else "StampZ; Encoding=sRGB; RAW-derived=No"
                         )
+                    # Preserve camera RAW decoding provenance in TIFF metadata.
+                    # Do not infer camera origin from RAW-derived status alone.
+                    if (
+                        raw_derived
+                        and encoding == 'srgb'
+                        and getattr(img_to_save, '_stampz_source_type', None) == 'camera_raw'
+                        and getattr(img_to_save, '_stampz_transfer_function', None)
+                            == 'libraw_2222_45'
+                    ):
+                        source_name = Path(
+                            getattr(
+                                img_to_save,
+                                '_stampz_original_source_file',
+                                ''
+                            )
+                        ).name
+
+                        tifffile_kwargs["description"] += (
+                            "; Source-Type=camera_raw"
+                            "; Transfer=libraw_2222_45"
+                            f"; Original-File={source_name}"
+                        )
+
                     # Never silently omit an available ICC profile.
                     if icc_bytes:
                         tifffile.imwrite(
