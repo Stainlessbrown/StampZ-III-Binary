@@ -773,10 +773,8 @@ class ImageAlignmentManager:
 
         # Provenance requires an identifiable saved reference.
         from pathlib import Path
-        from utils.alignment_provenance import (
-            companion_path,
-            write_alignment_provenance,
-        )
+        import hashlib
+        from utils.self_contained_tiff import write_self_contained_tiff
 
         if not self.reference_filepath:
             raise ValueError(
@@ -812,37 +810,90 @@ class ImageAlignmentManager:
                 from utils.image_processor import load_image
                 pil_image, metadata = load_image(image_path)
 
-                # Preserve the existing sRGB preview for ORB feature matching.
-                # For linear 16-bit RAW, restore native linear pixels for
-                # geometric alignment and output without gamma conversion.
+                # Feature matching uses pil_image's display preview. The native
+                # analytical source MUST remain unwarped and full precision.
                 native_image, native_metadata = load_image(
                     image_path, display_only=True
                 )
+                if native_image.size != pil_image.size:
+                    raise ValueError("Native source and display preview dimensions differ")
 
-                if (
-                    getattr(native_image, '_stampz_16bit_encoding', None)
-                    == 'linear'
-                ):
-                    if not hasattr(native_image, '_stampz_16bit_data'):
-                        raise ValueError(
-                            "Linear RAW source lacks native 16-bit pixels"
-                        )
+                original16 = getattr(pil_image, "_stampz_16bit_data", None)
+                alternate16 = getattr(native_image, "_stampz_16bit_data", None)
+                declared_depth = metadata.get("original_bit_depth")
+                if declared_depth is None:
+                    declared_depth = native_metadata.get("original_bit_depth")
+                # Check the actual TIFF container as well: a missing metadata
+                # field must never allow a 16-bit acquisition to become 8-bit.
+                if Path(image_path).suffix.lower() in (".tif", ".tiff"):
+                    import tifffile
+                    with tifffile.TiffFile(image_path) as tif:
+                        container_depth = int(tif.pages[0].bitspersample)
+                    if container_depth not in (8, 16):
+                        raise ValueError("Unsupported TIFF container bit depth")
+                    if declared_depth is None:
+                        declared_depth = container_depth
+                    elif int(declared_depth) != container_depth:
+                        raise ValueError("TIFF container bit depth conflicts with metadata")
+                if declared_depth is not None:
+                    try:
+                        declared_depth = int(declared_depth)
+                    except (TypeError, ValueError) as exc:
+                        raise ValueError("Invalid declared original bit depth") from exc
+                    if declared_depth not in (8, 16):
+                        raise ValueError("Unsupported original bit depth")
 
-                    if native_image.size != pil_image.size:
-                        raise ValueError(
-                            "RAW preview and native image dimensions differ"
-                        )
+                # Prefer the native loader's authenticated linear data when
+                # its encoding explicitly identifies the linear source.
+                alternate_encoding = getattr(
+                    native_image, "_stampz_16bit_encoding", None
+                )
+                if alternate_encoding == "linear":
+                    if alternate16 is None:
+                        raise ValueError("Linear source lacks native 16-bit pixels")
+                    original16 = alternate16
+                    pil_image._stampz_16bit_data = alternate16
+                    pil_image._stampz_16bit_encoding = "linear"
+                elif original16 is None and alternate16 is not None:
+                    original16 = alternate16
+                    pil_image._stampz_16bit_data = alternate16
+                    pil_image._stampz_16bit_encoding = alternate_encoding
 
-                    pil_image._stampz_16bit_data = (
-                        native_image._stampz_16bit_data
-                    )
-                    pil_image._stampz_16bit_encoding = 'linear'
-                    pil_image._stampz_is_raw = True
+                if original16 is not None:
+                    original16 = np.asarray(original16)
+                    if (original16.dtype != np.uint16 or original16.ndim != 3
+                            or original16.shape[2] not in (3, 4)
+                            or original16.shape[:2] != (pil_image.height, pil_image.width)):
+                        raise ValueError("Invalid native 16-bit source pixels")
+                    if declared_depth == 8:
+                        raise ValueError("8-bit declaration conflicts with native 16-bit pixels")
+                elif declared_depth == 16:
+                    raise ValueError("16-bit source lacks native analytical pixels")
 
-                    print(
-                        "BULK ALIGN: sRGB feature preview; "
-                        "native linear 16-bit pixels preserved"
-                    )
+                raw_derived = bool(
+                    getattr(pil_image, "_stampz_is_raw", False)
+                    or getattr(native_image, "_stampz_is_raw", False)
+                    or metadata.get("is_raw", False)
+                    or native_metadata.get("is_raw", False)
+                )
+                pil_image._stampz_is_raw = raw_derived
+                analytical_encoding = (
+                    getattr(pil_image, "_stampz_16bit_encoding", None)
+                    if original16 is not None else "srgb"
+                )
+                if original16 is not None and analytical_encoding is None:
+                    analytical_encoding = alternate_encoding
+                # Non-RAW RGB images are ordinarily sRGB encoded. Do not
+                # make that assumption for RAW-derived 16-bit source data.
+                if analytical_encoding is None and not raw_derived:
+                    analytical_encoding = "srgb"
+                if analytical_encoding not in ("linear", "srgb"):
+                    raise ValueError("Original analytical encoding is unknown")
+                source_display_encoding = getattr(
+                    pil_image, "_stampz_display_encoding", "srgb"
+                ) or "srgb"
+                if source_display_encoding not in ("linear", "srgb"):
+                    raise ValueError("Original display encoding is unknown")
 
                 print(f"DEBUG bulk_align: loaded {filename}, has _stampz_16bit_data: {hasattr(pil_image, '_stampz_16bit_data')}")
                 
@@ -915,42 +966,93 @@ class ImageAlignmentManager:
                             "CR3 ALIGN: linear 16-bit display output; "
                             "original CR3 retained for authenticated analysis"
                         )
-                    # Generate output filename
-                    base_name = os.path.splitext(filename)[0]
-                    ext = os.path.splitext(filename)[1]
-                    output_filename = f"{base_name}_aligned{ext}"
-                    output_path = os.path.join(output_dir, output_filename)
-                    
-                    # Save aligned image - use SaveManager to preserve 16-bit if present
-                    from utils.save_as import SaveManager, SaveOptions, SaveFormat
-                    save_manager = SaveManager()
-                    
-                    # Determine format from extension
-                    if ext.lower() in ['.tif', '.tiff']:
-                        save_format = SaveFormat.TIFF
-                    elif ext.lower() == '.png':
-                        save_format = SaveFormat.PNG
+                    # The portable file always embeds the ORIGINAL unwarped
+                    # analytical pixels; the aligned pixels are for display.
+                    if Path(image_path).suffix.lower() == ".cr3":
+                        native_source = linear_rgb
+                        analytical_encoding = "linear"
+                        raw_derived = True
+                    elif original16 is not None:
+                        native_source = original16
                     else:
-                        save_format = SaveFormat.TIFF  # Default to TIFF
-                        output_path = output_path.replace(ext, '.tif')
-                    
-                    save_options = SaveOptions(format=save_format, optimize=True)
-                    # Remove any stale companion before replacing the image.
-                    companion_path(output_path).unlink(missing_ok=True)
+                        native_source = np.asarray(pil_image.convert("RGB"))
+                        if native_source.dtype != np.uint8:
+                            raise ValueError("Invalid original 8-bit source pixels")
 
-                    save_manager.save_image(aligned_image, output_path, save_options)
+                    if (native_source.shape[:2]
+                            != (pil_image.height, pil_image.width)):
+                        raise ValueError("Original analytical source size mismatch")
+                    if declared_depth is not None and (
+                        native_source.dtype.itemsize * 8 != declared_depth
+                    ):
+                        raise ValueError("Original analytical bit-depth mismatch")
 
-                    # Save provenance only after verified image publication.
-                    write_alignment_provenance(
-                        source_path=image_path,
-                        aligned_path=output_path,
-                        reference_path=reference_image_path,
-                        transform_matrix=info["transform_matrix"],
-                        crop_box=info["crop_box"],
-                        reference_size=self.reference_size,
-                        source_size=pil_image.size,
+                    aligned16 = getattr(aligned_image, "_stampz_16bit_data", None)
+                    if aligned16 is not None:
+                        aligned_pixels = np.asarray(aligned16)
+                        if (aligned_pixels.dtype != np.uint16
+                                or aligned_pixels.shape[:2]
+                                != (aligned_image.height, aligned_image.width)):
+                            raise ValueError("Invalid aligned 16-bit pixels")
+                    else:
+                        if native_source.dtype == np.uint16:
+                            raise ValueError("Aligned native 16-bit pixels are missing")
+                        aligned_pixels = np.asarray(aligned_image.convert("RGB"))
+
+                    aligned_encoding = (
+                        getattr(aligned_image, "_stampz_16bit_encoding", None)
+                        if aligned16 is not None else None
+                    ) or getattr(
+                        aligned_image, "_stampz_display_encoding", None
+                    ) or "srgb"
+                    if aligned_encoding not in ("linear", "srgb"):
+                        raise ValueError("Unknown aligned display encoding")
+                    if analytical_encoding == "linear" and aligned_encoding != "linear":
+                        # Explicitly different encodings are allowed, but the
+                        # native alignment routine has not declared a transform.
+                        raise ValueError("Linear aligned image has ambiguous display encoding")
+
+                    source_preview = np.asarray(pil_image.convert("RGB"))
+                    if (source_preview.dtype != np.uint8
+                            or source_preview.shape[:2] != native_source.shape[:2]):
+                        raise ValueError("Invalid source preview")
+
+                    # Save in a new destination: the writer verifies all pages
+                    # before publication and refuses to overwrite existing work.
+                    base_name = Path(filename).stem
+                    output_path = os.path.join(output_dir, f"{base_name}_aligned.tif")
+                    geometry = {
+                        "transform_matrix": info["transform_matrix"],
+                        "crop_box": [int(v) for v in info["crop_box"]],
+                    }
+                    digest = hashlib.sha256()
+                    with open(image_path, "rb") as source_file:
+                        for chunk in iter(lambda: source_file.read(1024 * 1024), b""):
+                            digest.update(chunk)
+                    source_identity = {
+                        "original_file": filename,
+                        "source_sha256": digest.hexdigest(),
+                    }
+                    manifest = write_self_contained_tiff(
+                        output_path,
+                        aligned_display=aligned_pixels,
+                        native_source=native_source,
+                        source_preview=source_preview,
+                        geometry=geometry,
+                        analytical_encoding=analytical_encoding,
+                        aligned_display_encoding=aligned_encoding,
+                        source_display_encoding=source_display_encoding,
+                        raw_derived=raw_derived,
+                        source_identity=source_identity,
+                        overwrite=False,
                     )
-                    
+                    print(
+                        "PORTABLE TIFF VERIFIED:", output_path,
+                        "pages:", len(manifest["pages"]),
+                        "native depth:", native_source.dtype,
+                        "RAW-derived:", raw_derived,
+                    )
+
                     successful.append((image_path, output_path))
                     if progress_callback:
                         progress_callback(idx, total, filename, f"✓ Aligned ({info['num_matches']} matches)")
