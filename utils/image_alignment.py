@@ -557,109 +557,200 @@ class ImageAlignmentManager:
     
 
     def align_image_progressive(self, pil_image):
-        """Test progressively denser ORB features on reference and source.
+        """Match scale-normalized *display* previews, then warp native pixels once.
 
-        Retain the successful candidate with the most RANSAC inliers.
-        Preserve the original saved-reference descriptors and detector.
-        No changes are written to the reference files.
+        The matrix returned in info always maps cropped ORIGINAL source pixels
+        to reference pixels; no downsampled preview is used for analysis.
         """
-        levels = (500, 1000, 1500, 2000, 3000)
-
-        original_orb = self.orb
-        original_keypoints = self.reference_keypoints
-        original_descriptors = self.reference_descriptors
-
-        best_image = None
-        best_info = None
-        best_inliers = -1
-        attempts = []
-
-        try:
-            if not self.has_reference():
-                return None, {
-                    "success": False,
-                    "num_matches": 0,
-                    "message": "No reference image set",
-                }
-
-            reference_gray = np.array(
-                self.reference_image.convert("L")
-            )
-
-            for count in levels:
-                self.orb = cv2.ORB_create(
-                    nfeatures=count,
-                    scaleFactor=1.2,
-                    nlevels=8,
-                    edgeThreshold=15,
-                    firstLevel=0,
-                    WTA_K=2,
-                    scoreType=cv2.ORB_HARRIS_SCORE,
-                    patchSize=31,
-                    fastThreshold=20,
-                )
-
-                ref_kp, ref_desc = self.orb.detectAndCompute(
-                    reference_gray, None
-                )
-
-                if ref_desc is None or len(ref_kp) < self.min_matches:
-                    attempts.append((count, 0, "Reference features insufficient"))
-                    continue
-
-                self.reference_keypoints = ref_kp
-                self.reference_descriptors = ref_desc
-
-                # Reuse the existing alignment function, including its
-                # 16-bit warp and crop-geometry preservation.
-                aligned, info = self.align_image(pil_image)
-
-                inliers = int(info.get("num_matches", 0))
-                attempts.append(
-                    (count, inliers, info.get("message", ""))
-                )
-
-                print(
-                    f"PROGRESSIVE ORB: {count} features, "
-                    f"{inliers} reported matches/inliers, "
-                    f"success={info.get('success', False)}"
-                )
-
-                if info.get("success") and inliers > best_inliers:
-                    best_inliers = inliers
-                    best_image = aligned
-                    best_info = dict(info)
-                    best_info["orb_feature_limit"] = count
-
-            if best_info is not None:
-                best_info["orb_attempts"] = attempts
-                best_info["message"] = (
-                    f"Progressive alignment successful: "
-                    f"{best_inliers} inliers at "
-                    f"{best_info['orb_feature_limit']} features"
-                )
-                print(
-                    "PROGRESSIVE ORB SELECTED:",
-                    best_info["message"]
-                )
-                return best_image, best_info
-
+        if not self.has_reference():
             return None, {
-                "success": False,
-                "num_matches": 0,
-                "message": (
-                    "Progressive alignment failed at all feature levels: "
-                    + "; ".join(
-                        f"{n}: {msg}" for n, _, msg in attempts
-                    )
-                ),
-                "orb_attempts": attempts,
+                "success": False, "num_matches": 0,
+                "message": "No reference image set",
             }
 
-        finally:
-            self.orb = original_orb
-            self.reference_keypoints = original_keypoints
-            self.reference_descriptors = original_descriptors
+        info_base = {
+            "success": False, "num_matches": 0,
+            "transform_matrix": None, "matched_keypoints": [],
+            "crop_box": (0, 0, pil_image.width, pil_image.height),
+        }
+        try:
+            # Crop just once so every candidate uses identical source geometry.
+            if self.auto_crop_enabled:
+                cropped, crop_box = self._auto_crop_content(pil_image)
+                info_base["crop_box"] = tuple(map(int, crop_box))
+            else:
+                cropped = pil_image
+
+            source_gray = np.asarray(cropped.convert("L"))
+            reference_gray = np.asarray(self.reference_image.convert("L"))
+            src_h, src_w = source_gray.shape
+            ref_h, ref_w = reference_gray.shape
+            if min(src_h, src_w, ref_h, ref_w) < 40:
+                raise ValueError("Image is too small for reliable ORB alignment")
+
+            # Source frames may contain large borders/background. Sweep a small
+            # set of relative scales; never assume entire frame == stamp size.
+            ratio = min(ref_w, ref_h) / float(min(src_w, src_h))
+            proposed = [ratio, ratio * 1.5, ratio * 2.0, ratio * 0.75]
+            if max(src_w, src_h) <= 2500 or ratio >= 0.65:
+                proposed.append(1.0)
+            scales = []
+            for factor in proposed:
+                if not (0.04 <= factor <= 3.0):
+                    continue
+                size = (max(1, round(src_w * factor)),
+                        max(1, round(src_h * factor)))
+                if min(size) < 64 or max(size) > 4000:
+                    continue
+                # Deduplicate near-identical preview dimensions.
+                if not any(abs(factor - old) / old < 0.08 for old in scales):
+                    scales.append(factor)
+            if not scales:
+                scales = [min(1.0, 3500 / max(src_w, src_h))]
+
+            best = None
+            attempts = []
+            # Keep reference features consistent with each candidate's ORB.
+            for nfeatures in (500, 1500, 3000):
+                orb = cv2.ORB_create(
+                    nfeatures=nfeatures, scaleFactor=1.2, nlevels=8,
+                    edgeThreshold=15, firstLevel=0, WTA_K=2,
+                    scoreType=cv2.ORB_HARRIS_SCORE, patchSize=31,
+                    fastThreshold=20,
+                )
+                ref_kp, ref_desc = orb.detectAndCompute(reference_gray, None)
+                if ref_desc is None or len(ref_kp) < self.min_matches:
+                    attempts.append((nfeatures, 0, "Reference features insufficient"))
+                    continue
+
+                for factor in scales:
+                    width = max(1, round(src_w * factor))
+                    height = max(1, round(src_h * factor))
+                    if (width, height) == (src_w, src_h):
+                        preview_gray = source_gray
+                    else:
+                        interpolation = cv2.INTER_AREA if factor < 1 else cv2.INTER_LINEAR
+                        preview_gray = cv2.resize(source_gray, (width, height),
+                                                  interpolation=interpolation)
+                    sx = width / float(src_w)
+                    sy = height / float(src_h)
+                    kp, desc = orb.detectAndCompute(preview_gray, None)
+                    if desc is None or len(kp) < self.min_matches:
+                        attempts.append((nfeatures, 0,
+                                         f"scale {factor:.3f}: too few features"))
+                        continue
+                    matches = self.matcher.match(ref_desc, desc)
+                    if len(matches) < self.min_matches:
+                        attempts.append((nfeatures, len(matches),
+                                         f"scale {factor:.3f}: too few matches"))
+                        continue
+                    ref_pts = np.float32([ref_kp[m.queryIdx].pt for m in matches])
+                    preview_pts = np.float32([kp[m.trainIdx].pt for m in matches])
+                    if self.alignment_mode == "similarity":
+                        M, mask = cv2.estimateAffinePartial2D(
+                            preview_pts, ref_pts, method=cv2.RANSAC,
+                            ransacReprojThreshold=self.ransac_threshold)
+                    elif self.alignment_mode == "affine":
+                        M, mask = cv2.estimateAffine2D(
+                            preview_pts, ref_pts, method=cv2.RANSAC,
+                            ransacReprojThreshold=self.ransac_threshold)
+                    else:
+                        M, mask = cv2.findHomography(
+                            preview_pts, ref_pts, cv2.RANSAC,
+                            self.ransac_threshold)
+                    if M is None or mask is None:
+                        attempts.append((nfeatures, 0,
+                                         f"scale {factor:.3f}: transform failed"))
+                        continue
+                    flags = mask.ravel().astype(bool)
+                    inliers = int(flags.sum())
+                    if inliers < self.min_matches:
+                        attempts.append((nfeatures, inliers,
+                                         f"scale {factor:.3f}: insufficient inliers"))
+                        continue
+
+                    # Guard against a plausible-looking fit built from only
+                    # one tiny ornament, corner, or repeating perforation.
+                    good_ref = ref_pts[flags]
+                    span = np.ptp(good_ref, axis=0)
+                    hull_area = cv2.contourArea(cv2.convexHull(good_ref))
+                    if (span[0] < 0.12 * ref_w or span[1] < 0.12 * ref_h
+                            or hull_area < 0.02 * ref_w * ref_h):
+                        attempts.append((nfeatures, inliers,
+                                         f"scale {factor:.3f}: clustered matches"))
+                        continue
+
+                    # M maps PREVIEW -> reference. Postmultiply by the
+                    # native-source -> preview scale to recover source coords.
+                    scaling = np.array([[sx, 0., 0.], [0., sy, 0.],
+                                        [0., 0., 1.]], dtype=np.float64)
+                    M3 = (np.vstack((M, [0., 0., 1.]))
+                          if M.shape == (2, 3) else np.asarray(M, dtype=np.float64))
+                    source_M3 = M3 @ scaling
+                    if (not np.isfinite(source_M3).all()
+                            or abs(np.linalg.det(source_M3)) < 1e-12):
+                        attempts.append((nfeatures, inliers,
+                                         f"scale {factor:.3f}: degenerate geometry"))
+                        continue
+                    source_M = (source_M3[:2, :]
+                                if M.shape == (2, 3) else source_M3)
+                    attempts.append((nfeatures, inliers,
+                                     f"scale {factor:.3f}: valid"))
+                    if best is None or inliers > best["num_matches"]:
+                        best = {
+                            "success": True,
+                            "num_matches": inliers,
+                            "transform_matrix": source_M,
+                            "crop_box": info_base["crop_box"],
+                            "orb_feature_limit": nfeatures,
+                            "feature_preview_scale": (sx, sy),
+                        }
+
+            if best is None:
+                return None, {
+                    **info_base, "orb_attempts": attempts,
+                    "message": "Feature-scale alignment failed: " + "; ".join(
+                        f"{count}: {reason}" for count, _, reason in attempts),
+                }
+
+            # Native output is constructed ONCE, after all candidate evaluation.
+            if hasattr(cropped, "_stampz_16bit_data"):
+                original = np.asarray(cropped._stampz_16bit_data)
+                if original.dtype != np.uint16 or original.shape[:2] != (src_h, src_w):
+                    raise ValueError("Native 16-bit pixels do not match source crop")
+                has_native = True
+            else:
+                original = np.asarray(cropped)
+                has_native = False
+            matrix = best["transform_matrix"]
+            if matrix.shape == (2, 3):
+                warped = cv2.warpAffine(original, matrix, self.reference_size)
+            else:
+                warped = cv2.warpPerspective(original, matrix, self.reference_size)
+            if has_native:
+                display = Image.fromarray((warped >> 8).astype(np.uint8))
+                display._stampz_16bit_data = warped
+                display._stampz_16bit_encoding = getattr(
+                    cropped, "_stampz_16bit_encoding", None)
+                display._stampz_is_raw = getattr(cropped, "_stampz_is_raw", False)
+            else:
+                display = Image.fromarray(warped)
+                display._stampz_is_raw = getattr(cropped, "_stampz_is_raw", False)
+            if hasattr(cropped, "_stampz_display_encoding"):
+                display._stampz_display_encoding = cropped._stampz_display_encoding
+
+            best["orb_attempts"] = attempts
+            best["message"] = (f"Scale-normalized alignment successful: "
+                               f"{best['num_matches']} inliers at "
+                               f"{best['orb_feature_limit']} features")
+            print("PROGRESSIVE ORB SELECTED:", best["message"],
+                  "scale", best["feature_preview_scale"])
+            return display, best
+        except Exception as exc:
+            return None, {
+                **info_base, "success": False,
+                "message": f"Scale-normalized alignment error: {exc}",
+            }
 
     def bulk_align_images(self, image_paths: list, output_dir: str, 
                          progress_callback=None) -> Tuple[list, list]:
