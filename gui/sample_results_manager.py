@@ -605,7 +605,14 @@ class SampleResultsManager(tk.Frame):
                             self.app.canvas.core,
                             "_calibrated_display_enabled", False
                         )
-                        if source_encoding == "linear" and not cid_enabled:
+                        if (
+                            getattr(
+                                self.current_image,
+                                "_stampz_display_encoding",
+                                getattr(self.current_image, "_stampz_16bit_encoding", None),
+                            ) == "linear"
+                            and not cid_enabled
+                        ):
                             swatch_rgb = analysis_rgb_to_raw_display_rgb(
                                 rgb, bridge_enabled=False
                             )
@@ -1009,7 +1016,14 @@ class SampleResultsManager(tk.Frame):
                         self.app.canvas.core,
                         "_calibrated_display_enabled", False
                     )
-                    if source_encoding == "linear" and not cid_enabled:
+                    if (
+                        getattr(
+                            self.current_image,
+                            "_stampz_display_encoding",
+                            getattr(self.current_image, "_stampz_16bit_encoding", None),
+                        ) == "linear"
+                        and not cid_enabled
+                    ):
                         swatch_rgb = analysis_rgb_to_raw_display_rgb(
                             avg_rgb, bridge_enabled=False
                         )
