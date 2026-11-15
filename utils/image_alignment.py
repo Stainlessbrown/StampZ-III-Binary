@@ -820,28 +820,49 @@ class ImageAlignmentManager:
 
                 original16 = getattr(pil_image, "_stampz_16bit_data", None)
                 alternate16 = getattr(native_image, "_stampz_16bit_data", None)
-                declared_depth = metadata.get("original_bit_depth")
-                if declared_depth is None:
-                    declared_depth = native_metadata.get("original_bit_depth")
-                # Check the actual TIFF container as well: a missing metadata
-                # field must never allow a 16-bit acquisition to become 8-bit.
+                def uniform_bit_depth(value, label):
+                    """Accept scalar or per-channel bit depths, rejecting mixed data."""
+                    if value is None:
+                        return None
+                    if isinstance(value, (tuple, list, np.ndarray)):
+                        if len(value) == 0:
+                            raise ValueError(f"{label}: empty bit-depth declaration")
+                        depths = [uniform_bit_depth(item, label) for item in value]
+                        if any(depth != depths[0] for depth in depths):
+                            raise ValueError(f"{label}: mixed channel bit depths")
+                        return depths[0]
+                    try:
+                        depth = int(value)
+                    except (TypeError, ValueError, OverflowError) as exc:
+                        raise ValueError(f"{label}: invalid bit depth {value!r}") from exc
+                    if depth not in (8, 16):
+                        raise ValueError(f"{label}: unsupported bit depth {depth}")
+                    return depth
+
+                primary_depth = uniform_bit_depth(
+                    metadata.get("original_bit_depth"), "Analytical loader metadata"
+                )
+                alternate_depth = uniform_bit_depth(
+                    native_metadata.get("original_bit_depth"), "Native loader metadata"
+                )
+                if (primary_depth is not None and alternate_depth is not None
+                        and primary_depth != alternate_depth):
+                    raise ValueError("Analytical and native loader bit depths disagree")
+                declared_depth = (primary_depth if primary_depth is not None
+                                  else alternate_depth)
+
+                # Check the actual TIFF container too, without treating RGB
+                # channel depth tuples such as (16, 16, 16) as scalar integers.
                 if Path(image_path).suffix.lower() in (".tif", ".tiff"):
                     import tifffile
                     with tifffile.TiffFile(image_path) as tif:
-                        container_depth = int(tif.pages[0].bitspersample)
-                    if container_depth not in (8, 16):
-                        raise ValueError("Unsupported TIFF container bit depth")
+                        container_depth = uniform_bit_depth(
+                            tif.pages[0].bitspersample, "TIFF container"
+                        )
                     if declared_depth is None:
                         declared_depth = container_depth
-                    elif int(declared_depth) != container_depth:
+                    elif declared_depth != container_depth:
                         raise ValueError("TIFF container bit depth conflicts with metadata")
-                if declared_depth is not None:
-                    try:
-                        declared_depth = int(declared_depth)
-                    except (TypeError, ValueError) as exc:
-                        raise ValueError("Invalid declared original bit depth") from exc
-                    if declared_depth not in (8, 16):
-                        raise ValueError("Unsupported original bit depth")
 
                 # Prefer the native loader's authenticated linear data when
                 # its encoding explicitly identifies the linear source.
