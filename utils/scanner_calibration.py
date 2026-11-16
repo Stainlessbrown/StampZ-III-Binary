@@ -582,6 +582,12 @@ class ScannerCalibration:
         # Near-neutral colors increasingly use neutral anchors.
         # -------------------------------------------------------------
         alpha = C / (C + 4.0)
+
+        # EXPERIMENTAL: smooth neutral weighting, C = 1 to 6.
+        # Standard and existing Neutral-V behavior remain unchanged.
+        if self.correction_variant == "smooth_neutral_1_to_6":
+            t = np.clip((C - 1.0) / 5.0, 0.0, 1.0)
+            alpha *= t * t * (3.0 - 2.0 * t)
         if (self.correction_variant == "neutral_dominant_c_lt_3"
                 and C < 3.0):
             alpha = 0.0
