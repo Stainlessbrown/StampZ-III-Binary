@@ -3117,11 +3117,29 @@ class SampleResultsManager(tk.Frame):
         if current_image is not None and hasattr(
             current_image, "_stampz_alignment_record"
         ):
-            from utils.alignment_provenance import (
-                read_alignment_provenance,
-            )
+            from utils.self_contained_tiff import is_self_contained_tiff
 
-            alignment_record = read_alignment_provenance(image_path)
+            if is_self_contained_tiff(image_path):
+                # Reauthenticate embedded TIFF pixels and provenance.
+                from utils.portable_alignment_adapter import (
+                    load_portable_aligned_image,
+                )
+
+                verified_image, _ = load_portable_aligned_image(
+                    image_path
+                )
+                alignment_record = (
+                    verified_image._stampz_alignment_record
+                )
+            else:
+                # Preserve legacy companion-file authentication.
+                from utils.alignment_provenance import (
+                    read_alignment_provenance,
+                )
+
+                alignment_record = read_alignment_provenance(
+                    image_path
+                )
 
             if (
                 alignment_record
