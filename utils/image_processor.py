@@ -349,6 +349,16 @@ def load_image(file_path: Union[str, Path], display_only: bool = False) -> Tuple
         if suffix not in supported:
             raise ImageLoadError(f"Unsupported file format: {file_path.suffix}")
 
+        # Authenticated derived crop TIFFs are decoded before generic TIFF
+        # handling; verification covers every page, including 16-bit pixels.
+        if suffix in ('.tif', '.tiff'):
+            from utils.self_contained_crop import is_self_contained_crop, read_self_contained_crop
+            if is_self_contained_crop(file_path):
+                try:
+                    return read_self_contained_crop(file_path, display_only=display_only)
+                except Exception as exc:
+                    raise ImageLoadError(f'Authenticated crop TIFF invalid: {exc}') from exc
+
         # ── Camera RAW files (CR3, CR2, NEF, ARW …) ────────────────────
         if suffix in RAW_EXTENSIONS:
             if not HAS_RAWPY:

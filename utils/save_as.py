@@ -319,6 +319,12 @@ class SaveManager:
             if hasattr(image, attr):
                 setattr(img, attr, getattr(image, attr))
 
+        # Carry authoritative crop geometry and its parent identity.
+        for attr in ('_stampz_crop_record', '_stampz_crop_parent_file',
+                     '_stampz_display_encoding'):
+            if hasattr(image, attr):
+                setattr(img, attr, getattr(image, attr))
+
         # Preserve separate transparency mask for 16-bit crops.
         if hasattr(image, '_stampz_alpha_mask'):
             img._stampz_alpha_mask = image._stampz_alpha_mask.copy()
@@ -465,6 +471,16 @@ class SaveManager:
             
             # Ensure save directory exists
             filepath.parent.mkdir(parents=True, exist_ok=True)
+
+            # Derived native TIFF crops use an authenticated, single-file format.
+            # Ordinary/legacy/portable alignment saves retain existing routes.
+            if (options.format == SaveFormat.TIFF
+                    and hasattr(img_to_save, '_stampz_crop_record')
+                    and hasattr(img_to_save, '_stampz_16bit_data')):
+                from utils.self_contained_crop import write_self_contained_crop
+                write_self_contained_crop(filepath, img_to_save, overwrite=True)
+                logger.info('Saved authenticated self-contained crop: %s', filepath)
+                return
 
             # Stage output in the destination directory.
             # Retain the real extension for OpenCV and Pillow.

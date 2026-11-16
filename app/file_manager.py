@@ -117,8 +117,6 @@ class FileManager:
                         not detected_as_raw
                         and prefs_manager.get_raw_display_bridge_enabled()
                     ):
-                        from tkinter import messagebox
-
                         apply_bridge = messagebox.askyesno(
                             "RAW Display Bridge Warning",
                             "This image was not identified by StampZ as a RAW / linear source.\n\n"
@@ -281,6 +279,8 @@ class FileManager:
         try:
             cropped = self.app.canvas.get_cropped_image()
             is_cropped = True
+            if hasattr(cropped, '_stampz_crop_record'):
+                cropped._stampz_crop_parent_file = self.app.current_file or ''
             print(f"DEBUG save_image: cropped image has _stampz_16bit_data: {hasattr(cropped, '_stampz_16bit_data')}")
         except ValueError:
             # No crop selection - save the entire image (e.g., aligned image)

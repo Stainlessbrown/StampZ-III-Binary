@@ -635,6 +635,15 @@ class ShapeManager:
                 mask.crop(bbox),
                 dtype=np.uint8
             )
+            # Cropping an existing crop must not resurrect excluded pixels.
+            prior_alpha = getattr(self.core.original_image, '_stampz_alpha_mask', None)
+            if prior_alpha is not None:
+                prior_alpha = np.asarray(prior_alpha)
+                if prior_alpha.shape != img_16bit.shape[:2]:
+                    raise ValueError('Existing crop alpha dimensions mismatch')
+                cropped_mask = np.minimum(
+                    cropped_mask, prior_alpha[top:bottom, left:right]
+                )
 
             # Construct an RGBA display image with transparent areas.
             # This is display-only; analytical values remain 16-bit.
@@ -648,6 +657,21 @@ class ShapeManager:
             # Preserve the analytical RGB data and separate alpha mask.
             cropped._stampz_16bit_data = cropped_16bit[:, :, :3]
             cropped._stampz_alpha_mask = cropped_mask
+            cropped._stampz_crop_record = {
+                'bbox': [int(left), int(top), int(right), int(bottom)],
+                'parent_size': [int(img_16bit.shape[1]), int(img_16bit.shape[0])],
+                'operation': 'mask-and-crop',
+                'parent_rgb16_sha256': __import__('hashlib').sha256(
+                    np.ascontiguousarray(img_16bit.astype('<u2', copy=False)).tobytes()
+                ).hexdigest(),
+            }
+            cropped._stampz_crop_parent_file = getattr(
+                self.core.original_image, '_stampz_source_file', ''
+            )
+            cropped._stampz_display_encoding = getattr(
+                self.core.original_image, '_stampz_display_encoding',
+                getattr(self.core.original_image, '_stampz_16bit_encoding', None)
+            )
             cropped._stampz_is_raw = getattr(
                 self.core.original_image, '_stampz_is_raw', False
             )
