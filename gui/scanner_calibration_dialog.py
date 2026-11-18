@@ -27,6 +27,7 @@ class ScannerCalibrationDialog:
         self.calibration = None
         self.quality = None
         self.active_profile_path: Optional[str] = None
+        self._last_calibration_selection = None
         
         # Create window
         self.root = tk.Toplevel(parent) if parent else tk.Tk()
@@ -126,11 +127,28 @@ class ScannerCalibrationDialog:
         self.reference_set_var = tk.StringVar(value="scanner")
         ttk.Radiobutton(
             reference_row, text="Scanner (default)",
-            variable=self.reference_set_var, value="scanner"
+            variable=self.reference_set_var, value="scanner",
+            command=self._invalidate_pending_calibration
         ).pack(side=tk.LEFT, padx=(10, 8))
         ttk.Radiobutton(
             reference_row, text="Camera", variable=self.reference_set_var,
-            value="camera"
+            value="camera", command=self._invalidate_pending_calibration
+        ).pack(side=tk.LEFT)
+
+        # The method applies only to a NEW calibration. Standard remains default.
+        method_row = ttk.Frame(action_frame)
+        method_row.pack(fill=tk.X, pady=(0, 8))
+        ttk.Label(method_row, text="Calibration method:").pack(side=tk.LEFT)
+        self.correction_variant_var = tk.StringVar(value="standard")
+        ttk.Radiobutton(
+            method_row, text="Standard (default)",
+            variable=self.correction_variant_var, value="standard",
+            command=self._invalidate_pending_calibration
+        ).pack(side=tk.LEFT, padx=(10, 8))
+        ttk.Radiobutton(
+            method_row, text="Smooth Neutral-V (Experimental)",
+            variable=self.correction_variant_var, value="smooth_neutral_1_to_6",
+            command=self._invalidate_pending_calibration
         ).pack(side=tk.LEFT)
 
         # Step 1: Load target scan
@@ -298,6 +316,8 @@ class ScannerCalibrationDialog:
                                  parent=self.root)
             return
         self.calibration = cal
+        self._last_calibration_selection = None
+        self.save_button.config(state='disabled')
         self.active_profile_path = path
         set_active_calibration(cal)
         try:
@@ -387,16 +407,37 @@ class ScannerCalibrationDialog:
                 foreground='black'
             )
             self.calibrate_button.config(state='normal')
+            self._invalidate_pending_calibration()
     
+    def _invalidate_pending_calibration(self):
+        """Require a new fit if its target/reference/method selection changes."""
+        if self._last_calibration_selection is not None:
+            self._last_calibration_selection = None
+            self.quality = None
+            self.save_button.config(state='disabled')
+            self.quality_label.config(
+                text="Settings changed — recalibrate before saving.",
+                foreground='gray'
+            )
+            self._create_results_header()
+
     def _calibrate(self):
         """Detect patches and compute calibration."""
         from utils.scanner_calibration import ScannerCalibration
         
         try:
+            self._last_calibration_selection = None
+            self.save_button.config(state='disabled')
             self.calibration = ScannerCalibration(
                 reference_set=self.reference_set_var.get()
             )
-            
+            # Set the selected algorithm BEFORE computing the patch corrections.
+            self.calibration.correction_variant = self.correction_variant_var.get()
+            if self.calibration.correction_variant not in (
+                "standard", "smooth_neutral_1_to_6"
+            ):
+                raise ValueError("Unknown calibration method selected")
+
             # Detect patches
             self.root.config(cursor="watch")
             self.root.update()
@@ -442,7 +483,12 @@ class ScannerCalibrationDialog:
                 foreground='#006600'
             )
             
-            # Enable save button
+            # Only this exact reference/method/target combination may be saved.
+            self._last_calibration_selection = (
+                self.reference_set_var.get(),
+                self.correction_variant_var.get(),
+                self.target_path,
+            )
             self.save_button.config(state='normal')
             
             # Populate results grid
@@ -537,7 +583,22 @@ class ScannerCalibrationDialog:
                 parent=self.root
             )
             return
-        
+        selection = (
+            self.reference_set_var.get(),
+            self.correction_variant_var.get(),
+            getattr(self, "target_path", None),
+        )
+        if (self._last_calibration_selection != selection
+                or self.calibration.reference_set != selection[0]
+                or self.calibration.correction_variant != selection[1]):
+            messagebox.showwarning(
+                "Recalibration Required",
+                "Target, CR30 reference or method changed. "
+                "Run Detect Patches & Calibrate again before saving.",
+                parent=self.root
+            )
+            return
+
         # Ask for profile name
         name = simpledialog.askstring(
             "Profile Name",
@@ -765,6 +826,8 @@ class ScannerCalibrationDialog:
             return
         
         self.calibration = imported
+        self._last_calibration_selection = None
+        self.save_button.config(state='disabled')
         self.active_profile_path = dest_path
         set_active_calibration(imported)
         

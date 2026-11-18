@@ -113,7 +113,20 @@ class UnifiedDataLogger:
         
         return self.log_section("Color Analysis", data)
         
-    def log_individual_color_measurements(self, measurements, sample_set_name, image_name):
+    @staticmethod
+    def _add_calibration_metadata(data, calibration):
+        if calibration is None:
+            data["Color Calibration"] = "Unknown (legacy caller)"
+            return
+        enabled = bool(calibration.get("enabled", False))
+        data["Color Calibration"] = "ON" if enabled else "OFF"
+        if enabled:
+            data["Color Calibration Profile"] = calibration.get("profile_name")
+            data["Color Calibration Method"] = calibration.get("correction_variant")
+            data["CR30 Reference Set"] = calibration.get("reference_set")
+            data["Profile Created"] = calibration.get("created_date")
+
+    def log_individual_color_measurements(self, measurements, sample_set_name, image_name, calibration=None):
         """Log individual color measurements from analysis.
         
         Args:
@@ -130,6 +143,8 @@ class UnifiedDataLogger:
                 "Individual Measurements": ""
             }
             
+            self._add_calibration_metadata(data, calibration)
+
             # Format individual measurements
             measurement_lines = []
             for i, measurement in enumerate(measurements, 1):
@@ -184,7 +199,7 @@ class UnifiedDataLogger:
             print(f"Error logging individual color measurements: {e}")
             return None
             
-    def log_averaged_color_measurement(self, averaged_data, sample_set_name, image_name, source_count):
+    def log_averaged_color_measurement(self, averaged_data, sample_set_name, image_name, source_count, calibration=None):
         """Log averaged color measurement.
         
         Args:
@@ -211,6 +226,7 @@ class UnifiedDataLogger:
                 "Quality Notes": averaged_data.get('notes', 'High-quality average measurement')
             }
             
+            self._add_calibration_metadata(data, calibration)
             return self.log_section("Averaged Color Measurement", data)
             
         except Exception as e:

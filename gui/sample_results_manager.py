@@ -54,6 +54,8 @@ class SampleResultsManager(tk.Frame):
         self.current_image = None
         self.sample_points = []
         self._aligned_analysis_valid = False
+        self._analysis_calibration = None
+        self._audit_calibration = None
         
         # Initialize current sizes dictionary
         self.current_sizes = {
@@ -107,6 +109,13 @@ class SampleResultsManager(tk.Frame):
         self.sampling_depth_label.pack(
             anchor='w',
             padx=self.current_sizes['padding']
+        )
+        self.calibration_label = ttk.Label(
+            header_frame, text="Calibration: Not yet analyzed",
+            font=("Arial", 10), foreground="black"
+        )
+        self.calibration_label.pack(
+            anchor='w', padx=self.current_sizes['padding']
         )
     
     def _create_results_section(self):
@@ -163,6 +172,18 @@ class SampleResultsManager(tk.Frame):
         if hasattr(self, 'average_frame'):
             self.average_frame.configure(width=new_swatch_width + 2 * new_padding)
     
+    def _session_rgb_to_lab(self, rgb):
+        """Use the frozen calibration from this Results analysis, never the global."""
+        import numpy as np
+        from utils.scanner_calibration import srgb_to_lab
+
+        rgb_tuple = tuple(float(x) for x in rgb)
+        calibration = self._analysis_calibration
+        if calibration is not None:
+            return calibration.apply_to_lab(rgb_tuple)
+        lab = srgb_to_lab(np.asarray(rgb_tuple, dtype=np.float64).reshape(1, 3) / 255.0)[0]
+        return tuple(float(x) for x in lab)
+
     def set_analyzed_data(self, image_path: str, sample_data: List[Dict]):
         """Set the analyzed image path and sample data.
         
@@ -178,6 +199,9 @@ class SampleResultsManager(tk.Frame):
         # Invalidate the previous session before any loading or processing.
         self._aligned_analysis_valid = False
         self.sample_points = []
+        self._analysis_calibration = None
+        self._audit_calibration = None
+        self.calibration_label.config(text="Calibration: Not yet analyzed")
         self._audit_sampling_bit_depth = None
         self._audit_sampling_channels = None
 
@@ -328,21 +352,36 @@ class SampleResultsManager(tk.Frame):
             # Capture calibration provenance for this Results session.
             from utils.scanner_calibration import get_active_calibration
 
+            from copy import deepcopy
             calibration = get_active_calibration()
             if calibration is not None and calibration.is_valid:
+                # Freeze the exact fitted coefficients and patch data, not just
+                # a mutable global pointer or the selected profile name.
+                self._analysis_calibration = deepcopy(calibration)
+                frozen = self._analysis_calibration
                 self._audit_calibration = {
                     "enabled": True,
-                    "profile_name": calibration.profile_name,
-                    "created_date": calibration.created_date,
-                    "scanner_info": calibration.scanner_info,
+                    "profile_name": frozen.profile_name,
+                    "created_date": frozen.created_date,
+                    "scanner_info": frozen.scanner_info,
+                    "correction_variant": frozen.correction_variant,
+                    "reference_set": frozen.reference_set,
                 }
+                self.calibration_label.config(
+                    text=(f"Calibration: ON | {frozen.profile_name} | "
+                          f"{frozen.correction_variant} | CR30: {frozen.reference_set}")
+                )
             else:
+                self._analysis_calibration = None
                 self._audit_calibration = {
                     "enabled": False,
                     "profile_name": None,
                     "created_date": None,
                     "scanner_info": None,
+                    "correction_variant": None,
+                    "reference_set": None,
                 }
+                self.calibration_label.config(text="Calibration: OFF | Profile: None")
             
             for i, sample in enumerate(sample_data, 1):
                 try:
@@ -454,6 +493,9 @@ class SampleResultsManager(tk.Frame):
             # Failed initialization must never retain partial results.
             self._aligned_analysis_valid = False
             self.sample_points = []
+            self._analysis_calibration = None
+            self._audit_calibration = None
+            self.calibration_label.config(text="Calibration: Analysis failed")
             self._audit_sampling_bit_depth = None
             self._audit_sampling_channels = None
             print(f"DEBUG: Error in set_analyzed_data: {str(e)}")
@@ -491,7 +533,7 @@ class SampleResultsManager(tk.Frame):
             rgb_values = []
             for s in group_samples:
                 rgb = s['rgb']
-                lab = analyzer.rgb_to_lab(rgb)  # always use calibrated converter
+                lab = self._session_rgb_to_lab(rgb)
                 lab_values.append(lab)
                 rgb_values.append(rgb)
             if not lab_values:
@@ -539,7 +581,7 @@ class SampleResultsManager(tk.Frame):
             rgb = sample['rgb']
             rgb_stddev = sample.get('rgb_stddev', None)
             lab_stddev = sample.get('lab_stddev', None)
-            lab = analyzer.rgb_to_lab(rgb)  # always use calibrated converter
+            lab = self._session_rgb_to_lab(rgb)
             # Preserve the analytical Lab used by this Results rendering.
             # Audit SAVE will capture it without recalculation.
             sample['lab'] = tuple(lab)
@@ -560,7 +602,7 @@ class SampleResultsManager(tk.Frame):
 
                     core = self.app.canvas.core
                     if core._calibrated_display_enabled:
-                        calibration = get_active_calibration()
+                        calibration = self._analysis_calibration
                         if calibration is not None and calibration.is_valid:
                             swatch_rgb = calibrated_display_rgb(rgb, calibration)
                 except Exception as e:
@@ -702,22 +744,11 @@ class SampleResultsManager(tk.Frame):
                 group_avg = paper_avg_lab if is_paper else ink_avg_lab
                 group_count = len(enabled_paper) if is_paper else len(enabled_ink)
                 if group_avg is not None and group_count >= 2:
-                    # Use the exact same cached ΔE as the on-image marker HUD.
-                    # Fall back to the local calculation when no live model is
-                    # available (e.g. non-standard/synthetic Results sources).
-                    live_model = getattr(self, '_live_model_ref', None)
-                    live_delta_e = None
-                    if live_model is not None:
-                        try:
-                            live_delta_e = live_model.get_delta_e(sample['index'])
-                        except Exception as e:
-                            print(f"DEBUG: could not read live ΔE: {e}")
-
-                    delta_e = (
-                        live_delta_e
-                        if live_delta_e is not None
-                        else analyzer.calculate_delta_e(lab, group_avg)
-                    )
+                    # Calculate ΔE with this Results session's frozen Lab.
+                    # The live marker HUD may have been refreshed under a
+                    # different global profile, so its cached value cannot
+                    # be authoritative for an immutable Results session.
+                    delta_e = analyzer.calculate_delta_e(lab, group_avg)
                     role_label = "paper" if is_paper else "ink"
                     # ΔL/ΔC/ΔH breakdown shows *which axis* the disagreement
                     # is on — essential for low-chroma blues where a scalar
@@ -901,7 +932,7 @@ class SampleResultsManager(tk.Frame):
         rgb_values = []
         for sample in samples:
             rgb = sample['rgb']
-            lab = analyzer.rgb_to_lab(rgb)  # always use calibrated converter
+            lab = self._session_rgb_to_lab(rgb)
             lab_values.append(lab)
             rgb_values.append(rgb)
         
@@ -1339,8 +1370,7 @@ class SampleResultsManager(tk.Frame):
             paper_rgb_values = []
             for s in paper_samples:
                 rgb = s['rgb']
-                lab = (self.library.rgb_to_lab(rgb)
-                       if self.library else analyzer.rgb_to_lab(rgb))
+                lab = (self._session_rgb_to_lab(rgb))
                 paper_lab_values.append(lab)
                 paper_rgb_values.append(rgb)
             avg = analyzer._calculate_quality_controlled_average(
@@ -3003,7 +3033,7 @@ class SampleResultsManager(tk.Frame):
             # Preserve original analytical RGB when saving.
             # Calibration affects Lab, not the sampled RGB.
             sample_rgb_original = sample['rgb']
-            sample_lab = analyzer.rgb_to_lab(sample_rgb_original)
+            sample_lab = self._session_rgb_to_lab(sample_rgb_original)
             sample_rgb = sample_rgb_original
             
             rgb_stddev = sample.get('rgb_stddev', None)
@@ -3709,7 +3739,7 @@ class SampleResultsManager(tk.Frame):
             sample_measurements = []
             for i, sample in enumerate(enabled_samples, 1):
                 sample_rgb = sample['rgb']
-                sample_lab = self.library.rgb_to_lab(sample_rgb) if hasattr(self, 'library') and self.library else analyzer.rgb_to_lab(sample_rgb)
+                sample_lab = self._session_rgb_to_lab(sample_rgb)
                 
                 # Get stddev values if available
                 rgb_stddev = sample.get('rgb_stddev', None)
@@ -3746,7 +3776,8 @@ class SampleResultsManager(tk.Frame):
             individual_result = logger.log_individual_color_measurements(
                 measurements=sample_measurements,
                 sample_set_name="Color_Analysis_Results",
-                image_name=image_name
+                image_name=image_name,
+                calibration=self._audit_calibration
             )
             
             # Prepare averaged measurement data
@@ -3765,7 +3796,8 @@ class SampleResultsManager(tk.Frame):
                 averaged_data=averaged_data,
                 sample_set_name="Color_Analysis_Results",
                 image_name=image_name,
-                source_count=len(enabled_samples)
+                source_count=len(enabled_samples),
+                calibration=self._audit_calibration
             )
             
             # Check for crop-related files and auto-merge
