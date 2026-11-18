@@ -666,16 +666,6 @@ class ScannerCalibration:
 
         return tuple(float(v) for v in calibrated_lab)
 
-        # Apply the scanner characterization fitted by compute_correction().
-        calibrated_xyz = self._rgb_to_calibrated_xyz(rgb)
-
-        # Convert calibrated XYZ to CIE Lab (D65).
-        calibrated_lab = xyz_to_lab(
-            np.asarray(calibrated_xyz, dtype=np.float64).reshape(1, 3)
-        )[0]
-
-        return tuple(float(v) for v in calibrated_lab)
-
     def apply_correction(self, rgb: Tuple[float, float, float]) -> Tuple[float, float, float]:
         """Legacy RGB return path, rendered from the calibrated physical XYZ."""
         if not self.is_valid or self.calibration_matrix is None:
