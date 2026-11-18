@@ -119,6 +119,20 @@ class ScannerCalibrationDialog:
         action_frame = ttk.LabelFrame(main, text="Calibration Steps", padding=10)
         action_frame.pack(fill=tk.X, pady=(0, 10))
         
+        # CR30 reference set applies ONLY to a new calibration.
+        reference_row = ttk.Frame(action_frame)
+        reference_row.pack(fill=tk.X, pady=(0, 8))
+        ttk.Label(reference_row, text="CR30 target:").pack(side=tk.LEFT)
+        self.reference_set_var = tk.StringVar(value="scanner")
+        ttk.Radiobutton(
+            reference_row, text="Scanner (default)",
+            variable=self.reference_set_var, value="scanner"
+        ).pack(side=tk.LEFT, padx=(10, 8))
+        ttk.Radiobutton(
+            reference_row, text="Camera", variable=self.reference_set_var,
+            value="camera"
+        ).pack(side=tk.LEFT)
+
         # Step 1: Load target scan
         step1_frame = ttk.Frame(action_frame)
         step1_frame.pack(fill=tk.X, pady=3)
@@ -325,7 +339,7 @@ class ScannerCalibrationDialog:
         active = get_active_calibration()
         if active and active.is_valid:
             self.status_label.config(
-                text="Scanner calibrated ✓",
+                text="Calibration active ✓",
                 foreground='#006600'
             )
             quality = active.get_calibration_quality()
@@ -363,8 +377,7 @@ class ScannerCalibrationDialog:
         filepath = filedialog.askopenfilename(
             parent=self.root,
             title="Select Scanned Target Image",
-            initialdir=initial_dir,
-            filetypes=filetypes
+            initialdir=initial_dir
         )
         
         if filepath:
@@ -380,7 +393,9 @@ class ScannerCalibrationDialog:
         from utils.scanner_calibration import ScannerCalibration
         
         try:
-            self.calibration = ScannerCalibration()
+            self.calibration = ScannerCalibration(
+                reference_set=self.reference_set_var.get()
+            )
             
             # Detect patches
             self.root.config(cursor="watch")
@@ -573,7 +588,8 @@ class ScannerCalibrationDialog:
         
         messagebox.showinfo(
             "Calibration Saved",
-            f"Scanner calibration profile '{name}' has been saved and activated.\n\n"
+            f"Calibration profile '{name}' ({self.calibration.reference_set.title()} CR30) "
+            f"has been saved and activated.\n\n"
             f"All future color measurements will be corrected using this profile.\n\n"
             f"Use 'Export Profile...' to save a copy you can share with other users.",
             parent=self.root

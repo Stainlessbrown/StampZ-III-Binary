@@ -62,6 +62,36 @@ CR30_LAB_TARGETS = np.array([
     [66.88, -53.28,  58.60],   # Yellow-Green
 ], dtype=np.float64)
 
+# Scanner/V600 values above are the historical accepted reference table.
+# Camera values below come from the independently measured 2026-10-07 print run.
+CAMERA_CR30_LAB_TARGETS = np.array([
+    [2.31, 0.35, 0.18],
+    [25.86, 0.32, -1.32],
+    [46.79, -0.64, -1.13],
+    [70.18, -0.87, -1.11],
+    [93.12, -1.53, -3.11],
+    [84.58, 2.43, 10.02],
+    [36.72, 24.26, 42.02],
+    [53.19, 35.13, 53.51],
+    [42.96, 66.27, 54.54],
+    [45.05, 72.49, -6.24],
+    [41.18, 69.38, -9.54],
+    [53.71, -4.98, -31.03],
+    [61.91, 21.42, -36.18],
+    [72.17, 17.91, -24.66],
+    [34.56, -28.25, 35.96],
+    [69.38, -0.43, 50.67],
+    [30.39, 13.31, -37.62],
+    [54.35, 17.49, 38.19],
+    [54.66, -25.13, -10.73],
+    [67.02, -52.42, 57.11]
+], dtype=np.float64)
+
+CR30_REFERENCE_SETS = {
+    "scanner": CR30_LAB_TARGETS,
+    "camera": CAMERA_CR30_LAB_TARGETS,
+}
+
 PATCH_LAB: Dict[str, Tuple[float, float, float]] = {
     name: tuple(float(v) for v in lab)
     for name, lab in zip(PATCH_NAMES, CR30_LAB_TARGETS)
@@ -210,9 +240,9 @@ class PatchResult:
     @property
     def digital_rgb(self) -> Tuple[int, int, int]:
         """Legacy GUI name: display RGB generated from CR30 Lab reference."""
-        idx = PATCH_NAMES.index(self.name)
-        rgb = REFERENCE_RGB_255[idx]
-        return int(rgb[0]), int(rgb[1]), int(rgb[2])
+        rgb = lab_to_srgb(np.asarray(self.reference_lab, dtype=np.float64).reshape(1, 3))[0]
+        values = np.rint(rgb * 255.0).astype(int)
+        return int(values[0]), int(values[1]), int(values[2])
 
 
 # ---------------------------------------------------------------------
@@ -283,7 +313,8 @@ class ScannerCalibration:
     # The CR30 matrix fit uses all 20 patches, so none are excluded here.
     GAMUT_THRESHOLD = float("inf")
 
-    def __init__(self) -> None:
+    def __init__(self, reference_set: str = "scanner") -> None:
+        self.set_reference_set(reference_set)
         self.patch_results: List[PatchResult] = []
         self.calibration_matrix: Optional[np.ndarray] = None  # 3 x 3
         self.scanner_black_floor = np.zeros(3, dtype=np.float64)
@@ -295,6 +326,15 @@ class ScannerCalibration:
         self.scanner_info = ""
         self.source_target_path = ""
         self._quality: Optional[Dict[str, Any]] = None
+
+    def set_reference_set(self, reference_set: str) -> None:
+        """Select references for a NEW calibration; never changes an existing fit."""
+        if reference_set not in CR30_REFERENCE_SETS:
+            raise ValueError(f"Unknown CR30 reference set: {reference_set!r}")
+        if getattr(self, "patch_results", None) or getattr(self, "is_valid", False):
+            raise ValueError("Cannot change the reference set after target sampling; start a new calibration.")
+        self.reference_set = reference_set
+        self.cr30_lab_targets = CR30_REFERENCE_SETS[reference_set].copy()
 
     def detect_patches(self, image_path: str) -> List[PatchResult]:
         """Sample the center 50% of each cell from a cropped 4x5 target scan."""
@@ -354,7 +394,7 @@ class ScannerCalibration:
 
                 idx = r * self.GRID_COLS + c
                 name = PATCH_NAMES[idx]
-                ref_lab = CR30_LAB_TARGETS[idx]
+                ref_lab = self.cr30_lab_targets[idx]
                 mean_rgb = crop.mean(axis=(0, 1))
                 print(f"CAL PATCH {name}: RGB={mean_rgb[0]:.2f}, {mean_rgb[1]:.2f}, {mean_rgb[2]:.2f}")
                 scan_lab = srgb_to_lab((mean_rgb / 255.0).reshape(1, 3))[0]
@@ -409,7 +449,7 @@ class ScannerCalibration:
 
         x_input = scanned_linear
 
-        weights, _, rank, _ = np.linalg.lstsq(x_input, Y_TARGETS_XYZ, rcond=None)
+        weights, _, rank, _ = np.linalg.lstsq(x_input, lab_to_xyz(self.cr30_lab_targets), rcond=None)
         if rank < 3:
             raise ValueError(
                 "Calibration target data are degenerate; could not solve a stable 3-parameter matrix."
@@ -665,7 +705,8 @@ class ScannerCalibration:
             "scanner_info": self.scanner_info,
             "created_date": self.created_date,
             "source_target_path": self.source_target_path,
-            "cr30_lab_targets": CR30_LAB_TARGETS.tolist(),
+            "reference_set": self.reference_set,
+            "cr30_lab_targets": self.cr30_lab_targets.tolist(),
             "calibration_matrix": self.calibration_matrix.tolist(),
             "scanner_black_floor": self.scanner_black_floor.tolist(),
             "scale_factor": self.scale_factor,
@@ -722,6 +763,20 @@ class ScannerCalibration:
                 self._patch_from_dict(item)
                 for item in profile.get("patch_results", [])
             ]
+            # Historical profiles contain their own fitted matrix and patch
+            # reference_lab values. Never substitute today's default table.
+            stored_set = profile.get("reference_set")
+            self.reference_set = stored_set if stored_set in CR30_REFERENCE_SETS else "legacy"
+            stored_targets = profile.get("cr30_lab_targets")
+            if stored_targets is not None:
+                target_array = np.asarray(stored_targets, dtype=np.float64)
+                if target_array.shape != (20, 3) or not np.isfinite(target_array).all():
+                    raise ValueError("Invalid saved CR30 target table")
+                self.cr30_lab_targets = target_array.copy()
+            elif len(self.patch_results) == 20:
+                self.cr30_lab_targets = np.asarray(
+                    [p.reference_lab for p in self.patch_results], dtype=np.float64
+                )
             self.is_valid = True
             logger.info("Loaded CR30 calibration profile from %s", path)
             return True
