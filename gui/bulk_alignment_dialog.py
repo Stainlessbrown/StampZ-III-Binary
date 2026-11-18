@@ -338,6 +338,65 @@ class BulkAlignmentDialog:
         # Force GUI update
         self.dialog.update_idletasks()
     
+    def _choose_existing_destination(self, path: str):
+        """Ask the user whether to replace, rename, or skip one aligned TIFF."""
+        if getattr(self, "_overwrite_all", False):
+            return ("overwrite", None)
+
+        choice = {"action": "cancel", "apply_all": False}
+        window = tk.Toplevel(self.dialog)
+        window.title("File Already Exists")
+        window.transient(self.dialog)
+        window.resizable(False, False)
+        window.protocol("WM_DELETE_WINDOW", lambda: close("cancel"))
+        frame = ttk.Frame(window, padding=16)
+        frame.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(
+            frame, text=f"{os.path.basename(path)} already exists.",
+            font=("Arial", 12, "bold"), wraplength=440
+        ).pack(anchor=tk.W, pady=(0, 8))
+        ttk.Label(
+            frame, text="Overwrite the existing file, save under another name, or cancel?",
+            wraplength=440
+        ).pack(anchor=tk.W, pady=(0, 12))
+        apply_all = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            frame, text="Apply Overwrite to all remaining existing files",
+            variable=apply_all
+        ).pack(anchor=tk.W, pady=(0, 12))
+        buttons = ttk.Frame(frame)
+        buttons.pack(fill=tk.X)
+
+        def close(action):
+            choice["action"] = action
+            choice["apply_all"] = bool(apply_all.get()) if action == "overwrite" else False
+            window.destroy()
+
+        ttk.Button(buttons, text="Overwrite", command=lambda: close("overwrite")).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(buttons, text="Save As…", command=lambda: close("save_as")).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(buttons, text="Cancel", command=lambda: close("cancel")).pack(side=tk.RIGHT)
+        window.update_idletasks()
+        window.grab_set()
+        self.dialog.wait_window(window)
+        if self.dialog.winfo_exists():
+            self.dialog.grab_set()
+
+        if choice["action"] == "overwrite":
+            if choice["apply_all"]:
+                self._overwrite_all = True
+            return ("overwrite", None)
+        if choice["action"] == "save_as":
+            new_path = filedialog.asksaveasfilename(
+                parent=self.dialog,
+                title="Save Aligned TIFF As",
+                initialdir=os.path.dirname(path),
+                initialfile=os.path.basename(path),
+                defaultextension=".tif",
+                filetypes=[("TIFF Images", "*.tif *.tiff")],
+            )
+            return ("save_as", new_path) if new_path else ("cancel", None)
+        return ("cancel", None)
+
     def _process_images(self):
         """Process the selected images."""
         # Validate inputs
@@ -378,6 +437,8 @@ class BulkAlignmentDialog:
         if not response:
             return
         
+        self._overwrite_all = False
+
         # Show progress frame
         self.progress_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
         
@@ -411,16 +472,25 @@ class BulkAlignmentDialog:
             successful, failed = self.alignment_manager.bulk_align_images(
                 self.selected_files,
                 self.output_directory,
-                progress_callback=self._progress_callback
+                progress_callback=self._progress_callback,
+                collision_callback=self._choose_existing_destination
             )
             
+            skipped = getattr(self.alignment_manager, "last_bulk_skipped", [])
+
             # Show results
             self._update_status("\n" + "="*50)
             self._update_status("PROCESSING COMPLETE")
             self._update_status("="*50)
             self._update_status(f"✓ Successfully aligned: {len(successful)}")
+            self._update_status(f"– Skipped: {len(skipped)}")
             self._update_status(f"✗ Failed: {len(failed)}")
             
+            if skipped:
+                self._update_status("\nSkipped images:")
+                for filepath, _ in skipped:
+                    self._update_status(f"  - {os.path.basename(filepath)}: save cancelled")
+
             if failed:
                 self._update_status("\nFailed images:")
                 for filepath, error in failed:
@@ -432,6 +502,7 @@ class BulkAlignmentDialog:
                 "Processing Complete",
                 f"Bulk alignment complete!\n\n"
                 f"✓ Successful: {len(successful)}\n"
+                f"– Skipped: {len(skipped)}\n"
                 f"✗ Failed: {len(failed)}\n\n"
                 f"Aligned images saved to:\n{self.output_directory}",
                 parent=self.dialog

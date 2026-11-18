@@ -753,7 +753,7 @@ class ImageAlignmentManager:
             }
 
     def bulk_align_images(self, image_paths: list, output_dir: str, 
-                         progress_callback=None) -> Tuple[list, list]:
+                         progress_callback=None, collision_callback=None) -> Tuple[list, list]:
         """
         Align multiple images in batch and save to output directory.
         
@@ -762,6 +762,9 @@ class ImageAlignmentManager:
             output_dir: Directory to save aligned images
             progress_callback: Optional callback function(current, total, filename, status)
                              called for each image processed
+            collision_callback: Optional UI callback(existing_path), returning
+                             ("overwrite", None), ("save_as", new_path),
+                             or ("cancel", None). No callback means no overwrite.
         
         Returns:
             Tuple of (successful_files, failed_files)
@@ -797,6 +800,7 @@ class ImageAlignmentManager:
         
         successful = []
         failed = []
+        self.last_bulk_skipped = []
         total = len(image_paths)
         
         for idx, image_path in enumerate(image_paths, 1):
@@ -1038,8 +1042,8 @@ class ImageAlignmentManager:
                             or source_preview.shape[:2] != native_source.shape[:2]):
                         raise ValueError("Invalid source preview")
 
-                    # Save in a new destination: the writer verifies all pages
-                    # before publication and refuses to overwrite existing work.
+                    # Resolve destination collisions explicitly. The TIFF writer
+                    # always stages and verifies the complete file before publishing.
                     base_name = Path(filename).stem
                     output_path = os.path.join(output_dir, f"{base_name}_aligned.tif")
                     geometry = {
@@ -1054,38 +1058,86 @@ class ImageAlignmentManager:
                         "original_file": filename,
                         "source_sha256": digest.hexdigest(),
                     }
-                    manifest = write_self_contained_tiff(
-                        output_path,
-                        aligned_display=aligned_pixels,
-                        native_source=native_source,
-                        source_preview=source_preview,
-                        geometry=geometry,
-                        analytical_encoding=analytical_encoding,
-                        aligned_display_encoding=aligned_encoding,
-                        source_display_encoding=source_display_encoding,
-                        raw_derived=raw_derived,
-                        source_identity=source_identity,
-                        overwrite=False,
-                    )
-                    print(
-                        "PORTABLE TIFF VERIFIED:", output_path,
-                        "pages:", len(manifest["pages"]),
-                        "native depth:", native_source.dtype,
-                        "RAW-derived:", raw_derived,
-                    )
-
-                    successful.append((image_path, output_path))
-                    if progress_callback:
-                        progress_callback(idx, total, filename, f"✓ Aligned ({info['num_matches']} matches)")
+                    # Check existing destinations before writing, and repeat the
+                    # decision if Save As targets another existing file.
+                    # A last-moment FileExistsError is retried as a collision.
+                    reserved_inputs = {Path(p).resolve() for p in image_paths}
+                    overwrite_selected = False
+                    while True:
+                        destination = Path(output_path)
+                        if destination.resolve() in reserved_inputs:
+                            raise ValueError(
+                                f"Destination would replace an input image: {destination}"
+                            )
+                        if destination.exists():
+                            if collision_callback is None:
+                                raise FileExistsError(str(destination))
+                            decision, alternative = collision_callback(str(destination))
+                            if decision == "cancel":
+                                self.last_bulk_skipped.append((image_path, str(destination)))
+                                if progress_callback:
+                                    progress_callback(idx, total, filename, "– Skipped (save cancelled)")
+                                break
+                            if decision == "save_as":
+                                if not alternative:
+                                    self.last_bulk_skipped.append((image_path, str(destination)))
+                                    if progress_callback:
+                                        progress_callback(idx, total, filename, "– Skipped (save cancelled)")
+                                    break
+                                new_path = Path(alternative)
+                                if new_path.suffix.lower() not in (".tif", ".tiff"):
+                                    raise ValueError("Save As must use a .tif or .tiff filename")
+                                if not new_path.parent.is_dir():
+                                    raise ValueError("Save As directory does not exist")
+                                output_path = str(new_path)
+                                overwrite_selected = False
+                                continue
+                            if decision != "overwrite":
+                                raise ValueError(f"Unexpected collision choice: {decision!r}")
+                            overwrite_selected = True
+                        else:
+                            overwrite_selected = False
+                        try:
+                            manifest = write_self_contained_tiff(
+                                output_path,
+                                aligned_display=aligned_pixels,
+                                native_source=native_source,
+                                source_preview=source_preview,
+                                geometry=geometry,
+                                analytical_encoding=analytical_encoding,
+                                aligned_display_encoding=aligned_encoding,
+                                source_display_encoding=source_display_encoding,
+                                raw_derived=raw_derived,
+                                source_identity=source_identity,
+                                overwrite=overwrite_selected,
+                            )
+                        except FileExistsError:
+                            # A competing save created the destination in the
+                            # meantime. Present the collision choice again.
+                            if overwrite_selected:
+                                raise
+                            continue
+                        print(
+                            "PORTABLE TIFF VERIFIED:", output_path,
+                            "pages:", len(manifest["pages"]),
+                            "native depth:", native_source.dtype,
+                            "RAW-derived:", raw_derived,
+                        )
+                        successful.append((image_path, output_path))
+                        if progress_callback:
+                            progress_callback(idx, total, filename, f"✓ Aligned ({info['num_matches']} matches)")
+                        break
                 else:
                     failed.append((image_path, info['message']))
                     if progress_callback:
                         progress_callback(idx, total, filename, f"✗ Failed: {info['message']}")
-                
+
             except Exception as e:
-                error_msg = str(e)
+                import traceback
+                traceback.print_exc()
+                error_msg = f"{type(e).__name__}: {e}"
                 failed.append((image_path, error_msg))
                 if progress_callback:
                     progress_callback(idx, total, filename, f"✗ Error: {error_msg}")
-        
+
         return successful, failed
