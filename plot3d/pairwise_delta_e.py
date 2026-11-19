@@ -7,6 +7,7 @@ data points and displays it in a colour-coded viewer with export to ODS/XLSX.
 """
 
 import os
+from utils.delta_e_00 import delta_e_00
 import math
 import logging
 import tkinter as tk
@@ -22,77 +23,8 @@ import pandas as pd
 
 def _delta_e_2000(lab1: Tuple[float, float, float],
                   lab2: Tuple[float, float, float]) -> float:
-    """Calculate ΔE CIE2000 between two L*a*b* colours."""
-    L1, a1, b1 = lab1
-    L2, a2, b2 = lab2
-
-    kL = kC = kH = 1.0
-
-    C1 = math.sqrt(a1 ** 2 + b1 ** 2)
-    C2 = math.sqrt(a2 ** 2 + b2 ** 2)
-    Cab = (C1 + C2) / 2
-    G = 0.5 * (1 - math.sqrt(Cab ** 7 / (Cab ** 7 + 25 ** 7)))
-
-    a1p = (1 + G) * a1
-    a2p = (1 + G) * a2
-    C1p = math.sqrt(a1p ** 2 + b1 ** 2)
-    C2p = math.sqrt(a2p ** 2 + b2 ** 2)
-
-    def _h_prime(ap, b):
-        if ap == 0 and b == 0:
-            return 0
-        h = math.degrees(math.atan2(b, ap))
-        return h + 360 if h < 0 else h
-
-    h1p = _h_prime(a1p, b1)
-    h2p = _h_prime(a2p, b2)
-
-    deltaLp = L2 - L1
-    deltaCp = C2p - C1p
-
-    dhp = h2p - h1p
-    if C1p * C2p == 0:
-        deltaHp_angle = 0
-    elif abs(dhp) <= 180:
-        deltaHp_angle = dhp
-    elif dhp > 180:
-        deltaHp_angle = dhp - 360
-    else:
-        deltaHp_angle = dhp + 360
-    deltaHp = 2 * math.sqrt(C1p * C2p) * math.sin(math.radians(deltaHp_angle / 2))
-
-    Lp = (L1 + L2) / 2
-    Cp = (C1p + C2p) / 2
-
-    if C1p * C2p == 0:
-        hp = h1p + h2p
-    elif abs(h1p - h2p) <= 180:
-        hp = (h1p + h2p) / 2
-    elif h1p + h2p < 360:
-        hp = (h1p + h2p + 360) / 2
-    else:
-        hp = (h1p + h2p - 360) / 2
-
-    T = (1
-         - 0.17 * math.cos(math.radians(hp - 30))
-         + 0.24 * math.cos(math.radians(2 * hp))
-         + 0.32 * math.cos(math.radians(3 * hp + 6))
-         - 0.20 * math.cos(math.radians(4 * hp - 63)))
-
-    dTheta = 30 * math.exp(-((hp - 275) / 25) ** 2)
-    RC = 2 * math.sqrt(Cp ** 7 / (Cp ** 7 + 25 ** 7))
-    RT = -math.sin(math.radians(2 * dTheta)) * RC
-
-    SL = 1 + (0.015 * (Lp - 50) ** 2) / math.sqrt(20 + (Lp - 50) ** 2)
-    SC = 1 + 0.045 * Cp
-    SH = 1 + 0.015 * Cp * T
-
-    return math.sqrt(
-        (deltaLp / (kL * SL)) ** 2
-        + (deltaCp / (kC * SC)) ** 2
-        + (deltaHp / (kH * SH)) ** 2
-        + RT * (deltaCp / (kC * SC)) * (deltaHp / (kH * SH))
-    )
+    """Return the shared CIEDE2000 (ΔE00) metric."""
+    return delta_e_00(lab1, lab2)
 
 
 def _denormalize_lab(x: float, y: float, z: float) -> Tuple[float, float, float]:

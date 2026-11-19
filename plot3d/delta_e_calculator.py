@@ -1,4 +1,5 @@
 import os
+from utils.delta_e_00 import delta_e_00
 import logging
 import math
 import numpy as np
@@ -183,110 +184,10 @@ class DeltaECalculator:
         
         return L, a, b
     
-    def calculate_delta_e_2000(self, lab1: Tuple[float, float, float], 
+    def calculate_delta_e_2000(self, lab1: Tuple[float, float, float],
                               lab2: Tuple[float, float, float]) -> float:
-        """
-        Calculate ΔE CIE2000 color difference between two L*a*b* colors.
-        
-        Args:
-            lab1: First L*a*b* color as (L*, a*, b*)
-            lab2: Second L*a*b* color as (L*, a*, b*)
-            
-        Returns:
-            Delta E CIE2000 value
-        """
-        # Unpack L*a*b* values
-        L1, a1, b1 = lab1
-        L2, a2, b2 = lab2
-        
-        # Set weighting factors
-        kL = 1.0
-        kC = 1.0
-        kH = 1.0
-        
-        # Calculate Cab
-        C1 = math.sqrt(a1**2 + b1**2)
-        C2 = math.sqrt(a2**2 + b2**2)
-        Cab = (C1 + C2) / 2
-        
-        # Calculate G (factor for a* correction)
-        G = 0.5 * (1 - math.sqrt(Cab**7 / (Cab**7 + 25**7)))
-        
-        # Calculate a' (corrected a*)
-        a1p = (1 + G) * a1
-        a2p = (1 + G) * a2
-        
-        # Calculate C' (corrected C*)
-        C1p = math.sqrt(a1p**2 + b1**2)
-        C2p = math.sqrt(a2p**2 + b2**2)
-        
-        # Calculate h' (corrected hue angle)
-        def calculate_h_prime(ap, b):
-            if ap == 0 and b == 0:
-                return 0
-            h = math.degrees(math.atan2(b, ap))
-            return h + 360 if h < 0 else h
-        
-        h1p = calculate_h_prime(a1p, b1)
-        h2p = calculate_h_prime(a2p, b2)
-        
-        # Calculate ΔL', ΔC', ΔH'
-        deltaLp = L2 - L1
-        deltaCp = C2p - C1p
-        
-        # Calculate ΔH'
-        deltahp = h2p - h1p
-        if C1p * C2p == 0:
-            deltaHp = 0
-        elif abs(deltahp) <= 180:
-            deltaHp = deltahp
-        elif deltahp > 180:
-            deltaHp = deltahp - 360
-        else:
-            deltaHp = deltahp + 360
-            
-        deltaHp = 2 * math.sqrt(C1p * C2p) * math.sin(math.radians(deltaHp / 2))
-        
-        # Calculate mean values for L', C', and h'
-        Lp = (L1 + L2) / 2
-        Cp = (C1p + C2p) / 2
-        
-        # Calculate mean hue h'
-        if C1p * C2p == 0:
-            hp = h1p + h2p
-        elif abs(h1p - h2p) <= 180:
-            hp = (h1p + h2p) / 2
-        elif h1p + h2p < 360:
-            hp = (h1p + h2p + 360) / 2
-        else:
-            hp = (h1p + h2p - 360) / 2
-            
-        # Calculate T
-        T = (1 - 
-             0.17 * math.cos(math.radians(hp - 30)) + 
-             0.24 * math.cos(math.radians(2 * hp)) + 
-             0.32 * math.cos(math.radians(3 * hp + 6)) - 
-             0.20 * math.cos(math.radians(4 * hp - 63)))
-        
-        # Calculate RT (rotation term)
-        deltaTheta = 30 * math.exp(-((hp - 275) / 25)**2)
-        RC = 2 * math.sqrt(Cp**7 / (Cp**7 + 25**7))
-        RT = -math.sin(math.radians(2 * deltaTheta)) * RC
-        
-        # Calculate SL, SC, SH (compensation factors)
-        SL = 1 + ((0.015 * (Lp - 50)**2) / math.sqrt(20 + (Lp - 50)**2))
-        SC = 1 + 0.045 * Cp
-        SH = 1 + 0.015 * Cp * T
-        
-        # Calculate ΔE CIE2000
-        deltaE = math.sqrt(
-            (deltaLp / (kL * SL))**2 + 
-            (deltaCp / (kC * SC))**2 + 
-            (deltaHp / (kH * SH))**2 + 
-            RT * (deltaCp / (kC * SC)) * (deltaHp / (kH * SH))
-        )
-        
-        return deltaE
+        """Return the shared CIEDE2000 (ΔE00) metric."""
+        return delta_e_00(lab1, lab2)
     
     def validate_data(self, data: pd.DataFrame, row_indices: range, ref_row_idx: int = None) -> None:
         """

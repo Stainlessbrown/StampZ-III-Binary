@@ -443,7 +443,11 @@ class LiveSampleModel:
                 s["delta_e"] = None
                 s["delta_components"] = None
             else:
-                s["delta_e"] = self._delta_e(s["lab"], group_mean, analyzer)
+                try:
+                    s["delta_e"] = self._delta_e(s["lab"], group_mean, analyzer)
+                except Exception as e:
+                    print(f"LiveSampleModel: ΔE00 calculation failed for sample {s.get('index')}: {e}")
+                    s["delta_e"] = None
                 try:
                     s["delta_components"] = lab_difference_components(
                         s["lab"], group_mean,
@@ -457,11 +461,5 @@ class LiveSampleModel:
 
     @staticmethod
     def _delta_e(lab1, lab2, analyzer) -> float:
-        try:
-            return float(analyzer.calculate_delta_e(lab1, lab2))
-        except Exception:
-            # Fallback to CIE76 if the analyzer's path fails for any reason
-            dl = lab1[0] - lab2[0]
-            da = lab1[1] - lab2[1]
-            db = lab1[2] - lab2[2]
-            return math.sqrt(dl * dl + da * da + db * db)
+        # Do not silently substitute ΔE76; failures must remain visible.
+        return float(analyzer.calculate_delta_e(lab1, lab2))

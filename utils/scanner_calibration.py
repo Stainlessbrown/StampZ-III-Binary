@@ -17,6 +17,7 @@ Target layout: 4 columns x 5 rows, Black at top-left.
 from __future__ import annotations
 
 import json
+from .delta_e_00 import delta_e_00
 import logging
 import os
 from dataclasses import dataclass
@@ -398,7 +399,7 @@ class ScannerCalibration:
                 mean_rgb = crop.mean(axis=(0, 1))
                 print(f"CAL PATCH {name}: RGB={mean_rgb[0]:.2f}, {mean_rgb[1]:.2f}, {mean_rgb[2]:.2f}")
                 scan_lab = srgb_to_lab((mean_rgb / 255.0).reshape(1, 3))[0]
-                de_before = float(delta_e_76(scan_lab, ref_lab)[0])
+                de_before = delta_e_00(scan_lab, ref_lab)
 
                 results.append(PatchResult(
                     name=name,
@@ -464,10 +465,7 @@ class ScannerCalibration:
         for p in self.patch_results:
             corrected_lab = self.apply_to_lab(p.scanned_rgb)
             p.corrected_lab = corrected_lab
-            p.delta_e_after = float(delta_e_76(
-                np.array(corrected_lab).reshape(1, 3),
-                np.array(p.reference_lab).reshape(1, 3),
-            )[0])
+            p.delta_e_after = delta_e_00(corrected_lab, p.reference_lab)
             corrected_rgb = lab_to_srgb(np.array(corrected_lab).reshape(1, 3))[0] * 255.0
             p.corrected_rgb = tuple(float(v) for v in corrected_rgb)
             before.append(p.delta_e_before)
@@ -488,11 +486,11 @@ class ScannerCalibration:
             "improvement_percent": improvement,
             "profile_name": self.profile_name,
             "created_date": self.created_date,
-            "metric": "CIE76 Lab",
+            "metric": "CIEDE2000 (ΔE00)",
         }
 
         logger.info(
-            "CR30 calibration computed: avg dE76 %.2f -> %.2f (%.1f%% improvement)",
+            "CR30 calibration computed: avg dE00 %.2f -> %.2f (%.1f%% improvement)",
             avg_before, avg_after, improvement,
         )
         return dict(self._quality)
@@ -796,7 +794,9 @@ class ScannerCalibration:
                 "patches_excluded": 0,
                 "profile_name": self.profile_name,
                 "created_date": self.created_date,
-                "metric": "CIE76 Lab",
+                # Historical profiles without quality metadata cannot be assigned
+                # a metric reliably; preserve the numbers without relabeling.
+                "metric": "unknown (historical)",
             }
         return {
             "profile_name": self.profile_name,
@@ -805,7 +805,7 @@ class ScannerCalibration:
             "patch_count": 0,
             "patches_used": 0,
             "patches_excluded": 0,
-            "metric": "CIE76 Lab",
+            "metric": "unknown",
         }
 
     @staticmethod
