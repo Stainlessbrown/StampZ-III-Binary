@@ -367,14 +367,16 @@ def load_image(file_path: Union[str, Path], display_only: bool = False) -> Tuple
                     "Install it with: pip install rawpy"
                 )
             try:
-                # Preserve the established analytical RAW conversion.
+                # Decode linear RAW and apply standard sRGB encoding for analysis.
                 with rawpy.imread(str(file_path)) as raw:
-                    img_array = raw.postprocess(
+                    linear_array = raw.postprocess(
                         use_camera_wb=True,
                         no_auto_bright=True,
                         output_bps=16,
-                        gamma=(2.222, 4.5),
+                        output_color=rawpy.ColorSpace.sRGB,
+                        gamma=(1, 1),
                     )
+                img_array = _apply_srgb_gamma_16bit(linear_array)
 
                 # The analytical array is never replaced by display data.
                 if display_only:
@@ -403,7 +405,7 @@ def load_image(file_path: Union[str, Path], display_only: bool = False) -> Tuple
                 image._stampz_source_file = str(file_path)
                 image._stampz_is_raw = True
                 image._stampz_source_type = 'camera_raw'
-                image._stampz_transfer_function = 'libraw_2222_45'
+                image._stampz_transfer_function = 'srgb_iec61966_2_1'
                 image._stampz_original_source_file = str(file_path)
                 metadata.update({
                     'format_info': f"Camera RAW ({suffix.upper()}) loaded via rawpy — 16-bit, sRGB",
