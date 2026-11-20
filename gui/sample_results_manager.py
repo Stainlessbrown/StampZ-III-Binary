@@ -118,6 +118,23 @@ class SampleResultsManager(tk.Frame):
             anchor='w', padx=self.current_sizes['padding']
         )
     
+    def _refresh_sample_name_label(self):
+        """Display a distinct user-supplied Sample Name without altering DataID."""
+        try:
+            sample_name = self.app.control_panel.sample_name.get().strip()
+        except (AttributeError, tk.TclError):
+            sample_name = ""
+
+        filename = os.path.basename(getattr(self, "current_file_path", "") or "")
+        # File extensions are not part of the sample DataID.
+        file_stem = os.path.splitext(filename)[0]
+        # One label ensures filename and distinct Sample Name share the same
+        # baseline and font, while retaining the original file provenance.
+        header_text = filename
+        if sample_name and sample_name != file_stem:
+            header_text += f"    |    Sample Name: {sample_name}"
+        self.filename_label.config(text=header_text)
+
     def _create_results_section(self):
         """Create the results section with samples and average display."""
         results_frame = ttk.Frame(self)
@@ -226,6 +243,7 @@ class SampleResultsManager(tk.Frame):
             # Update filename display
             filename = os.path.basename(image_path)
             self.filename_label.config(text=filename)
+            self._refresh_sample_name_label()
             print(f"DEBUG: Updated filename display: {filename}")
             
             # Portable TIFFs must retain authenticated native pixels and provenance.
@@ -1218,12 +1236,6 @@ class SampleResultsManager(tk.Frame):
         )
         save_db_button.pack(fill=tk.X, pady=2)
         
-        save_file_button = ttk.Button(
-            buttons_frame, text="Save to File",
-            command=lambda: self._save_to_text_file(avg_rgb, avg_lab, samples),
-        )
-        save_file_button.pack(fill=tk.X, pady=2)
-        
         compare_button = ttk.Button(
             buttons_frame, text="Save comparison image…",
             command=lambda: self._save_comparison_image(avg_rgb, avg_lab),
@@ -1247,6 +1259,13 @@ class SampleResultsManager(tk.Frame):
             ),
         )
         coverage_button.pack(fill=tk.X, pady=2)
+
+        # Keep file export last and separated from the primary Save to DB.
+        save_file_button = ttk.Button(
+            buttons_frame, text="Save to File",
+            command=lambda: self._save_to_text_file(avg_rgb, avg_lab, samples),
+        )
+        save_file_button.pack(fill=tk.X, pady=(14, 2))
     
     def _show_coverage_analysis(self, marker_avg_rgb=None, marker_avg_lab=None):
         """Run the coverage / effective-tone analyzer and show the result.

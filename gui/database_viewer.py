@@ -398,6 +398,54 @@ class DatabaseViewer:
                 text=f"Showing all ({total}) \u2014 Use Workspace",
             )
 
+    @staticmethod
+    def _recent_database_first(databases, recent):
+        """Sort names naturally, placing the last successfully opened one first."""
+        import re
+
+        def natural_key(name):
+            return [(0, int(part)) if part.isdigit() else (1, part.casefold())
+                    for part in re.split(r"(\d+)", name)]
+
+        ordered = sorted(set(databases), key=natural_key)
+        if recent in ordered:
+            ordered.remove(recent)
+            ordered.insert(0, recent)
+        return ordered
+
+    def _database_recency_key(self):
+        """Keep DB Examine's Analysis and Libraries history independent."""
+        if self.data_source.get() == "color_libraries":
+            return "database_viewer_last_used_color_libraries"
+        return "database_viewer_last_used_color_analysis"
+
+    def _last_opened_database(self):
+        try:
+            from utils.user_preferences import get_preferences_manager
+            return get_preferences_manager().get(self._database_recency_key(), "")
+        except Exception as error:
+            print(f"DB Examine: Could not read recent database preference: {error}")
+            return ""
+
+    def _remember_opened_database(self):
+        """Called only after the selected database has loaded successfully."""
+        name = self.current_sample_set
+        if not name:
+            return
+        try:
+            from utils.user_preferences import get_preferences_manager
+            prefs = get_preferences_manager()
+            key = self._database_recency_key()
+            if prefs.get(key, "") != name:
+                if not prefs.set(key, name):
+                    print(f"DB Examine: Could not save recent database: {name}")
+        except Exception as error:
+            print(f"DB Examine: Could not remember recent database: {error}")
+
+        # Keep the open dropdown current without changing its selection.
+        values = self.sample_set_combo["values"]
+        self.sample_set_combo["values"] = self._recent_database_first(values, name)
+
     def _load_sample_sets(self):
         """Load available databases into the combobox based on selected data source."""
         try:
@@ -444,7 +492,12 @@ class DatabaseViewer:
                 databases = [d for d in all_databases if d in ws_set]
             else:
                 databases = all_databases
-            
+
+            # Ordering only: never change, move, or modify a DB file.
+            # Each data source retains its own last successfully opened DB.
+            recent = self._last_opened_database()
+            databases = self._recent_database_first(databases, recent)
+
             print(f"DEBUG: Loading {source_type} from: {data_dir}")
             print(
                 f"DEBUG: Found {len(databases)}/{len(all_databases)} "
@@ -466,7 +519,7 @@ class DatabaseViewer:
                 # flip the toggle while inspecting a particular DB.
                 current = self.sample_set_combo.get()
                 self.sample_set_combo["values"] = databases
-                if current in databases:
+                if current in databases and self.current_sample_set == current:
                     self.sample_set_combo.set(current)
                 else:
                     self.sample_set_combo.set(databases[0])
@@ -531,6 +584,9 @@ class DatabaseViewer:
 
     def _on_source_changed(self):
         """Handle data source change."""
+        # A name shared by Analysis and Libraries is NOT the same database.
+        self.current_sample_set = None
+        self.sample_set_combo.set("")
         self._load_sample_sets()
         # Update column headings based on source
         is_color_libs = self.data_source.get() == "color_libraries"
@@ -718,7 +774,11 @@ class DatabaseViewer:
                         self.tree.insert('', 'end', values=values)
                     
                     self.status_var.set(f"Loaded {len(colors)} colors from {self.current_sample_set}")
-        
+
+            # Successful DB Examine load is the sole trigger for recency.
+            # An attempted load that raises must never become the preference.
+            self._remember_opened_database()
+
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load data: {str(e)}")
     
