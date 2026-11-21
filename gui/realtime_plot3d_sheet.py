@@ -2171,6 +2171,60 @@ class RealtimePlot3DSheet:
             logger.error(f"Error pushing changes to Plot_3D: {e}")
             messagebox.showerror("Push Error", f"Failed to push changes to Plot_3D: {e}")
     
+    def _choose_realtime_export_mode(self):
+        """Choose output values for this export only; never use display preferences."""
+        dialog = tk.Toplevel(self.window)
+        dialog.title("Realtime Export Color Data")
+        dialog.transient(self.window)
+        dialog.resizable(False, False)
+
+        frame = ttk.Frame(dialog, padding=18)
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text="Select values for this export:").pack(anchor="w", pady=(0, 10))
+        mode = tk.StringVar(value="analytical")  # Re-established for EVERY export.
+        ttk.Radiobutton(
+            frame, text="Original Analytical Values (recommended)",
+            value="analytical", variable=mode,
+        ).pack(anchor="w")
+        ttk.Label(
+            frame, text="Export stored normalized coordinates without display transformations.",
+            wraplength=450,
+        ).pack(anchor="w", padx=(22, 0), pady=(0, 12))
+        ttk.Radiobutton(
+            frame, text="Experimental RAW Display Bridge Values",
+            value="bridged", variable=mode,
+        ).pack(anchor="w")
+        ttk.Label(
+            frame,
+            text="For visual comparisons only; NOT for calibration or analytical references.",
+            wraplength=450,
+        ).pack(anchor="w", padx=(22, 0), pady=(0, 12))
+        ttk.Label(
+            frame,
+            text="This choice is independent of the application's RAW Display Bridge preference.",
+            wraplength=450,
+        ).pack(anchor="w", pady=(0, 12))
+
+        selected = [None]
+
+        def accept():
+            selected[0] = mode.get()
+            dialog.destroy()
+
+        def cancel():
+            dialog.destroy()
+
+        buttons = ttk.Frame(frame)
+        buttons.pack(fill="x")
+        ttk.Button(buttons, text="Cancel", command=cancel).pack(side="right")
+        ttk.Button(buttons, text="Continue Export", command=accept).pack(side="right", padx=(0, 8))
+        dialog.protocol("WM_DELETE_WINDOW", cancel)
+        dialog.bind("<Escape>", lambda _event: cancel())
+        dialog.bind("<Return>", lambda _event: accept())
+        dialog.grab_set()
+        self.window.wait_window(dialog)
+        return selected[0]
+
     def _export_for_plot3d(self):
         """Export current data to external file for standalone Plot_3D work.
         
@@ -2184,26 +2238,12 @@ class RealtimePlot3DSheet:
             sheet_data = self.sheet.get_sheet_data(get_header=False)
             df = pd.DataFrame(sheet_data, columns=self.PLOT3D_COLUMNS)
 
-            # Export-only RAW Display Bridge.
-            # The live Realtime sheet and analytical database remain unchanged.
-            try:
-                from utils.user_preferences import get_preferences_manager
-
-                bridge_enabled = (
-                    get_preferences_manager().get_raw_display_bridge_enabled()
-                )
-
-                print(
-                    f"DEBUG REALTIME EXPORT BRIDGE: "
-                    f"Bridge={bridge_enabled}"
-                )
-
-            except Exception as bridge_pref_error:
-                bridge_enabled = False
-                logger.warning(
-                    f"Could not read RAW Display Bridge preference for export: "
-                    f"{bridge_pref_error}"
-                )            
+            # Export selection is independent of global RAW Display Bridge preferences.
+            # Only the temporary export DataFrame can be transformed.
+            export_mode = self._choose_realtime_export_mode()
+            if export_mode is None:
+                return  # Cancel: nothing is written.
+            bridge_enabled = (export_mode == "bridged")
 
             if bridge_enabled:
                 print("DEBUG REALTIME EXPORT BRIDGE: conversion requested")
@@ -2298,7 +2338,8 @@ class RealtimePlot3DSheet:
             
             # Ask for save location with meaningful default name
             timestamp = datetime.now().strftime('%Y%m%d_%H%M')
-            default_name = f"{self.sample_set_name}_Plot3D_Export_{timestamp}.ods"
+            export_suffix = "_BRIDGED" if bridge_enabled else "_ANALYTICAL"
+            default_name = f"{self.sample_set_name}_Plot3D_Export{export_suffix}_{timestamp}.ods"
             
             file_path = filedialog.asksaveasfilename(
                 title="Export for Standalone Plot_3D",
