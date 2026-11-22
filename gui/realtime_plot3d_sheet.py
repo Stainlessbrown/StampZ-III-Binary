@@ -2452,7 +2452,6 @@ class RealtimePlot3DSheet:
                     
                     if has_plot3d_data:
                         # Ask user if they want to merge/append or replace
-                        from tkinter import messagebox
                         choice = messagebox.askyesnocancel(
                             "File Already Exists",
                             f"The file '{os.path.basename(file_path)}' already exists and contains Plot_3D data.\n\n"
@@ -2531,7 +2530,6 @@ class RealtimePlot3DSheet:
                         logger.warning("odfpy not available, saved as Excel format with .ods extension")
             
             # Show success message with workflow guidance
-            from tkinter import messagebox
             result = messagebox.showinfo(
                 "Export Successful",
                 f"✅ Exported {len(df)} data points to:\n{os.path.basename(file_path)}\n\n"
@@ -2566,7 +2564,6 @@ class RealtimePlot3DSheet:
             
         except PermissionError as e:
             logger.error(f"Permission error during export: {e}")
-            from tkinter import messagebox
             messagebox.showerror(
                 "Permission Error", 
                 f"Cannot write to the selected file location.\n\n"
@@ -2582,7 +2579,6 @@ class RealtimePlot3DSheet:
             )
         except Exception as e:
             logger.error(f"Error exporting for Plot_3D: {e}")
-            from tkinter import messagebox
             messagebox.showerror("Export Error", f"Failed to export data: {e}")
     
     def _merge_with_existing_file(self, new_df: pd.DataFrame, file_path: str) -> bool:
