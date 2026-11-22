@@ -30,6 +30,88 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
+
+def _recalculate_plot3d_ods(output_path):
+    """Recalculate template formulas in an isolated LibreOffice copy.
+
+    Never replace the export until LCh results and source measurements verify.
+    """
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    soffice = (shutil.which("soffice") or shutil.which("libreoffice"))
+    if not soffice:
+        mac_soffice = "/Applications/LibreOffice.app/Contents/MacOS/soffice"
+        if os.path.isfile(mac_soffice):
+            soffice = mac_soffice
+    if not soffice:
+        raise RuntimeError(
+            "LibreOffice is required to calculate the Plot3D template formulas "
+            "before Plot3D can read LCh. LibreOffice was not found."
+        )
+
+    output = Path(output_path)
+    # The existing ODS is the source of truth; LibreOffice works on a copy.
+    with tempfile.TemporaryDirectory(prefix="stampz_plot3d_recalc_") as tmp:
+        work = Path(tmp)
+        source = work / "source" / "plot3d_recalculate.ods"
+        destination = work / "converted"
+        profile = work / "lo_profile"
+        source.parent.mkdir()
+        destination.mkdir()
+        shutil.copy2(output, source)
+
+        cmd = [
+            soffice, "-env:UserInstallation=" + profile.as_uri(),
+            "--headless", "--convert-to", "ods:calc8",
+            "--outdir", str(destination), str(source),
+        ]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise RuntimeError(f"LibreOffice formula recalculation failed: {exc}") from exc
+        calculated = destination / source.name
+        if result.returncode != 0 or not calculated.is_file():
+            raise RuntimeError(
+                "LibreOffice could not recalculate the exported ODS: "
+                + (result.stderr or result.stdout or "no converted file produced")[:600]
+            )
+
+        # Verify that only the formula evaluation changed, not the measured coordinates.
+        original = pd.read_excel(output, engine="odf", sheet_name=0)
+        refreshed = pd.read_excel(calculated, engine="odf", sheet_name=0)
+        if list(original.columns[:14]) != list(refreshed.columns[:14]):
+            raise RuntimeError("Recalculated ODS changed Plot3D source column headers")
+        def numeric_block(frame, positions):
+            return frame.iloc[:, positions].apply(pd.to_numeric, errors="coerce")
+        before_coordinates = numeric_block(original, [0, 1, 2])
+        after_coordinates = numeric_block(refreshed, [0, 1, 2])
+        import numpy as np
+        if not np.allclose(
+            before_coordinates.to_numpy(dtype=float),
+            after_coordinates.to_numpy(dtype=float),
+            equal_nan=True, rtol=0, atol=1e-10,
+        ):
+            raise RuntimeError("Recalculated ODS changed analytical coordinates")
+        valid_source = before_coordinates.notna().all(axis=1)
+        lch = numeric_block(refreshed, [14, 15, 16])
+        if valid_source.sum() == 0 or not lch[valid_source].notna().all(axis=1).all():
+            raise RuntimeError(
+                "Recalculated ODS lacks usable LCh results for one or more "
+                "data rows; original export retained"
+            )
+        # Preserve original if anything fails, and publish a fully verified copy.
+        staged = output.with_name(output.name + ".calculated.tmp")
+        try:
+            shutil.copy2(calculated, staged)
+            os.replace(staged, output)
+        finally:
+            if staged.exists():
+                staged.unlink()
+        logger.info("Recalculated Plot3D ODS: %d valid LCh records", valid_source.sum())
+
+
 # IMPORTANT: This class enforces normalized data (0-1 range) for Plot_3D compatibility
 # All Lab values are automatically normalized to eliminate negative quadrants in 3D visualization
 class RealtimePlot3DSheet:
@@ -2402,6 +2484,17 @@ class RealtimePlot3DSheet:
                 # File doesn't exist, create new
                 success = self._export_using_template(df, file_path)
             
+            if not success and os.path.splitext(file_path)[1].lower() == '.ods':
+                # A basic pandas export would discard all O-T template formulas.
+                # Fail explicitly rather than silently creating an unusable ODS.
+                messagebox.showerror(
+                    "Plot3D Export Incomplete",
+                    "The template export or LCh recalculation failed. "
+                    "No basic-format ODS replacement was written. "
+                    "Check the Terminal log for details.",
+                )
+                return
+
             if not success:
                 # Fallback to basic export if template method fails
                 logger.warning("Template export failed, using basic export method")
@@ -2835,9 +2928,11 @@ class RealtimePlot3DSheet:
                                     raise
                         
                         
-                        # Save the document
+                        # Save the document, then calculate template formulas in an
+                        # isolated LibreOffice copy before publishing usable LCh values.
                         doc.save()
-                        print(f"DEBUG: Successfully saved ODS file with rigid format")
+                        _recalculate_plot3d_ods(output_path)
+                        print(f"DEBUG: Successfully saved and recalculated ODS file")
                         logger.info(f"Successfully exported {len(df)} rows to ODS rigid template")
                         
                     except Exception as ods_error:

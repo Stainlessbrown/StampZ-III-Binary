@@ -23,7 +23,7 @@ class HueWheelViewer:
         
         Args:
             parent: Parent tkinter window
-            dataframe: DataFrame containing L*C*h data (columns N, O, P expected)
+            dataframe: DataFrame containing L*C*h data (columns O, P, Q expected)
             title: Window title
         """
         self.parent = parent
@@ -35,7 +35,7 @@ class HueWheelViewer:
             messagebox.showerror("No Data", "No color data available for hue wheel visualization.")
             return
         
-        # Check for L*C*h columns (expected in columns N, O, P)
+        # Check for L*C*h columns (expected in columns O, P, Q)
         # Column names might vary, so check both by name and by position
         self._identify_lch_columns()
         
@@ -44,9 +44,9 @@ class HueWheelViewer:
                 "Missing Data",
                 "L*C*h data not found in the expected columns.\n\n"
                 "Expected:\n"
-                "• Column N: Lightness (L*)\n"
-                "• Column O: Chroma (C*)\n"
-                "• Column P: Hue (h)\n\n"
+                "• Column O: Lightness (L*)\n"
+                "• Column P: Chroma (C*)\n"
+                "• Column Q: Hue (h)\n\n"
                 "Please ensure your data template includes L*C*h calculations."
             )
             return
@@ -82,13 +82,13 @@ class HueWheelViewer:
                 break
         
         # Fallback to positional if not found by name
-        # Assuming columns N (13), O (14), P (15) in 0-indexed
-        if self.l_col is None and len(self.df.columns) > 13:
-            self.l_col = self.df.columns[13]
-        if self.c_col is None and len(self.df.columns) > 14:
-            self.c_col = self.df.columns[14]
-        if self.h_col is None and len(self.df.columns) > 15:
-            self.h_col = self.df.columns[15]
+        # Assuming columns O (14), P (15), Q (16) in 0-indexed
+        if self.l_col is None and len(self.df.columns) > 14:
+            self.l_col = self.df.columns[14]
+        if self.c_col is None and len(self.df.columns) > 15:
+            self.c_col = self.df.columns[15]
+        if self.h_col is None and len(self.df.columns) > 16:
+            self.h_col = self.df.columns[16]
         
         print(f"DEBUG: Identified L*C*h columns: L={self.l_col}, C={self.c_col}, H={self.h_col}")
     
