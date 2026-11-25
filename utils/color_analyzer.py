@@ -95,12 +95,6 @@ class ColorAnalyzer:
         Returns:
             L*a*b* values as (L, a, b) floats.
         """
-        if HAS_COLORSPACIOUS:
-            rgb_float = [c/255.0 for c in rgb]
-            lab = tuple(cspace_convert(rgb_float, "sRGB1", "CIELab"))
-        else:
-            lab = self._rgb_to_lab_approximation(rgb)
-
         # Apply TPS calibration if available (returns None if not fitted))
         try:
             from utils.scanner_calibration import apply_calibration_to_lab_from_rgb

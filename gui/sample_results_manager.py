@@ -516,7 +516,11 @@ class SampleResultsManager(tk.Frame):
             self.calibration_label.config(text="Calibration: Analysis failed")
             self._audit_sampling_bit_depth = None
             self._audit_sampling_channels = None
-            print(f"DEBUG: Error in set_analyzed_data: {str(e)}")
+            import logging
+            logging.getLogger(__name__).exception(
+                "Results initialization failed for %s",
+                image_path,
+            )
             messagebox.showerror(
                 "Analysis Error",
                 f"Failed to analyze sample points:\\n\\n{str(e)}"
