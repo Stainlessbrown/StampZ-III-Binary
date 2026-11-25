@@ -338,7 +338,7 @@ class LiveSampleModel:
         try:
             temp_coord = _make_temp_coord(marker)
             rgb_pixels, _rgb_sd, _lab_sd = analyzer._sample_area_color(
-                self._image, temp_coord
+                self._image, temp_coord, compute_stddev=False
             )
             if not rgb_pixels:
                 return None

@@ -337,7 +337,7 @@ class ColorAnalyzer:
         
         return measurements
     
-    def _sample_area_color(self, image: Image.Image, coord) -> Tuple[Optional[List[Tuple[int, int, int]]], Optional[Tuple[float, float, float]], Optional[Tuple[float, float, float]]]:
+    def _sample_area_color(self, image: Image.Image, coord, *, compute_stddev=True) -> Tuple[Optional[List[Tuple[int, int, int]]], Optional[Tuple[float, float, float]], Optional[Tuple[float, float, float]]]:
         """Sample colors from a specific coordinate area.
         
         Args:
@@ -365,7 +365,8 @@ class ColorAnalyzer:
                 )
                 try:
                     return analyze_aligned_region(
-                        self, image, bounds, coord.sample_type
+                        self, image, bounds, coord.sample_type,
+                        compute_stddev=compute_stddev
                     )
                 except Exception as exc:
                     raise NativeAlignmentSamplingError(

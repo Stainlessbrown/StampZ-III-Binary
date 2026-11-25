@@ -6,7 +6,7 @@ import numpy as np
 from utils.alignment_sampling import native_sample_indices_from_bounds
 
 
-def analyze_aligned_region(analyzer, image, bounds, sample_type):
+def analyze_aligned_region(analyzer, image, bounds, sample_type, *, compute_stddev=True):
     """Return the existing StampZ sampling result format."""
 
     record = image._stampz_alignment_record
@@ -126,6 +126,11 @@ def analyze_aligned_region(analyzer, image, bounds, sample_type):
         raise ValueError("Nonfinite source RGB values")
 
     mean = tuple(float(v) for v in rgb.mean(axis=0))
+    if not compute_stddev:
+        analyzer.last_sampling_bit_depth = 16 if use16 else 8
+        analyzer.last_sampling_channels = source_array.shape[2]
+        return [mean], None, None
+
     rgb_stddev = tuple(float(v) for v in rgb.std(axis=0))
 
     lab = np.asarray(
