@@ -108,6 +108,31 @@ class ColorAnalyzer:
 
         return self._rgb_to_lab_approximation(rgb)
     
+
+    def rgb_to_lab_batch(self, rgb_values):
+        """Convert RGB rows using the existing analytical calibration."""
+        from utils.scanner_calibration import (
+            get_active_calibration, srgb_to_lab
+        )
+
+        rgb = np.asarray(
+            rgb_values, dtype=np.float64
+        ).reshape(-1, 3)
+
+        calibration = get_active_calibration()
+
+        if calibration is not None and calibration.is_valid:
+            if hasattr(calibration, "apply_to_lab_batch"):
+                return calibration.apply_to_lab_batch(rgb)
+
+            # Compatibility with legacy calibration implementations.
+            return np.asarray(
+                [self.rgb_to_lab(tuple(p)) for p in rgb],
+                dtype=np.float64
+            ).reshape(-1, 3)
+
+        return srgb_to_lab(rgb / 255.0)
+
     def _rgb_to_lab_approximation(self, rgb: Tuple[float, float, float]) -> Tuple[float, float, float]:
         """Approximate RGB to L*a*b* conversion.
         
@@ -374,7 +399,10 @@ class ColorAnalyzer:
                     ) from exc
 
             # Existing ordinary-image sampling pathway.
-            pixels, rgb_stddev, lab_stddev = self._extract_pixels_from_bounds(image, bounds, coord.sample_type)
+            pixels, rgb_stddev, lab_stddev = self._extract_pixels_from_bounds(
+                image, bounds, coord.sample_type,
+                compute_stddev=compute_stddev
+            )
             return pixels, rgb_stddev, lab_stddev
             
         except NativeAlignmentSamplingError:
@@ -484,7 +512,7 @@ class ColorAnalyzer:
         return (left, top, right, bottom)
     
     def _extract_pixels_from_bounds(self, image: Image.Image, bounds: Tuple[int, int, int, int], 
-                                   sample_type: SampleAreaType) -> Tuple[List[Tuple[int, int, int]], Tuple[float, float, float], Tuple[float, float, float]]:
+                                   sample_type: SampleAreaType, *, compute_stddev=True) -> Tuple[List[Tuple[int, int, int]], Tuple[float, float, float], Tuple[float, float, float]]:
         """Extract pixel colors from the specified bounds.
         
         Args:
@@ -628,6 +656,9 @@ class ColorAnalyzer:
         avg_g = total_g / total_pixels if total_pixels > 0 else 128.0
         avg_b = total_b / total_pixels if total_pixels > 0 else 128.0
         
+        if not compute_stddev:
+            return [(avg_r, avg_g, avg_b)], None, None
+
         # Calculate standard deviation for each RGB channel
         if total_pixels > 1:
             # Calculate variance
@@ -647,7 +678,7 @@ class ColorAnalyzer:
         # Calculate L*a*b* standard deviation
         if total_pixels > 1:
             # Convert each pixel to L*a*b*
-            lab_pixels = [self.rgb_to_lab(p) for p in pixels]
+            lab_pixels = self.rgb_to_lab_batch(pixels)
             
             # Calculate average L*a*b*
             avg_l = sum(lab[0] for lab in lab_pixels) / len(lab_pixels)

@@ -91,8 +91,8 @@ class TestSamplingPerformance(unittest.TestCase):
                             ):
                                 with patch.object(
                                     analyzer,
-                                    "rgb_to_lab",
-                                    wraps=analyzer.rgb_to_lab,
+                                    "rgb_to_lab_batch",
+                                    wraps=analyzer.rgb_to_lab_batch,
                                 ) as conversion:
 
                                     full = analyzer._sample_area_color(

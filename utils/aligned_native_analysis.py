@@ -133,10 +133,7 @@ def analyze_aligned_region(analyzer, image, bounds, sample_type, *, compute_stdd
 
     rgb_stddev = tuple(float(v) for v in rgb.std(axis=0))
 
-    lab = np.asarray(
-        [analyzer.rgb_to_lab(tuple(pixel)) for pixel in rgb],
-        dtype=np.float64,
-    )
+    lab = analyzer.rgb_to_lab_batch(rgb)
 
     if lab.shape != (len(rgb), 3) or not np.isfinite(lab).all():
         raise ValueError("Invalid Lab calculations")

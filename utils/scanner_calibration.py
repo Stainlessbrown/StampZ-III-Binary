@@ -190,7 +190,7 @@ def srgb_to_xyz(rgb_array: np.ndarray) -> np.ndarray:
         [0.2126729, 0.7151522, 0.0721750],
         [0.0193339, 0.1191920, 0.9503041],
     ], dtype=np.float64)
-    return linear @ m.T
+    return np.einsum("ij,kj->ik", linear, m, optimize=False)
 
 
 def xyz_to_srgb(xyz_array: np.ndarray) -> np.ndarray:
@@ -663,6 +663,98 @@ class ScannerCalibration:
         calibrated_lab = uncalibrated_lab + correction
 
         return tuple(float(v) for v in calibrated_lab)
+
+
+    def apply_to_lab_batch(self, rgb_values):
+        """Batch equivalent of the scalar apply_to_lab method."""
+        rgb = np.asarray(rgb_values, dtype=np.float64).reshape(-1, 3)
+        result = np.empty_like(rgb)
+
+        if not self.is_valid or len(self.patch_results) < 20:
+            return srgb_to_lab(np.clip(rgb / 255.0, 0.0, 1.0))
+
+        scanned = np.array(
+            [p.scanned_lab for p in self.patch_results],
+            dtype=np.float64
+        )
+        reference = np.array(
+            [p.reference_lab for p in self.patch_results],
+            dtype=np.float64
+        )
+        corrections = reference - scanned
+
+        anchor_c = np.hypot(scanned[:, 1], scanned[:, 2])
+        anchor_h = np.arctan2(scanned[:, 2], scanned[:, 1])
+
+        chromatic = np.where(anchor_c >= 5.0)[0]
+        neutral = np.where(anchor_c < 5.0)[0]
+
+        # Bound intermediate memory usage for large native samples.
+        for start in range(0, len(rgb), 8192):
+            stop = min(start + 8192, len(rgb))
+
+            lab = srgb_to_lab(
+                np.clip(rgb[start:stop] / 255.0, 0.0, 1.0)
+            )
+
+            L = lab[:, 0]
+            C = np.hypot(lab[:, 1], lab[:, 2])
+            H = np.arctan2(lab[:, 2], lab[:, 1])
+
+            dh = H[:, None] - anchor_h[chromatic]
+            dh = np.arctan2(np.sin(dh), np.cos(dh))
+
+            distances = np.sqrt(
+                ((L[:, None] - scanned[chromatic, 0]) / 35.0) ** 2
+                + ((C[:, None] - anchor_c[chromatic]) / 25.0) ** 2
+                + (dh / 0.35) ** 2
+            )
+
+            order = np.argsort(distances, axis=1)[:, :3]
+            chosen = chromatic[order]
+            d = np.take_along_axis(distances, order, axis=1)
+
+            weights = 1.0 / ((d + 0.05) ** 4)
+            weights /= weights.sum(axis=1, keepdims=True)
+
+            chromatic_correction = np.sum(
+                corrections[chosen] * weights[:, :, None],
+                axis=1
+            )
+
+            distances = (
+                np.abs(scanned[neutral, 0] - L[:, None]) / 20.0
+            )
+
+            order = np.argsort(distances, axis=1)[:, :3]
+            chosen = neutral[order]
+            d = np.take_along_axis(distances, order, axis=1)
+
+            weights = 1.0 / ((d + 0.1) ** 2)
+            weights /= weights.sum(axis=1, keepdims=True)
+
+            neutral_correction = np.sum(
+                corrections[chosen] * weights[:, :, None],
+                axis=1
+            )
+
+            alpha = C / (C + 4.0)
+
+            if self.correction_variant == "smooth_neutral_1_to_6":
+                t = np.clip((C - 1.0) / 5.0, 0.0, 1.0)
+                alpha *= t * t * (3.0 - 2.0 * t)
+
+            if self.correction_variant == "neutral_dominant_c_lt_3":
+                alpha = np.where(C < 3.0, 0.0, alpha)
+
+            correction = (
+                alpha[:, None] * chromatic_correction
+                + (1.0 - alpha[:, None]) * neutral_correction
+            )
+
+            result[start:stop] = lab + correction
+
+        return result
 
     def apply_correction(self, rgb: Tuple[float, float, float]) -> Tuple[float, float, float]:
         """Legacy RGB return path, rendered from the calibrated physical XYZ."""
