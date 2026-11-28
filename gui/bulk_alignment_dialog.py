@@ -13,6 +13,50 @@ if TYPE_CHECKING:
     from utils.image_alignment import ImageAlignmentManager
 
 
+def reference_status(alignment_manager):
+    """Describe the actual loaded reference and bulk readiness."""
+    from pathlib import Path
+
+    info = alignment_manager.get_reference_info()
+
+    if not info:
+        return "No active reference", False
+
+    width, height = info["size"]
+    details = (
+        f"Features: {info['num_features']} detected\\n"
+        f"Size: {width} x {height} pixels"
+    )
+
+    filepath = info.get("filepath")
+
+    if not filepath:
+        return (
+            "Reference selected - not saved and activated\\n"
+            + details,
+            False
+        )
+
+    path = Path(filepath)
+    image_path = path.with_name(
+        path.stem + "_reference.png"
+    )
+
+    if not path.is_file() or not image_path.is_file():
+        return (
+            f"Reference incomplete: {path.name}\\n"
+            "Saved template or companion image is missing.",
+            False
+        )
+
+    return (
+        f"Active reference: {path.name}\\n"
+        f"Location: {path.parent}\\n"
+        + details,
+        True
+    )
+
+
 class BulkAlignmentDialog:
     """Dialog for bulk image alignment processing."""
     
@@ -246,21 +290,19 @@ class BulkAlignmentDialog:
         ).pack(side=tk.RIGHT)
     
     def _update_reference_info(self):
-        """Update the reference template information display."""
-        if self.alignment_manager.has_reference():
-            info = self.alignment_manager.get_reference_info()
-            ref_text = (
-                f"✓ Reference loaded\n"
-                f"Features: {info['num_features']} detected\n"
-                f"Size: {info['size'][0]}×{info['size'][1]} pixels"
-            )
-            self.ref_info_label.config(text=ref_text, foreground="green")
-        else:
-            self.ref_info_label.config(
-                text="✗ No reference set",
-                foreground="red"
-            )
-    
+        """Display the actual active saved reference."""
+        text, ready = reference_status(self.alignment_manager)
+
+        self.ref_info_label.config(
+            text=text,
+            foreground="green" if ready else "red",
+            wraplength=620
+        )
+
+        self.process_button.config(
+            state=tk.NORMAL if ready else tk.DISABLED
+        )
+
     def _select_files(self):
         """Open file dialog to select images."""
         filetypes = [
@@ -399,15 +441,18 @@ class BulkAlignmentDialog:
 
     def _process_images(self):
         """Process the selected images."""
-        # Validate inputs
-        if not self.alignment_manager.has_reference():
+        # Validate reference before producing any output.
+        text, ready = reference_status(self.alignment_manager)
+
+        if not ready:
+            self._update_reference_info()
             messagebox.showerror(
-                "No Reference",
-                "No reference template is set. Please set a reference first.",
+                "Reference Not Ready",
+                text + "\\n\\nUse Alignment Reference to save or load a reference.",
                 parent=self.dialog
             )
             return
-        
+
         if not self.selected_files:
             messagebox.showwarning(
                 "No Images",

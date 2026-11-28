@@ -54,45 +54,28 @@ class MenuManager:
         
         # Image Alignment submenu
         alignment_menu = tk.Menu(self.file_menu, tearoff=0)
-        self.file_menu.add_cascade(label="Image Alignment", menu=alignment_menu)
-        
-        alignment_menu.add_command(
-            label="Set as Reference Template",
-            command=self.app.set_alignment_reference
+        self.file_menu.add_cascade(
+            label="Image Alignment", menu=alignment_menu
         )
+
+        # Shared setting, now presented in the reference dialog.
+        self.auto_crop_var = tk.BooleanVar(value=True)
+
+        alignment_menu.add_command(
+            label="Alignment Reference...",
+            command=self.app.open_alignment_reference_dialog
+        )
+
         alignment_menu.add_command(
             label="Auto-Align to Reference",
             command=self.app.auto_align_image
         )
+
         alignment_menu.add_command(
-            label="Bulk Auto-Align Multiple Images...",
+            label="Bulk Image Alignment...",
             command=self.app.bulk_align_images
         )
-        alignment_menu.add_separator()
-        
-        # Auto-crop toggle with checkmark
-        self.auto_crop_var = tk.BooleanVar(value=True)  # Default enabled
-        alignment_menu.add_checkbutton(
-            label="Auto-Crop Content (Recommended)",
-            variable=self.auto_crop_var,
-            command=self.app.toggle_auto_crop
-        )
-        
-        alignment_menu.add_separator()
-        alignment_menu.add_command(
-            label="Save Reference...",
-            command=self.app.save_alignment_reference
-        )
-        alignment_menu.add_command(
-            label="Load Reference...",
-            command=self.app.load_alignment_reference
-        )
-        alignment_menu.add_separator()
-        alignment_menu.add_command(
-            label="Clear Reference",
-            command=self.app.clear_alignment_reference
-        )
-        
+
         self.file_menu.add_separator()
         
         self.file_menu.add_command(

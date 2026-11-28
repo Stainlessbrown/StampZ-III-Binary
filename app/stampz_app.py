@@ -2057,46 +2057,217 @@ class StampZApp:
             enabled = self.menu_manager.auto_crop_var.get()
             self.alignment_manager.set_auto_crop(enabled)
     
-    def set_alignment_reference(self):
-        """Set current image as reference template for alignment."""
-        if not self.canvas.original_image:
-            messagebox.showwarning("No Image", "Please load an image first.")
-            return
-        
+    def open_alignment_reference_dialog(self):
+        """Manage alignment references in a single dialog."""
+        import os
+        import tkinter as tk
+        from tkinter import ttk
+
+        window = tk.Toplevel(self.root)
+        window.title("Alignment Reference")
+        window.transient(self.root)
+        window.resizable(True, False)
+        window.grab_set()
+
+        frame = ttk.Frame(window, padding=18)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(
+            frame,
+            text="Alignment Reference",
+            font=("Arial", 16, "bold")
+        ).pack(pady=(0, 12))
+
+        current_frame = ttk.LabelFrame(
+            frame, text="Current Image", padding=10
+        )
+        current_frame.pack(fill=tk.X, pady=(0, 10))
+
+        current_file = getattr(self, "current_file", None)
+        current_name = (
+            os.path.basename(current_file)
+            if current_file else "No image filename available"
+        )
+
+        ttk.Label(
+            current_frame,
+            text=current_name,
+            wraplength=480
+        ).pack(anchor=tk.W)
+
+        active_frame = ttk.LabelFrame(
+            frame, text="Active Reference", padding=10
+        )
+        active_frame.pack(fill=tk.X, pady=(0, 10))
+
+        status = ttk.Label(
+            active_frame,
+            text="",
+            justify=tk.LEFT,
+            wraplength=480
+        )
+        status.pack(anchor=tk.W)
+
+        def refresh():
+            from gui.bulk_alignment_dialog import reference_status
+
+            text, ready = reference_status(self.alignment_manager)
+            status.config(
+                text=text,
+                foreground="green" if ready else "black"
+            )
+
+            info = self.alignment_manager.get_reference_info()
+            save_button.config(
+                state=tk.NORMAL if info else tk.DISABLED
+            )
+            clear_button.config(
+                state=tk.NORMAL if info else tk.DISABLED
+            )
+            bulk_button.config(
+                state=tk.NORMAL if ready else tk.DISABLED
+            )
+
+        def perform(action):
+            try:
+                action()
+            finally:
+                refresh()
+
+        select_button = ttk.Button(
+            current_frame,
+            text="Select Current Image as Reference",
+            command=lambda: perform(
+                lambda: self.set_alignment_reference(parent=window)
+            )
+        )
+        select_button.pack(fill=tk.X, pady=(8, 5))
+
+        if self.canvas.original_image is None:
+            select_button.config(state=tk.DISABLED)
+
+        ttk.Checkbutton(
+            current_frame,
+            text="Auto-Crop Content (Recommended)",
+            variable=self.menu_manager.auto_crop_var,
+            command=self.toggle_auto_crop
+        ).pack(anchor=tk.W, pady=(3, 0))
+
+        save_button = ttk.Button(
+            frame,
+            text="Save and Activate Reference...",
+            command=lambda: perform(
+                lambda: self.save_alignment_reference(parent=window)
+            )
+        )
+        save_button.pack(fill=tk.X, pady=4)
+
+        ttk.Button(
+            frame,
+            text="Load Existing Reference...",
+            command=lambda: perform(
+                lambda: self.load_alignment_reference(parent=window)
+            )
+        ).pack(fill=tk.X, pady=4)
+
+        clear_button = ttk.Button(
+            frame,
+            text="Clear Reference",
+            command=lambda: perform(
+                lambda: self.clear_alignment_reference(parent=window)
+            )
+        )
+        clear_button.pack(fill=tk.X, pady=4)
+
+        ttk.Separator(frame).pack(fill=tk.X, pady=12)
+
+        def continue_to_bulk():
+            from gui.bulk_alignment_dialog import reference_status
+
+            _, ready = reference_status(self.alignment_manager)
+            if not ready:
+                refresh()
+                return
+
+            window.destroy()
+            self.bulk_align_images()
+
+        bulk_button = ttk.Button(
+            frame,
+            text="Continue to Bulk Image Alignment...",
+            command=continue_to_bulk
+        )
+        bulk_button.pack(fill=tk.X, pady=(0, 8))
+
+        ttk.Button(
+            frame,
+            text="Close",
+            command=window.destroy
+        ).pack(anchor=tk.E)
+
+        refresh()
+
+        window.update_idletasks()
+        width = max(520, window.winfo_reqwidth())
+        height = window.winfo_reqheight()
+        x = self.root.winfo_x() + (
+            self.root.winfo_width() - width
+        ) // 2
+        y = self.root.winfo_y() + (
+            self.root.winfo_height() - height
+        ) // 2
+
+        window.geometry(f"{width}x{height}+{max(0, x)}+{max(0, y)}")
+
+    def set_alignment_reference(self, parent=None):
+        """Set current image as reference template."""
+        parent = parent or self.root
+
+        if self.canvas.original_image is None:
+            messagebox.showwarning(
+                "No Image",
+                "Please load an image first.",
+                parent=parent
+            )
+            return False
+
         try:
-            success = self.alignment_manager.set_reference_image(self.canvas.original_image)
-            
-            if success:
-                info = self.alignment_manager.get_reference_info()
-                auto_crop_note = "\n(Auto-cropped to stamp content)" if self.alignment_manager.is_auto_crop_enabled() else ""
-                messagebox.showinfo(
-                    "Reference Set",
-                    f"✓ Reference template set successfully!{auto_crop_note}\n\n"
-                    f"Detected {info['num_features']} features\n"
-                    f"Image size: {info['size'][0]}x{info['size'][1]}\n\n"
-                    f"You can now auto-align other images of the same stamp design.\n"
-                    f"No manual cropping needed - alignment handles it automatically!\n\n"
-                    f"Remember to SAVE the reference for future use!"
-                )
-                # Update title bar
-                if self.current_file:
-                    self.root.title(f"StampZ - {os.path.basename(self.current_file)} [Reference]")
-            else:
+            success = self.alignment_manager.set_reference_image(
+                self.canvas.original_image
+            )
+
+            if not success:
+                self.alignment_manager.clear_reference()
                 messagebox.showerror(
                     "Reference Failed",
-                    "Could not detect enough features in the image.\n\n"
-                    "Make sure the image has clear frame/border details."
+                    "Could not detect enough features in the image.",
+                    parent=parent
                 )
+                return False
+
+            if self.current_file:
+                self.root.title(
+                    f"StampZ - {os.path.basename(self.current_file)} [Reference]"
+                )
+
+            return True
+
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to set reference: {str(e)}")
-    
+            self.alignment_manager.clear_reference()
+            messagebox.showerror(
+                "Error",
+                f"Failed to set reference: {e}",
+                parent=parent
+            )
+            return False
+
     def auto_align_image(self):
         """Auto-align current image to the reference template."""
         if not self.alignment_manager.has_reference():
             messagebox.showwarning(
                 "No Reference",
                 "Please set a reference template first using:\n"
-                "File → Image Alignment → Set as Reference Template"
+                "File → Image Alignment → Alignment Reference..."
             )
             return
         
@@ -2145,70 +2316,130 @@ class StampZApp:
         except Exception as e:
             messagebox.showerror("Error", f"Alignment error: {str(e)}")
     
-    def save_alignment_reference(self):
-        """Save reference template to file."""
+    def save_alignment_reference(self, parent=None):
+        """Save and activate a validated reference template."""
+        from tkinter import filedialog
+
+        parent = parent or self.root
+
         if not self.alignment_manager.has_reference():
-            messagebox.showwarning("No Reference", "No reference template to save.")
-            return
-        
+            messagebox.showwarning(
+                "No Reference",
+                "No reference template to save.",
+                parent=parent
+            )
+            return False
+
         try:
-            from tkinter import filedialog
             filepath = filedialog.asksaveasfilename(
+                parent=parent,
                 title="Save Reference Template",
                 defaultextension=".pkl",
-                filetypes=[("Reference Template", "*.pkl"), ("All Files", "*.*")]
+                filetypes=[
+                    ("Reference Template", "*.pkl"),
+                    ("All Files", "*.*")
+                ]
             )
-            
-            if filepath:
-                success = self.alignment_manager.save_reference(filepath)
-                if success:
-                    messagebox.showinfo("Saved", f"Reference template saved to:\n{filepath}")
-                else:
-                    messagebox.showerror("Error", "Failed to save reference template.")
+
+            if not filepath:
+                return False
+
+            if not self.alignment_manager.save_reference(filepath):
+                messagebox.showerror(
+                    "Error",
+                    "Failed to save reference template.",
+                    parent=parent
+                )
+                return False
+
+            # Preserve the engine's existing provenance validation.
+            if not self.alignment_manager.load_reference(filepath):
+                messagebox.showerror(
+                    "Activation Failed",
+                    "The reference was saved but could not be activated.",
+                    parent=parent
+                )
+                return False
+
+            self.root.title(
+                f"StampZ - [Reference: {os.path.basename(filepath)}]"
+            )
+
+            return True
+
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to save reference: {str(e)}")
-    
-    def load_alignment_reference(self):
-        """Load reference template from file."""
+            messagebox.showerror(
+                "Error",
+                f"Failed to save and activate reference: {e}",
+                parent=parent
+            )
+            return False
+
+    def load_alignment_reference(self, parent=None):
+        """Load and activate an existing reference template."""
+        from tkinter import filedialog
+
+        parent = parent or self.root
+
         try:
-            from tkinter import filedialog
             filepath = filedialog.askopenfilename(
+                parent=parent,
                 title="Load Reference Template",
-                filetypes=[("Reference Template", "*.pkl"), ("All Files", "*.*")]
+                filetypes=[
+                    ("Reference Template", "*.pkl"),
+                    ("All Files", "*.*")
+                ]
             )
-            
-            if filepath:
-                success = self.alignment_manager.load_reference(filepath)
-                if success:
-                    info = self.alignment_manager.get_reference_info()
-                    import os
-                    ref_name = os.path.basename(filepath)
-                    messagebox.showinfo(
-                        "Loaded",
-                        f"✓ Reference template loaded!\n\n"
-                        f"File: {ref_name}\n"
-                        f"Features: {info['num_features']}\n"
-                        f"Size: {info['size'][0]}x{info['size'][1]}"
-                    )
-                    # Update title bar to show reference is loaded
-                    self.root.title(f"StampZ - [Reference: {ref_name}]")
-                else:
-                    messagebox.showerror("Error", "Failed to load reference template.")
+
+            if not filepath:
+                return False
+
+            if not self.alignment_manager.load_reference(filepath):
+                self.root.title("StampZ")
+                messagebox.showerror(
+                    "Error",
+                    "Failed to load reference template.",
+                    parent=parent
+                )
+                return False
+
+            self.root.title(
+                f"StampZ - [Reference: {os.path.basename(filepath)}]"
+            )
+
+            return True
+
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to load reference: {str(e)}")
-    
-    def clear_alignment_reference(self):
-        """Clear the current reference template."""
-        if not self.alignment_manager.has_reference():
-            messagebox.showinfo("No Reference", "No reference template to clear.")
-            return
-        
+            messagebox.showerror(
+                "Error",
+                f"Failed to load reference: {e}",
+                parent=parent
+            )
+            return False
+
+    def clear_alignment_reference(self, parent=None):
+        """Clear the current reference without deleting its files."""
+        parent = parent or self.root
+
         try:
             self.alignment_manager.clear_reference()
-            messagebox.showinfo("Cleared", "Reference template cleared.")
+
+            current_file = getattr(self, "current_file", None)
+            self.root.title(
+                f"StampZ - {os.path.basename(current_file)}"
+                if current_file else "StampZ"
+            )
+
+            return True
+
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to clear reference: {str(e)}")
-    
+            messagebox.showerror(
+                "Error",
+                f"Failed to clear reference: {e}",
+                parent=parent
+            )
+            return False
+
     def bulk_align_images(self):
         """Open dialog for bulk image alignment."""
         try:
